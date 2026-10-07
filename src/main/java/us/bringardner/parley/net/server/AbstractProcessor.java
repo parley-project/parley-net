@@ -1,0 +1,147 @@
+/**
+ * <PRE>
+ * 
+ * Copyright Tony Bringarder 1998, 2025 <A href="http://bringardner.com/tony">Tony Bringardner</A>
+ * 
+ *
+ *   Licensed under the Apache License, Version 2.0 (the "License");
+ *   you may not use this file except in compliance with the License.
+ *   You may obtain a copy of the License at
+ *
+ *       <A href="http://www.apache.org/licenses/LICENSE-2.0">http://www.apache.org/licenses/LICENSE-2.0</A>
+ *
+ *   Unless required by applicable law or agreed to in writing, software
+ *   distributed under the License is distributed on an "AS IS" BASIS,
+ *   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *   See the License for the specific language governing permissions and
+ *   limitations under the License.
+ *  </PRE>
+ *   
+ *   
+ *	@author Tony Bringardner   
+ *
+ *
+ * ~version~V000.00.01-V000.00.00-
+ */
+package us.bringardner.parley.net.server;
+
+import java.util.HashMap;
+import java.util.Map;
+
+import us.bringardner.parley.core.BaseThread;
+import us.bringardner.parley.net.IConnection;
+import us.bringardner.parley.net.IProcessor;
+
+
+public abstract class AbstractProcessor extends BaseThread implements IProcessor {
+
+	private IConnection connection;
+	private IServer server;
+	private Map<String, Object> sessionValues = new HashMap<String, Object>();
+	private IPrincipal principal;
+	private volatile String pendingGreeting;
+	
+	public AbstractProcessor() {
+		getLogger().setLevel(Server.getDefaultLogLevel());
+	}
+
+	
+	public IServer getServer() {
+		return server;
+	}
+
+	
+	
+	public IPrincipal getPrincipal() {
+		return principal;
+	}
+
+
+
+	public void setPrincipal(IPrincipal principal) {
+		this.principal = principal;
+	}
+
+
+
+	/*
+	 * @see us.bringardner.parley.net.IProcessor#isAuthorized(IPermission)
+	 */
+	public boolean isAuthorized(IPermission action) {
+		return getServer().isAuthorized(getPrincipal(), action);
+	}
+
+	public void setServer(IServer server) {
+		setSecure(server.isSecure());
+		this.server = server;
+	}
+
+	public void setConnection(IConnection connection) {
+		this.connection = connection;
+	}
+
+	public IConnection getConnection() {
+		return connection;
+	}
+
+	public Map<String, Object> getSessionValues() {
+		return sessionValues;
+	}
+
+	public void setSessionValues(Map<String, Object> sessionValues) {
+		this.sessionValues = sessionValues;
+	}
+	
+	public void setSessionValue(String name, Object value) {
+		sessionValues.put(name, value);
+	}
+	
+	public Object getSessionValue(String name) {
+		Object ret = sessionValues.get(name);
+		
+		return ret;
+	}
+	
+	public Object removeSessionValue(String name) {
+		return sessionValues.remove(name);
+	}
+	
+
+	public void setServerRuntimeValue(String name, Object value) {
+		getServer().setRuntimeValue(name, value);
+	}
+	
+	public Object getServerRuntimeValue(String name) {
+		return getServer().getRuntimeValue(name);
+	}
+
+	public Object removeServerRuntimeValue(String name) {
+		return getServer().removeRuntimeValue(name);
+	}
+	
+	public Map<String, Object> getServerRuntimeValues() {
+		return getServer().getRuntimeValues();
+	}
+	
+	/**
+	 * Set by the server so the greeting is written from this processor's thread
+	 * rather than the server's accept thread. 
+	 */
+	public void setPendingGreeting(String greeting) {
+		this.pendingGreeting = greeting;
+	}
+
+	/**
+	 * @return the greeting the server asked this processor to send (once), or null.
+	 */
+	protected String takePendingGreeting() {
+		String ret = pendingGreeting;
+		pendingGreeting = null;
+		return ret;
+	}
+
+	public String getThreadName() {
+		return getName();
+	}
+
+}

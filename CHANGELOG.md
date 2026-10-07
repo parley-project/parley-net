@@ -1,5 +1,20 @@
 # Changelog
 
+## parley-net 1.0.0 (unreleased)
+
+BjlNetFramework is now **parley-net**, part of the Parley library family. The code is the same
+as BjlNetFramework 1.1.0 (below); only names changed.
+
+### Changed (needs a code change)
+
+- Maven coordinates: `us.bringardner:bjl_net_framework` is now `us.bringardner.parley:parley-net`.
+- Packages: `us.bringardner.net.framework` (and `.client`, `.server`, `.nio`) is now
+  `us.bringardner.parley.net`.
+- Module name (`Automatic-Module-Name`): `us.bringardner.parley.net` (none was set before).
+- Property names that start with a class name change with the package, for example
+  `us.bringardner.net.framework.server.Server.<name>` is now `us.bringardner.parley.net.server.Server.<name>`.
+- Dependencies: `bjl_core` and `bjl_io` are now `parley-core` and `parley-io`.
+
 ## 1.1.0 (unreleased)
 
 Requires `bjl_core` 1.3.1 and `bjl_io` 1.1.0 (published to GitHub Packages; the pom now names the

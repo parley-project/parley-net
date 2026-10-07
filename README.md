@@ -1,4 +1,4 @@
-# BjlNetFramework
+# parley-net
 
 A small Java framework for writing both ends of line based network protocols such as
 FTP, SMTP or POP3: a client sends a command line, the server answers with a reply code
@@ -12,21 +12,27 @@ connection, such as SSH), the `nio` package has a non-blocking server and client
 [Non-blocking (NIO)](#non-blocking-nio).
 
 - Java 11 or later
-- Depends on [`bjl_core`](https://github.com/tony-bringardner/BjlCore) and
-  [`bjl_io`](https://github.com/tony-bringardner/BjlIo)
+- Depends on [`parley-core`](https://github.com/tony-bringardner/parley-core) and
+  [`parley-io`](https://github.com/tony-bringardner/parley-io)
 - Apache License 2.0
 
 ## Installation
 
-The artifact is published to GitHub Packages:
+parley-net is part of **Parley**, a family of Java libraries for implementing internet
+protocols. It is published to GitHub Packages (and, once released there, Maven Central):
 
 ```xml
 <dependency>
-    <groupId>us.bringardner</groupId>
-    <artifactId>bjl_net_framework</artifactId>
-    <version>1.1.0</version>
+    <groupId>us.bringardner.parley</groupId>
+    <artifactId>parley-net</artifactId>
+    <version>1.0.0</version>
 </dependency>
 ```
+
+> parley-net was previously `us.bringardner:bjl_net_framework` (BjlNetFramework), with
+> packages under `us.bringardner.net.framework`. Moving over means changing the dependency and
+> replacing `us.bringardner.net.framework` with `us.bringardner.parley.net` in imports and in
+> property names that start with a class name.
 
 GitHub Packages needs authentication even for public packages. Add the repositories
 (this project and its two dependencies) to your `pom.xml`:
@@ -35,15 +41,15 @@ GitHub Packages needs authentication even for public packages. Add the repositor
 <repositories>
     <repository>
         <id>github</id>
-        <url>https://maven.pkg.github.com/tony-bringardner/BjlNetFramework</url>
+        <url>https://maven.pkg.github.com/tony-bringardner/parley-net</url>
     </repository>
     <repository>
         <id>github-core</id>
-        <url>https://maven.pkg.github.com/tony-bringardner/BjlCore</url>
+        <url>https://maven.pkg.github.com/tony-bringardner/parley-core</url>
     </repository>
     <repository>
         <id>github-io</id>
-        <url>https://maven.pkg.github.com/tony-bringardner/BjlIo</url>
+        <url>https://maven.pkg.github.com/tony-bringardner/parley-io</url>
     </repository>
 </repositories>
 ```
@@ -166,7 +172,7 @@ alice,   {PBKDF2}210000:..., ECHO|LOGIN,  home=/home/alice
 Store hashed passwords rather than plain text. Create the hash with
 
 ```
-java -cp bjl_net_framework-1.1.0.jar:bjl_core-1.3.0.jar us.bringardner.net.framework.server.FileBasedAcl 'the password'
+java -cp parley-net-1.0.0.jar:parley-core-1.0.0.jar us.bringardner.parley.net.server.FileBasedAcl 'the password'
 ```
 
 A login command calls `processor.getServer().authenticate(user, password)` and
@@ -177,7 +183,7 @@ if the principal has the command's permission; otherwise the client gets "not au
 
 *Preview: the API may still change.*
 
-The `us.bringardner.net.framework.nio` package serves many connections from a few selector
+The `us.bringardner.parley.net.nio` package serves many connections from a few selector
 threads instead of a thread per connection. Nothing blocks: input arrives as frames, writes are
 queued.
 
@@ -219,7 +225,7 @@ virtual threads (Java 21+) it serves many idle sessions just as cheaply.
 | TCP_NODELAY | on | `setTcpNoDelay(false)` on `Server` or `Client` |
 | SO_REUSEADDR | on | `Server.setReuseAddress(false)` |
 
-Properties are looked up with `BaseObject.getProperty` from `bjl_core`: first
+Properties are looked up with `BaseObject.getProperty` from `parley-core`: first
 `<fully qualified class name>.<name>`, then `<name>`, as system properties or in class-named
 `.properties` files on the class path.
 
