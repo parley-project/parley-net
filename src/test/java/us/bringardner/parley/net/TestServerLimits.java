@@ -196,4 +196,59 @@ public class TestServerLimits {
 			ServerTestSupport.stop(svr);
 		}
 	}
+
+	/** LoginTimeLimit: a session that hasn't logged in by then is closed, one that has stays */
+	@Test
+	public void testLoginTimeLimit() throws Exception {
+		TestServer svr = ServerTestSupport.create("LoginLimitServer", ServerTestSupport.standardCommands(), null);
+		svr.setAccessControl(ServerTestSupport.acl("bob, bobpw, Secret"));
+		svr.setLoginTimeLimit(500);
+		ServerTestSupport.start(svr);
+		try (CommandClient idle = ServerTestSupport.connect(svr); CommandClient user = ServerTestSupport.connect(svr)) {
+			assertEcho(idle);
+			assertTrue(user.executeCommand(ServerTestSupport.LOGIN, "bob", "bobpw").isPositive());
+			Thread.sleep(1000);
+			assertNull(readOrNull(idle), "not logged in after the limit: closed");
+			assertEcho(user);
+			ServerTestSupport.waitFor(() -> svr.getActiveClients().size() == 1, 5000, "closed session not removed");
+		} finally {
+			ServerTestSupport.stop(svr);
+		}
+	}
+
+	@Test
+	public void testNoLoginTimeLimitByDefault() throws Exception {
+		TestServer svr = ServerTestSupport.start(ServerTestSupport.create("NoLoginLimitServer", ServerTestSupport.standardCommands(), null));
+		try (CommandClient client = ServerTestSupport.connect(svr)) {
+			assertEquals(0, svr.getLoginTimeLimit());
+			Thread.sleep(300);
+			assertEcho(client);
+		} finally {
+			ServerTestSupport.stop(svr);
+		}
+	}
+
+	/** A protocol that can be used without logging in has no login time limit */
+	@Test
+	public void testLoginTimeLimitOnlyWhereLoginIsRequired() throws Exception {
+		TestServer svr = new TestServer("AnonymousServer") {
+			@Override
+			protected boolean isLoginRequired() {
+				return false;
+			}
+		};
+		TestServer configured = ServerTestSupport.create("AnonymousServerConfig", ServerTestSupport.standardCommands(), null);
+		svr.setProcessorFactory(configured.getProcessorFactory());
+		svr.setConnectionFactory(configured.getConnectionFactory());
+		svr.setAcceptTimeout(200);
+		svr.setLoginTimeLimit(200);
+		ServerTestSupport.start(svr);
+		try (CommandClient client = ServerTestSupport.connect(svr)) {
+			assertEcho(client);
+			Thread.sleep(600);
+			assertEcho(client);
+		} finally {
+			ServerTestSupport.stop(svr);
+		}
+	}
 }

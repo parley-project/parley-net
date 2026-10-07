@@ -108,6 +108,8 @@ public class Server extends AbstractCoreServer implements IServer {
 	private volatile long taskStopWait = DEFAULT_TASK_STOP_WAIT;
 	/** One daemon platform thread per running server for scheduled work (BJL-59). */
 	private volatile ScheduledThreadPoolExecutor scheduler;
+	/** Sessions that have to log in within LoginTimeLimit, and the check that closes them */
+	private final Map<IProcessor, ScheduledFuture<?>> loginTimers = new ConcurrentHashMap<IProcessor, ScheduledFuture<?>>();
 	private volatile ScheduledFuture<?> adminTask;
 	private int connectionTimeout = getDefaultConnectionTimeout();
 	private int maxClients = DEFAULT_MAX_CLIENTS;
@@ -673,6 +675,7 @@ public class Server extends AbstractCoreServer implements IServer {
 			sessionTasks.put(proc, java.util.Collections.newSetFromMap(new ConcurrentHashMap<BaseThread, Boolean>()));
 			proc.start();
 			handedOff = true;
+			startLoginTimer(proc);
 		} catch (Exception e) {
 			logError("Can't start processor for "+socket, e);
 		} finally {
@@ -967,6 +970,36 @@ public class Server extends AbstractCoreServer implements IServer {
 		}
 	}
 
+	/**
+	 * @return true if every session must log in, so the LoginTimeLimit applies to it (the
+	 * default); false for a protocol that can be used without logging in (e.g. SMTP relay)
+	 */
+	protected boolean isLoginRequired() {
+		return true;
+	}
+
+	/**
+	 * With a LoginTimeLimit, close the session's connection if nobody has logged in
+	 * (it has no principal) by then. Closed like an idle connection.
+	 */
+	private void startLoginTimer(IProcessor proc) {
+		int limit = getLoginTimeLimit();
+		if( limit <= 0 || !isLoginRequired() ) {
+			return;
+		}
+		try {
+			loginTimers.put(proc, schedule(() -> {
+				if( loginTimers.remove(proc) != null && proc.getPrincipal() == null ) {
+					IConnection con = proc.getConnection();
+					logInfo("Login time limit reached, closing "+(con == null ? proc : con.getSocket()));
+					IoUtils.closeQuietly(con);
+				}
+			}, limit, TimeUnit.MILLISECONDS));
+		} catch (IllegalStateException e) {
+			// Stopping: the session is closed with the server
+		}
+	}
+
 	protected void doAdmin() {
 		//  Check for idle connections
 		lastAdmin = System.currentTimeMillis();
@@ -1116,6 +1149,10 @@ public class Server extends AbstractCoreServer implements IServer {
 	public void removeClient(IProcessor processor) {
 		if( processor == null ) {
 			return;
+		}
+		ScheduledFuture<?> loginTimer = loginTimers.remove(processor);
+		if( loginTimer != null ) {
+			loginTimer.cancel(false);
 		}
 		// The session is over: so are the threads it started (BJL-59)
 		stopTasks(sessionTasks.remove(processor));
