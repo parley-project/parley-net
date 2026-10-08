@@ -19,8 +19,6 @@
 	<properties>
 		<project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
 		<project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
-		<!-- release (not source/target) also checks that only Java 11 APIs are used -->
-		<maven.compiler.release>11</maven.compiler.release>
 		<!-- Written to the jar manifest as Automatic-Module-Name -->
 		<parley.moduleName>us.bringardner.parley.net</parley.moduleName>
 		<junit5.version>5.11.4</junit5.version>
