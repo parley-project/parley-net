@@ -115,9 +115,9 @@ final class TlsLayer {
 	 * engine to one version, as the framework's Connection does for sockets.
 	 */
 	private static void forceVersion(SSLEngine engine) {
-		String force = System.getProperty(SecureBaseObject.PROPERTY_FORCE_TLS_VERSION);
-		if( force != null && !force.trim().isEmpty() ) {
-			engine.setEnabledProtocols(new String[] {force.trim()});
+		String[] forced = SecureBaseObject.getForcedTlsProtocols();
+		if( forced != null ) {
+			engine.setEnabledProtocols(forced);
 		}
 	}
 }

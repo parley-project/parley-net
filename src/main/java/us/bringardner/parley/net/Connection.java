@@ -135,12 +135,9 @@ public abstract class Connection extends BaseObject implements IConnection {
 		//  The host name check is made by configureClientSsl (below), which subclasses may change
 		SSLSocket tmp = TlsSockets.layer(ctx, plain, getPeerHost(), clientMode, false, false);
 		// Some clients don;t support v1.3
-		String force = System.getProperty(SecureBaseObject.PROPERTY_FORCE_TLS_VERSION);
-		if( force != null) {
-			force = force.trim();
-			if( !force.isEmpty()) {
-				tmp.setEnabledProtocols(new String[] {force});		
-			}
+		String[] forced = SecureBaseObject.getForcedTlsProtocols();
+		if( forced != null ) {
+			tmp.setEnabledProtocols(forced);
 		}
 
 		if( clientMode ) {
