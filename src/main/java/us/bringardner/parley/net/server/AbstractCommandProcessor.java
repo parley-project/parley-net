@@ -227,4 +227,25 @@ public abstract  class AbstractCommandProcessor extends AbstractProcessor implem
 	
 	
 
+
+	/**
+	 * Wait before replying to a failed login, to slow down password guessing (see
+	 * {@link Server#setLoginFailureDelay(int)}).
+	 */
+	public void loginFailedDelay() {
+		int delay = getServer() instanceof Server ? ((Server) getServer()).getLoginFailureDelay() : 0;
+		if (delay > 0) {
+			try {
+				Thread.sleep(delay);
+			} catch (InterruptedException e) {
+				Thread.currentThread().interrupt();
+			}
+		}
+	}
+
+	/** True if the connection uses TLS (implicit, or after STARTTLS). */
+	public boolean isTls() {
+		IConnection con = getConnection();
+		return con != null && con.isSecure();
+	}
 }

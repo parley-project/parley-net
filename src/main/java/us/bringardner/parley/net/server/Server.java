@@ -49,6 +49,7 @@ import javax.net.ssl.SSLSocket;
 import us.bringardner.parley.core.BaseThread;
 import us.bringardner.parley.core.ILogger.Level;
 import us.bringardner.parley.core.util.AbstractCoreServer;
+import us.bringardner.parley.net.Connection;
 import us.bringardner.parley.net.IConnection;
 import us.bringardner.parley.net.IConnectionFactory;
 import us.bringardner.parley.net.IProcessor;
@@ -272,6 +273,57 @@ public class Server extends AbstractCoreServer implements IServer {
 	}
 
 
+
+	private volatile Boolean tlsAvailable;
+	private volatile boolean requireTls;
+
+	/**
+	 * True if a TLS context can be created, so STARTTLS / STLS / AUTH TLS can be offered. A key
+	 * store must be configured: without keys a TLS handshake can only fail. The answer is cached.
+	 */
+	public boolean isTlsAvailable() {
+		Boolean ret = tlsAvailable;
+		if (ret == null) {
+			try {
+				javax.net.ssl.KeyManager[] km = getKeyManagers();
+				ret = km != null && km.length > 0 && getSSLContext("TLS") != null;
+			} catch (Exception e) {
+				logDebug("TLS is not available: " + e);
+				ret = false;
+			}
+			tlsAvailable = ret;
+		}
+		return ret;
+	}
+
+	public boolean isRequireTls() {
+		return requireTls;
+	}
+
+	/** Refuse logins on a connection that isn't using TLS. */
+	public void setRequireTls(boolean requireTls) {
+		this.requireTls = requireTls;
+	}
+
+	/**
+	 * A connection factory for line protocols: CRLF lines, this server's log level, and TLS upgrades
+	 * (STARTTLS and the like) that use this server's TLS context.
+	 */
+	protected IConnectionFactory newConnectionFactory() {
+		return new IConnectionFactory() {
+			@Override
+			public IConnection getConnection(Socket socket) throws IOException {
+				Connection ret = new Connection(socket, true) {
+					@Override
+					public SSLContext getSSLContext(String sslOrTls) throws IOException {
+						return Server.this.getSSLContext(sslOrTls);
+					}
+				};
+				ret.getLogger().setLevel(Server.this.getLogger().getLevel());
+				return ret;
+			}
+		};
+	}
 
 	/**
 	 * Build a TLS context from a key store file, separately from this server's own settings.
