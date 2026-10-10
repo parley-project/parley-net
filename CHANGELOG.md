@@ -14,6 +14,11 @@ as BjlNetFramework 1.1.0 (below); only names changed.
 - Property names that start with a class name change with the package, for example
   `us.bringardner.net.framework.server.Server.<name>` is now `us.bringardner.parley.net.server.Server.<name>`.
 - Dependencies: `bjl_core` and `bjl_io` are now `parley-core` and `parley-io`.
+- **Sessions run on virtual threads by default on Java 24 and later.** The `VirtualThreads`
+  default is now AUTO (it was OFF): virtual threads where blocking I/O no longer pins a carrier
+  thread (JEP 491), platform threads on Java 11-23, so nothing changes there. A server that must
+  keep a platform thread per session on Java 24+ calls `setVirtualThreads(OFF)` or sets the
+  `VirtualThreads` property to `OFF`.
 
 ## 1.1.0 (unreleased)
 

@@ -44,11 +44,12 @@ public class TestVirtualThreads {
 	}
 
 	@Test
-	public void offByDefault() {
+	public void autoByDefault() {
 		Server svr = server("VtDefault");
-		assertEquals(VirtualThreads.OFF, Server.DEFAULT_VIRTUAL_THREADS);
-		assertEquals(VirtualThreads.OFF, svr.getVirtualThreads());
-		assertFalse(svr.isUsingVirtualThreads());
+		assertEquals(VirtualThreads.AUTO, Server.DEFAULT_VIRTUAL_THREADS);
+		assertEquals(VirtualThreads.AUTO, svr.getVirtualThreads());
+		// virtual threads where they pay off (Java 24+), platform threads before that
+		assertEquals(Runtime.version().feature() >= 24, svr.isUsingVirtualThreads());
 	}
 
 	@Test
@@ -75,7 +76,7 @@ public class TestVirtualThreads {
 			assertEquals(VirtualThreads.AUTO, svr.getVirtualThreads());
 			System.setProperty(Server.PROPERTY_VIRTUAL_THREADS, "nonsense");
 			svr.setVirtualThreads(null);
-			assertEquals(VirtualThreads.OFF, svr.getVirtualThreads(), "an invalid value falls back to the default");
+			assertEquals(Server.DEFAULT_VIRTUAL_THREADS, svr.getVirtualThreads(), "an invalid value falls back to the default");
 		} finally {
 			System.clearProperty(Server.PROPERTY_VIRTUAL_THREADS);
 		}
@@ -86,6 +87,10 @@ public class TestVirtualThreads {
 		TestServer svr = server("VtSessions");
 		ServerTestSupport.start(svr);
 		try {
+			try (CommandClient client = ServerTestSupport.connect(svr)) {
+				assertEquals(BaseThread.isVirtualRecommended() ? "virtual" : "platform", sessionThread(client), "default (AUTO)");
+			}
+			svr.setVirtualThreads(VirtualThreads.OFF);
 			try (CommandClient client = ServerTestSupport.connect(svr)) {
 				assertEquals("platform", sessionThread(client), "OFF");
 			}

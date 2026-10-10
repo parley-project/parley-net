@@ -132,7 +132,7 @@ public class Server extends AbstractCoreServer implements IServer {
 	private String serverGreating;
 
 	/**
-	 * Which threads run the sessions (BJL-51). OFF: platform threads, as before. ON: virtual
+	 * Which threads run the sessions (BJL-51). OFF: platform threads. ON: virtual
 	 * threads where the JVM has them (Java 21+), platform threads otherwise. AUTO: virtual
 	 * threads on Java 24 and later only ({@link BaseThread#isVirtualRecommended()}).
 	 * <p>
@@ -147,8 +147,12 @@ public class Server extends AbstractCoreServer implements IServer {
 
 	/** Property for {@link #setVirtualThreads(VirtualThreads)}: OFF, ON or AUTO (any case). */
 	public static final String PROPERTY_VIRTUAL_THREADS = "VirtualThreads";
-	/** The default, so upgrading the framework doesn't change how sessions run. */
-	public static final VirtualThreads DEFAULT_VIRTUAL_THREADS = VirtualThreads.OFF;
+	/**
+	 * The default: virtual threads on Java 24 and later, where blocking I/O no longer pins a
+	 * carrier thread (JEP 491) and a session costs a few KB instead of a platform thread;
+	 * platform threads on Java 11-23, as before. Set OFF to always use platform threads.
+	 */
+	public static final VirtualThreads DEFAULT_VIRTUAL_THREADS = VirtualThreads.AUTO;
 	private volatile VirtualThreads virtualThreads;
 
 
