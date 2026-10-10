@@ -179,6 +179,44 @@ A login command calls `processor.getServer().authenticate(user, password)` and
 `processor.setPrincipal(...)`. Commands whose `requiresAuthorization()` is true then run only
 if the principal has the command's permission; otherwise the client gets "not authorized".
 
+## Session state, capabilities and SASL
+
+Three things nearly every line protocol needs are shared here, so each protocol only says
+what is particular to it.
+
+**Session state.** Define the states as an enum, return a `StateMachine` from
+`AbstractCommandProcessor.getStateMachine()`, and have commands implement `IStatefulCommand`
+to declare where they are valid. A command used in the wrong state is answered by
+`replyInvalidState` (a generic 500 unless you override it) and never runs. Commands change the
+state with `moveTo`, and `allow(from, to...)` lists the legal moves if you want them enforced.
+
+**Capabilities.** `CapabilityRegistry` holds what the server offers and the conditions for
+offering it; `resolve(processor)` gives a `CapabilitySet` for the session, which renders as
+lines (`toLines()`, for EHLO, CAPA and FEAT) or one line (`toInline()`, for IMAP). A client
+reads the same shape with `CapabilitySet.parseReply(reply, skipFirst, skipLast)`,
+`parseLines` or `parseInline`, and tests it with `has("AUTH", "PLAIN")`.
+
+**SASL.** `SaslMechanisms.standard(host)` lists SCRAM-SHA-256, SCRAM-SHA-1, CRAM-MD5, PLAIN,
+LOGIN and XOAUTH2; `offered(authenticator, tls)` gives the names to advertise, leaving out the
+ones that send the secret in the clear unless the connection uses TLS. An `AUTH` command
+finds the mechanism and runs it:
+
+```java
+ISaslMechanism mech = mechanisms.find(mechanismName);
+SaslOutcome out = SaslServerDriver.authenticate(mech, authenticator, initialResponseOrNull,
+    new ISaslChannel() {
+        public void sendChallenge(String base64) throws IOException { processor.reply("334 " + base64); }
+        public String readResponse() throws IOException { return connection.readLine(); }
+    });
+if (out.isSuccess()) { /* out.getUser() is who it is */ }
+```
+
+`ServerSaslAuthenticator` checks PLAIN and LOGIN against the server's access control list. The
+other mechanisms need what a password hash can't give: the clear password (CRAM-MD5) or
+`ScramCredentials` made once with `ScramMechanism.deriveCredentials`. Implement
+`ISaslAuthenticator` over your own store for those. Clients use the mechanism's `client(...)`
+factory and `evaluateChallenge` for each server challenge.
+
 ## Non-blocking (NIO)
 
 *Preview: the API may still change.*

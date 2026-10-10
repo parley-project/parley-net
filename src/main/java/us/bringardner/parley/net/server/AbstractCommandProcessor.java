@@ -170,7 +170,12 @@ public abstract  class AbstractCommandProcessor extends AbstractProcessor implem
 			if( isDebug()) {
 				cmdUsed.put(command.getName(), command.getName());
 			}
-			if(!command.requiresAuthorization() 
+			StateMachine<?> states = getStateMachine();
+			if( states != null 
+					&& command instanceof IStatefulCommand 
+					&& !states.isValid((IStatefulCommand<?>) command)) {
+				replyInvalidState(command, states);
+			} else if(!command.requiresAuthorization() 
 					|| 
 					isAuthorized(command.getPermission()) 
 					){
@@ -179,6 +184,24 @@ public abstract  class AbstractCommandProcessor extends AbstractProcessor implem
 				reply(IGenericResponseCode.REPLY_500_GENERIC_ERROR, command.getName()+" not authorized");
 			}
 		}
+	}
+
+	/**
+	 * The state of this session, or null (the default) if the protocol has no states. When
+	 * it isn't null, a command that is an {@link IStatefulCommand} runs only in the states
+	 * it declares.
+	 */
+	protected StateMachine<?> getStateMachine() {
+		return null;
+	}
+
+	/**
+	 * Answer a command that isn't valid in the current state. The default is a generic 500;
+	 * a protocol overrides it for its own code (SMTP 503, POP3 -ERR, IMAP BAD).
+	 */
+	protected void replyInvalidState(ICommand command, StateMachine<?> states) throws IOException {
+		reply(IGenericResponseCode.REPLY_500_GENERIC_ERROR, 
+				command.getName()+" is not valid in the "+states.get()+" state");
 	}
 
 	private static String firstToken(String line) {

@@ -5,6 +5,25 @@
 BjlNetFramework is now **parley-net**, part of the Parley library family. The code is the same
 as BjlNetFramework 1.1.0 (below); only names changed.
 
+### Added
+
+- **Session states**: `StateMachine` (a session's state as an enum, optionally with the legal
+  moves) and `IStatefulCommand` (the states a command is valid in). `AbstractCommandProcessor`
+  checks them before running a command when the processor returns a machine from
+  `getStateMachine()`; `replyInvalidState` sets the reply. Nothing changes for a processor that
+  doesn't override `getStateMachine()`.
+- **Capabilities** (`us.bringardner.parley.net.capability`): `Capability` and `CapabilitySet`
+  render and parse what EHLO, CAPA, FEAT and CAPABILITY list (one per line, or IMAP's inline
+  `AUTH=PLAIN`), and `CapabilityRegistry` decides per session what to offer (STLS only before
+  TLS, AUTH mechanisms only after it, ...).
+- **SASL** (`us.bringardner.parley.net.sasl`): a protocol independent server and client SPI
+  (`ISaslMechanism`, `ISaslServer`, `ISaslClient`, `ISaslAuthenticator`) with PLAIN, LOGIN,
+  CRAM-MD5, SCRAM-SHA-1, SCRAM-SHA-256 and XOAUTH2. `SaslServerDriver` runs an exchange given
+  only how the protocol sends a challenge and reads a response (`ISaslChannel`), and
+  `SaslMechanisms` lists what to advertise. `ServerSaslAuthenticator` checks PLAIN and LOGIN
+  against the server's access control list. SASLprep is not applied and channel binding
+  (`-PLUS`) is not offered.
+
 ### Changed (needs a code change)
 
 - Maven coordinates: `us.bringardner:bjl_net_framework` is now `us.bringardner.parley:parley-net`.
