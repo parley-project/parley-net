@@ -23,6 +23,8 @@ as BjlNetFramework 1.1.0 (below); only names changed.
   `SaslMechanisms` lists what to advertise. `ServerSaslAuthenticator` checks PLAIN and LOGIN
   against the server's access control list. SASLprep is not applied and channel binding
   (`-PLUS`) is not offered.
+  `SaslClients` creates the client side of the password mechanisms by name and picks one from
+  what a server offers, in the caller's order of preference.
 
 ### Changed (needs a code change)
 
