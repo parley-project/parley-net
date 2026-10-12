@@ -737,6 +737,10 @@ public class NioConnection extends BaseObject implements INioConnection {
 				// Everything is sent, end the session with close_notify
 				engine.closeOutbound();
 				continue;
+			} else if( t.netIn.position() > 0 && unwrapTls(t) ) {
+				// Records that came with the end of the handshake waited for our reply
+				// (a TLS 1.3 session ticket): decrypt them now, the peer may send nothing else
+				continue;
 			} else {
 				break;
 			}
