@@ -1092,16 +1092,19 @@ public class Server extends AbstractCoreServer implements IServer {
 				if( sock == null || sock.isClosed() ) {
 					// Already closed, the processor is exiting or failed to remove itself.
 					it.remove();
+					releaseClientOf(entry.getValue());
 				} else if((lastAdmin-con.getLastReadTime()) > maxIdleConnection  && (lastAdmin-con.getLastWriteTime()) > maxIdleConnection
 						&& !hasRunningTask(entry.getValue())) {
 					logDebug("Closing idle connection "+sock);
 					it.remove();
+					releaseClientOf(entry.getValue());
 					IoUtils.closeQuietly(con);
 				}
 			} catch (Throwable e) {
 				// One bad entry must not stop the idle check for everyone else.
 				logDebug("Error in doAdmin for "+entry.getKey(), e);
 				it.remove();
+				releaseClientOf(entry.getValue());
 				IoUtils.closeQuietly(entry.getValue().getConnection());
 			}
 		}
@@ -1235,10 +1238,7 @@ public class Server extends AbstractCoreServer implements IServer {
 		if( loginTimer != null ) {
 			loginTimer.cancel(false);
 		}
-		java.net.InetAddress client = clientAddresses.remove(processor);
-		if( client != null ) {
-			releaseClient(client);
-		}
+		releaseClientOf(processor);
 		// The session is over: so are the threads it started
 		stopTasks(sessionTasks.remove(processor));
 		// Fast path, the connection's current socket is usually the key.
@@ -1252,6 +1252,14 @@ public class Server extends AbstractCoreServer implements IServer {
 		// The socket may have been replaced (e.g. after negotiateSecureSocket) or 
 		// already cleared by close(), so fall back to removing by value.
 		activeClients.values().removeIf(p -> p == processor);
+	}
+
+	/** Give back a session's per-client place (once: later calls find nothing to release). */
+	private void releaseClientOf(IProcessor processor) {
+		java.net.InetAddress client = processor == null ? null : clientAddresses.remove(processor);
+		if( client != null ) {
+			releaseClient(client);
+		}
 	}
 
 	public Map<Socket, IProcessor> getActiveClients() {

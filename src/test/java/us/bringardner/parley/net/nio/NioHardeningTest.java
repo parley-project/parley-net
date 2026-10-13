@@ -251,4 +251,94 @@ public class NioHardeningTest {
 			assertEquals(1, roundTrip(s, new byte[] {7}).length);
 		}
 	}
+
+	@Test
+	public void waitingOnAPausedHandlerIsntTheClientsFault() throws Exception {
+		//  The handler pauses reading while it works on frame 1; the rest of frame 2 waits
+		//  in the kernel for 2.5 s. The frame time limit (500 ms) must not count that.
+		server = new NioServer(0, "paused");
+		server.setDecoderFactory(() -> new LengthFieldFrameDecoder(2, 65535, true));
+		server.setReactorCount(1);
+		server.setFrameTimeout(500);
+		server.setHandlerFactory(() -> new INioHandler() {
+			int n;
+
+			@Override
+			public void onMessage(INioConnection c, ByteBuffer f) throws Exception {
+				byte [] b = new byte[f.remaining()];
+				f.get(b);
+				if( n++ == 0 ) {
+					c.pauseReading();
+					new Thread(() -> {
+						try {
+							Thread.sleep(2500);
+							c.write(LengthFieldFrameDecoder.frame(b, 2));
+						} catch(Exception e) {
+							// closed
+						}
+						c.resumeReading();
+					}).start();
+				} else {
+					c.write(LengthFieldFrameDecoder.frame(b, 2));
+				}
+			}
+		});
+		server.startAndWait(5000);
+		try(Socket s = new Socket(LOOPBACK, server.getLocalPort())) {
+			s.setSoTimeout(8000);
+			OutputStream out = s.getOutputStream();
+			//  frame 1 and the start of frame 2 together, the rest of frame 2 soon after
+			out.write(new byte[] {0, 1, 7, 0, 4, 1});
+			out.flush();
+			Thread.sleep(200);
+			out.write(new byte[] {2, 3, 4});
+			out.flush();
+			byte [] got = readFully(s.getInputStream(), 3+6);
+			assertEquals(9, got.length, "closed after "+got.length+" bytes");
+		}
+	}
+
+	private static byte [] readFully(InputStream in, int len) throws IOException {
+		byte [] b = new byte[len];
+		int n = 0;
+		while( n < len ) {
+			int r = in.read(b, n, len-n);
+			if( r < 0 ) {
+				return java.util.Arrays.copyOf(b, n);
+			}
+			n += r;
+		}
+		return b;
+	}
+
+	@Test
+	public void aTlsHandshakeTrickledInIsCutOff() throws Exception {
+		//  Before TLS is up nothing reaches the frame decoder: the handshake itself must
+		//  be done within the frame time limit
+		start(Echo::new);
+		server.setSecure(true);
+		server.setKeyStoreType("PKCS12");
+		server.setKeyStoreFileName("/test-keystore.p12");
+		server.setKeyStorePassword("changeit");
+		server.setFrameTimeout(500);
+		server.setMaxIdleTime(5000);
+		server.startAndWait(5000);
+		try(Socket s = connect()) {
+			OutputStream out = s.getOutputStream();
+			//  the start of a ClientHello record, one byte every 200 ms
+			byte [] hello = {0x16, 0x03, 0x01, 0x01, 0x00, 0x01, 0x00, 0x00, (byte)0xfc, 0x03, 0x03, 0, 0, 0, 0, 0};
+			boolean closed = false;
+			for(int i=0; i < hello.length && !closed; i++ ) {
+				try {
+					out.write(hello[i]);
+					out.flush();
+				} catch(IOException ex) {
+					closed = true;
+				}
+				Thread.sleep(200);
+			}
+			s.setSoTimeout(300);
+			assertTrue(closed || closedByServer(s), "the TLS connection was still open");
+		}
+	}
 }

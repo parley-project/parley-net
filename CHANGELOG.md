@@ -58,8 +58,10 @@ then are below, with the renames first.
   `INioHandler.onDeadline` (default: close), for things that must happen in time however much
   traffic there is, such as logging in. Checked with the idle checks (about once a second).
 - **NIO frame time limit**: `NioServer.setFrameTimeout(ms)` (property `FrameTimeout`, default 0 =
-  none) closes a connection whose frame doesn't arrive in time once it has started. A client sending
-  one byte at a time is never idle, so the idle time alone let it hold a connection for ever.
+  none) closes a connection whose frame doesn't arrive in time once it has started (with TLS, also a
+  record or the handshake). A client sending one byte at a time is never idle, so the idle time alone
+  let it hold a connection for ever. Time spent waiting on the handler (reading paused, input
+  buffer full) doesn't count.
 - `LengthFieldFrameDecoder.frame(payload, lengthFieldSize)`, for 1 and 2 byte lengths (DNS over TCP
   uses 2).
 - `FatalErrorHandler` (from parley-dns): logs every thread that dies from an uncaught error and, when

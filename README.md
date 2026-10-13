@@ -249,7 +249,7 @@ access control list as `Server`.
 
 **Time limits.** The idle time (`setMaxIdleTime`) closes connections with no traffic, but any byte
 resets it, so it can't stop a client that sends a frame one byte at a time. `setFrameTimeout(ms)`
-does: once a frame has started it must arrive within that time. For anything else that must happen
+does: once a frame has started it must arrive within that time (for TLS, also each record and the handshake). Time the connection spends waiting on its own handler (reading paused, input buffer full) doesn't count. For anything else that must happen
 in time whatever the traffic (logging in, say), a handler sets `connection.setDeadline(ms)`;
 `onDeadline` is called when it passes (the default closes the connection) and `clearDeadline()`
 cancels it. Both are checked about once a second.
