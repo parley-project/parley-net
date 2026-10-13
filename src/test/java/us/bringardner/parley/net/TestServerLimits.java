@@ -78,6 +78,53 @@ public class TestServerLimits {
 	}
 
 	@Test
+	public void testOneAddressCantTakeEveryPlace() throws Exception {
+		TestServer svr = ServerTestSupport.create("PerClientServer", ServerTestSupport.standardCommands(), null);
+		svr.setMaxClients(10);
+		svr.setMaxConnectionsPerClient(2);
+		svr.setServerBusyMessage("421 too many connections");
+		ServerTestSupport.start(svr);
+		try {
+			CommandClient first = ServerTestSupport.connect(svr);
+			assertEcho(first);
+			try (CommandClient second = ServerTestSupport.connect(svr)) {
+				assertEcho(second);
+				try (CommandClient third = ServerTestSupport.connect(svr)) {
+					assertEquals("421 too many connections", third.readLine(), "a third from the same address");
+					assertNull(readOrNull(third));
+				}
+			}
+			//  a session that ends gives its place back
+			ServerTestSupport.waitFor(() -> svr.getClientConnections(java.net.InetAddress.getLoopbackAddress()) == 1, 5000, "place not given back");
+			try (CommandClient again = ServerTestSupport.connect(svr)) {
+				assertEcho(again);
+			}
+			first.close();
+		} finally {
+			ServerTestSupport.stop(svr);
+		}
+	}
+
+	@Test
+	public void testAddressesNotOnTheAllowListAreRefused() throws Exception {
+		TestServer svr = ServerTestSupport.create("AllowListServer", ServerTestSupport.standardCommands(), null);
+		svr.setAllowedClients("192.0.2.0/24");
+		ServerTestSupport.start(svr);
+		try {
+			try (CommandClient refused = ServerTestSupport.connect(svr)) {
+				assertNull(readOrNull(refused), "closed without a greeting");
+			}
+			assertEquals(0, svr.getClientConnections(java.net.InetAddress.getLoopbackAddress()));
+			svr.setAllowedClients("127.0.0.0/8 ::1");
+			try (CommandClient ok = ServerTestSupport.connect(svr)) {
+				assertEcho(ok);
+			}
+		} finally {
+			ServerTestSupport.stop(svr);
+		}
+	}
+
+	@Test
 	public void testIdleConnectionsClosed() throws Exception {
 		TestServer svr = ServerTestSupport.start(ServerTestSupport.create("IdleServer", ServerTestSupport.standardCommands(), null));
 		try (CommandClient client = ServerTestSupport.connect(svr)) {

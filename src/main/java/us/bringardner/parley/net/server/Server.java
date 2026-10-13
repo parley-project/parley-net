@@ -110,6 +110,8 @@ public class Server extends AbstractCoreServer implements IServer {
 	private volatile ScheduledThreadPoolExecutor scheduler;
 	/** Sessions that have to log in within LoginTimeLimit, and the check that closes them */
 	private final Map<IProcessor, ScheduledFuture<?>> loginTimers = new ConcurrentHashMap<IProcessor, ScheduledFuture<?>>();
+	//  The client address of each session, to give back its per-client place (MaxConnectionsPerClient)
+	private final Map<IProcessor, java.net.InetAddress> clientAddresses = new ConcurrentHashMap<IProcessor, java.net.InetAddress>();
 	private volatile ScheduledFuture<?> adminTask;
 	private int connectionTimeout = getDefaultConnectionTimeout();
 	private int maxClients = DEFAULT_MAX_CLIENTS;
@@ -673,13 +675,26 @@ public class Server extends AbstractCoreServer implements IServer {
 	protected void handleNewConnection(Socket socket) {
 		logDebug("Incomming conenction from "+socket);
 		boolean handedOff = false;
+		java.net.InetAddress client = socket.getInetAddress();
+		boolean clientAcquired = false;
+		IProcessor recorded = null;
 		try {
+			if( !isClientAllowed(client) ) {
+				logInfo("Refusing connection from "+client+": not in "+PROPERTY_ALLOWED_CLIENTS);
+				return;
+			}
 			int max = getMaxClients();
 			if( max > 0 && activeClients.size() >= max ) {
 				logInfo("Rejecting connection from "+socket+", "+activeClients.size()+" clients active (max="+max+")");
 				rejectBusy(socket);
 				return;
 			}
+			if( !tryAcquireClient(client) ) {
+				logInfo("Rejecting connection from "+socket+", "+getClientConnections(client)+" from this address (max="+getMaxConnectionsPerClient()+")");
+				rejectBusy(socket);
+				return;
+			}
+			clientAcquired = true;
 
 			if( tcpNoDelay ) {
 				// Request / response protocols: don't let Nagle delay small replies
@@ -728,6 +743,11 @@ public class Server extends AbstractCoreServer implements IServer {
 			}
 			activeClients.put(socket,proc);
 			sessionTasks.put(proc, java.util.Collections.newSetFromMap(new ConcurrentHashMap<BaseThread, Boolean>()));
+			if( client != null ) {
+				//  before start(): the session may end (removeClient) before this thread goes on
+				clientAddresses.put(proc, client);
+				recorded = proc;
+			}
 			proc.start();
 			handedOff = true;
 			startLoginTimer(proc);
@@ -737,6 +757,12 @@ public class Server extends AbstractCoreServer implements IServer {
 			if( !handedOff ) {
 				activeClients.remove(socket);
 				IoUtils.closeQuietly(socket);
+				if( clientAcquired ) {
+					if( recorded != null ) {
+						clientAddresses.remove(recorded);
+					}
+					releaseClient(client);
+				}
 			}
 		}
 	}
@@ -1066,16 +1092,19 @@ public class Server extends AbstractCoreServer implements IServer {
 				if( sock == null || sock.isClosed() ) {
 					// Already closed, the processor is exiting or failed to remove itself.
 					it.remove();
+					releaseClientOf(entry.getValue());
 				} else if((lastAdmin-con.getLastReadTime()) > maxIdleConnection  && (lastAdmin-con.getLastWriteTime()) > maxIdleConnection
 						&& !hasRunningTask(entry.getValue())) {
 					logDebug("Closing idle connection "+sock);
 					it.remove();
+					releaseClientOf(entry.getValue());
 					IoUtils.closeQuietly(con);
 				}
 			} catch (Throwable e) {
 				// One bad entry must not stop the idle check for everyone else.
 				logDebug("Error in doAdmin for "+entry.getKey(), e);
 				it.remove();
+				releaseClientOf(entry.getValue());
 				IoUtils.closeQuietly(entry.getValue().getConnection());
 			}
 		}
@@ -1209,6 +1238,7 @@ public class Server extends AbstractCoreServer implements IServer {
 		if( loginTimer != null ) {
 			loginTimer.cancel(false);
 		}
+		releaseClientOf(processor);
 		// The session is over: so are the threads it started
 		stopTasks(sessionTasks.remove(processor));
 		// Fast path, the connection's current socket is usually the key.
@@ -1222,6 +1252,14 @@ public class Server extends AbstractCoreServer implements IServer {
 		// The socket may have been replaced (e.g. after negotiateSecureSocket) or 
 		// already cleared by close(), so fall back to removing by value.
 		activeClients.values().removeIf(p -> p == processor);
+	}
+
+	/** Give back a session's per-client place (once: later calls find nothing to release). */
+	private void releaseClientOf(IProcessor processor) {
+		java.net.InetAddress client = processor == null ? null : clientAddresses.remove(processor);
+		if( client != null ) {
+			releaseClient(client);
+		}
 	}
 
 	public Map<Socket, IProcessor> getActiveClients() {

@@ -114,4 +114,29 @@ public class LengthFieldFrameDecoder implements IFrameDecoder {
 		ret.flip();
 		return ret;
 	}
+
+	/**
+	 * @param payload the frame's content
+	 * @param lengthFieldSize 1, 2 (e.g. DNS over TCP) or 4 bytes of length before it
+	 * @return the length field and the payload, ready to write
+	 * @throws IllegalArgumentException if the payload doesn't fit the length field
+	 */
+	public static ByteBuffer frame(byte[] payload, int lengthFieldSize) {
+		long max = lengthFieldSize == 1 ? 0xffL : lengthFieldSize == 2 ? 0xffffL : 0xffffffffL;
+		if( lengthFieldSize != 1 && lengthFieldSize != 2 && lengthFieldSize != 4 ) {
+			throw new IllegalArgumentException("lengthFieldSize must be 1, 2 or 4");
+		}
+		if( payload.length > max ) {
+			throw new IllegalArgumentException("A frame of "+payload.length+" bytes doesn't fit a "+lengthFieldSize+" byte length");
+		}
+		ByteBuffer ret = ByteBuffer.allocate(lengthFieldSize+payload.length);
+		switch (lengthFieldSize) {
+		case 1: ret.put((byte) payload.length); break;
+		case 2: ret.putShort((short) payload.length); break;
+		default: ret.putInt(payload.length); break;
+		}
+		ret.put(payload);
+		ret.flip();
+		return ret;
+	}
 }

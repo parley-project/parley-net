@@ -104,7 +104,8 @@ public class NioConnection extends BaseObject implements INioConnection {
 	private ByteBuffer in;
 	private int readIndex;
 	// The buffer is full at its maximum size, reading waits for the dispatcher to make room
-	private boolean inputFull;
+	//  volatile: also read (without the lock) by the reactor's idle check
+	private volatile boolean inputFull;
 
 	// Output: queued by any thread, written by the reactor
 	private final Queue<ByteBuffer> out = new ConcurrentLinkedQueue<ByteBuffer>();
@@ -116,6 +117,15 @@ public class NioConnection extends BaseObject implements INioConnection {
 	private volatile boolean connected;
 	private volatile boolean readingPaused;
 	private volatile boolean idleNotified;
+	//  setDeadline: when it passes (0 = none); each set or clear is a new generation, so an
+	//  onDeadline already queued for an older deadline is dropped
+	private final java.util.concurrent.atomic.AtomicLong deadline = new java.util.concurrent.atomic.AtomicLong();
+	private volatile int deadlineGeneration;
+	//  The frame time limit (0 = none), and since when an incomplete frame has waited (0 = none):
+	//  decrypted bytes in the input buffer, or an incomplete TLS record
+	private volatile long frameTimeout;
+	private volatile long partialSince;
+	private volatile long tlsPartialSince;
 	// The peer closed its side, stop selecting OP_READ (EOF stays readable)
 	private volatile boolean inputShutdown;
 
@@ -351,6 +361,7 @@ public class NioConnection extends BaseObject implements INioConnection {
 
 	@Override
 	public void resumeReading() {
+		restartFrameTimer();
 		readingPaused = false;
 		reactor.execute(this::updateInterest);
 	}
@@ -543,11 +554,79 @@ public class NioConnection extends BaseObject implements INioConnection {
 		flush();
 	}
 
+	@Override
+	public synchronized void setDeadline(long milliSeconds) {
+		deadlineGeneration++;
+		deadline.set(milliSeconds > 0 ? System.currentTimeMillis()+milliSeconds : 0);
+	}
+
+	@Override
+	public long getDeadline() {
+		return deadline.get();
+	}
+
+	/**
+	 * @param milliSeconds the most time a frame may take to arrive once its first byte is
+	 *  here, 0 for no limit. A peer that sends a frame one byte at a time is never idle, but
+	 *  it doesn't get a whole frame in either: it is closed.
+	 */
+	void setFrameTimeout(long milliSeconds) {
+		frameTimeout = Math.max(0, milliSeconds);
+	}
+
+	long getFrameTimeout() {
+		return frameTimeout;
+	}
+
+	private static long earliest(long a, long b) {
+		return a <= 0 ? b : b <= 0 ? a : Math.min(a, b);
+	}
+
+	/** The frame time limit restarts: the wait was ours (paused, or a full buffer), not the peer's. */
+	private void restartFrameTimer() {
+		long now = System.currentTimeMillis();
+		if( partialSince > 0 ) {
+			partialSince = now;
+		}
+		if( tlsPartialSince > 0 ) {
+			tlsPartialSince = now;
+		}
+	}
+
 	/**
 	 * Called periodically by the reactor.
 	 */
 	void checkIdle(long now) {
-		if( maxIdleTime <= 0 || idleNotified || !connected || closed.get() ) {
+		if( !connected || closed.get() ) {
+			return;
+		}
+		long d = deadline.get();
+		if( d > 0 && now >= d && deadline.compareAndSet(d, 0) ) {
+			int generation = deadlineGeneration;
+			logDebug(() -> "Connection "+id+" passed its deadline");
+			dispatch(() -> {
+				//  not if the deadline was set again or cleared since
+				if( generation == deadlineGeneration ) {
+					handler.onDeadline(this);
+				}
+			});
+		}
+		long ft = frameTimeout;
+		//  Only while we are waiting for the peer: not while reading is paused, the input
+		//  buffer is full, or the handler hasn't taken what is already here
+		if( ft > 0 && !readingPaused && !inputFull && !processScheduled.get() ) {
+			long since = earliest(partialSince, tlsPartialSince);
+			if( tls != null && !appConnected ) {
+				//  the TLS handshake must be done in time too
+				since = earliest(since, connectTime);
+			}
+			if( since > 0 && now-since > ft ) {
+				logDebug(() -> "Connection "+id+": a frame took more than "+ft+" ms, closing");
+				close();
+				return;
+			}
+		}
+		if( maxIdleTime <= 0 || idleNotified ) {
 			return;
 		}
 		long last = Math.max(getLastReadTime(), getLastWriteTime());
@@ -822,6 +901,14 @@ public class NioConnection extends BaseObject implements INioConnection {
 					idleNotified = false;
 				}
 				unwrapTls(t);
+				if( t.netIn.position() > 0 ) {
+					//  part of a TLS record: the frame time limit runs
+					if( tlsPartialSince == 0 ) {
+						tlsPartialSince = System.currentTimeMillis();
+					}
+				} else {
+					tlsPartialSince = 0;
+				}
 				if( n < 0 ) {
 					try {
 						t.engine.closeInbound();
@@ -1003,6 +1090,16 @@ public class NioConnection extends BaseObject implements INioConnection {
 				if( frame == null || readIndex > in.capacity()/2 ) {
 					compact();
 				}
+				if( frame != null ) {
+					partialSince = 0;
+				} else if( in.position() > readIndex ) {
+					//  Part of a frame is here: the frame time limit runs from now
+					if( partialSince == 0 ) {
+						partialSince = System.currentTimeMillis();
+					}
+				} else {
+					partialSince = 0;
+				}
 				// Room the reactor needs to go on reading: one byte, or a whole TLS record
 				TlsLayer t = tls;
 				int need = t == null ? 1 : t.getApplicationBufferSize();
@@ -1030,6 +1127,7 @@ public class NioConnection extends BaseObject implements INioConnection {
 	 * The handler made room in the input buffer: decrypt what is waiting, read again.
 	 */
 	private void resumeInput() {
+		restartFrameTimer();
 		if( tls != null ) {
 			readTls();
 		}

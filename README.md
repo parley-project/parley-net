@@ -247,6 +247,13 @@ Handlers run on the reactor threads, so they must not block; give the server a h
 `connection.startTls()` after a STARTTLS style command. `NioServer.authenticate()` uses the same
 access control list as `Server`.
 
+**Time limits.** The idle time (`setMaxIdleTime`) closes connections with no traffic, but any byte
+resets it, so it can't stop a client that sends a frame one byte at a time. `setFrameTimeout(ms)`
+does: once a frame has started it must arrive within that time (for TLS, also each record and the handshake). Time the connection spends waiting on its own handler (reading paused, input buffer full) doesn't count. For anything else that must happen
+in time whatever the traffic (logging in, say), a handler sets `connection.setDeadline(ms)`;
+`onDeadline` is called when it passes (the default closes the connection) and `clearDeadline()`
+cancels it. Both are checked about once a second.
+
 For request / response protocols (FTP, SMTP, POP3) the blocking `Server` is simpler, and with
 virtual threads (Java 21+) it serves many idle sessions just as cheaply.
 
@@ -257,6 +264,9 @@ virtual threads (Java 21+) it serves many idle sessions just as cheaply.
 | Server read time-out | 60 s | `Server.setConnectionTimeout(ms)`, 0 = none |
 | Idle connections closed after | 24 h | `Server.setMaxIdleConnection(ms)` |
 | Maximum concurrent clients | unlimited | `Server.setMaxClients(n)`, `setServerBusyMessage("421 ...")` |
+| Connections per client address | unlimited | `setMaxConnectionsPerClient(n)` or the `MaxConnectionsPerClient` property (`Server` and `NioServer`) |
+| Client addresses allowed | everyone | `setAllowedClients("127.0.0.1 10.0.0.0/8")` or the `AllowedClients` property; others are closed at once |
+| NIO frame time limit | none | `NioServer.setFrameTimeout(ms)` or the `FrameTimeout` property: a frame must arrive within this once it has started |
 | Longest line | 64 KiB | `Connection.setDefaultMaxLineLength(n)` or `setMaxLineLength(n)`, 0 = none |
 | Client read time-out | 5 min | `client.setTimeout(ms)`, `Client.setDefaultReadTimeout(ms)`, or the `readTimeout` property |
 | Client connect time-out | 30 s | `client.setConnectTimeout(ms)` or the `connectTimeout` property |

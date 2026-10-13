@@ -26,6 +26,7 @@ package us.bringardner.parley.net.nio;
 
 import java.io.IOException;
 import java.io.InterruptedIOException;
+import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.SocketAddress;
 import java.net.StandardSocketOptions;
@@ -40,6 +41,7 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Iterator;
+import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -102,6 +104,11 @@ public class NioServer extends AbstractCoreServer implements IManagedThread {
 	private int sendBufferSize = 0;
 	private String serverBusyMessage;
 	private long maxIdleTime = DEFAULT_MAX_IDLE_TIME;
+	/** Property: the most time (ms) a frame may take to arrive once it has started, 0 = no limit */
+	public static final String PROPERTY_FRAME_TIMEOUT = "FrameTimeout";
+	private volatile long frameTimeout = -1;
+	//  The client address of each connection, to give back its per-client place
+	private final Map<Long, InetAddress> clientAddresses = new ConcurrentHashMap<Long, InetAddress>();
 	private int reactorCount = DEFAULT_REACTOR_COUNT;
 	private int initialInputBuffer = NioConnection.DEFAULT_INITIAL_INPUT_BUFFER;
 	private int maxInputBuffer = NioConnection.DEFAULT_MAX_INPUT_BUFFER;
@@ -321,16 +328,26 @@ public class NioServer extends AbstractCoreServer implements IManagedThread {
 	 */
 	protected void handleNewConnection(SocketChannel sc) {
 		boolean acquired = false;
+		InetAddress acquiredFor = null;
 		NioConnection conn = null;
 		try {
 			sc.configureBlocking(false);
-			if( !tryAcquireConnection() ) {
-				logInfo("Rejecting connection from "+sc.getRemoteAddress()+", "+getActiveConnections()+" clients active (max="+getMaxConnections()+")");
+			InetAddress client = sc.getRemoteAddress() instanceof InetSocketAddress
+					? ((InetSocketAddress)sc.getRemoteAddress()).getAddress() : null;
+			if( !isClientAllowed(client) ) {
+				logInfo("Refusing connection from "+client+": not in "+PROPERTY_ALLOWED_CLIENTS);
+				IoUtils.closeQuietly(sc);
+				return;
+			}
+			if( !tryAcquireConnection(client) ) {
+				logInfo("Rejecting connection from "+sc.getRemoteAddress()+", "+getActiveConnections()+" clients active (max="+getMaxConnections()
+						+"), "+getClientConnections(client)+" from this address (max="+getMaxConnectionsPerClient()+")");
 				rejectBusy(sc);
 				IoUtils.closeQuietly(sc);
 				return;
 			}
 			acquired = true;
+			acquiredFor = client;
 			sc.setOption(StandardSocketOptions.TCP_NODELAY, isTcpNoDelay());
 			sc.setOption(StandardSocketOptions.SO_KEEPALIVE, isKeepAlive());
 			if( sendBufferSize > 0 ) {
@@ -344,6 +361,10 @@ public class NioServer extends AbstractCoreServer implements IManagedThread {
 			}
 			conn = new NioConnection(sc, reactor, this, handler, decoderFactory.get(), 
 					handlerExecutor, initialInputBuffer, maxInputBuffer, maxIdleTime, this::createSSLEngine, isSecure());
+			conn.setFrameTimeout(getFrameTimeout());
+			if( client != null ) {
+				clientAddresses.put(conn.getId(), client);
+			}
 			connections.put(conn.getId(), conn);
 			NioConnection accepted = conn;
 			logDebug(() -> "Accepted "+accepted);
@@ -355,7 +376,7 @@ public class NioServer extends AbstractCoreServer implements IManagedThread {
 				conn.close();
 			} else {
 				if( acquired ) {
-					releaseConnection();
+					releaseConnection(acquiredFor);
 				}
 				IoUtils.closeQuietly(sc);
 			}
@@ -403,7 +424,7 @@ public class NioServer extends AbstractCoreServer implements IManagedThread {
 		if( connectionObject instanceof NioConnection ) {
 			NioConnection conn = (NioConnection) connectionObject;
 			if( connections.remove(conn.getId(), conn) ) {
-				releaseConnection();
+				releaseConnection(clientAddresses.remove(conn.getId()));
 			}
 		}
 	}
@@ -495,6 +516,23 @@ public class NioServer extends AbstractCoreServer implements IManagedThread {
 	 */
 	public void setServerBusyMessage(String serverBusyMessage) {
 		this.serverBusyMessage = serverBusyMessage;
+	}
+
+	/**
+	 * @return the most time (ms) a frame may take to arrive once its first byte is here, 0 for
+	 *  no limit (the {@value #PROPERTY_FRAME_TIMEOUT} property). A peer that trickles a frame one
+	 *  byte at a time is never idle; this closes it.
+	 */
+	public long getFrameTimeout() {
+		if( frameTimeout < 0 ) {
+			frameTimeout = Math.max(0, getIntProperty(PROPERTY_FRAME_TIMEOUT, 0));
+		}
+		return frameTimeout;
+	}
+
+	/** @param milliSeconds see {@link #getFrameTimeout()}; applies to connections accepted after this */
+	public void setFrameTimeout(long milliSeconds) {
+		frameTimeout = Math.max(0, milliSeconds);
 	}
 
 	public long getMaxIdleTime() {

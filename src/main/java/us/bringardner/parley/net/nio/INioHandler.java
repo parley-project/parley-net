@@ -65,6 +65,14 @@ public interface INioHandler {
 	}
 
 	/**
+	 * The deadline set with {@link INioConnection#setDeadline(long)} has passed. Called once
+	 * per deadline. The default closes the connection.
+	 */
+	public default void onDeadline(INioConnection connection) throws Exception {
+		connection.close();
+	}
+
+	/**
 	 * Something failed (I/O, decoding or a handler method). The connection is closed after this.
 	 */
 	public default void onError(INioConnection connection, Throwable error) {
