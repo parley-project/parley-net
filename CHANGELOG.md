@@ -54,6 +54,9 @@ then are below, with the renames first.
 
 ### Added
 
+- `client.UpstreamHealth`: what a client knows about one upstream server: smoothed response time
+  and the timeout it suggests, failures in a row, an exponential hold-off with probing while every
+  server is held off, and `order`/`soonest` to choose among several. From parley-dns (`ServerA`).
 - `NioServer.setServerChannel(channel)`: serve a channel the caller has already bound (to know the
   port before the server starts, or an inherited channel) instead of opening one at start.
 
