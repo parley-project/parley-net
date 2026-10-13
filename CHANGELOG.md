@@ -35,6 +35,10 @@ then are below, with the renames first.
 
 ### Fixed
 
+- `Server` ignored `BindAddress` / `setBindAddr`: it always listened on every interface, so a server
+  meant for this machine only (an admin port, say) could be reached from the network. `NioServer`
+  already used it.
+
 - **STARTTLS / AUTH TLS used a new TLS context for every upgrade (BJL-38).** `getSSLContext(name)`
   switched the server's protocol to the name the client sent, built a context and switched back:
   the server's main context was thrown away each time, no session could be resumed (so FTP data
@@ -49,6 +53,10 @@ then are below, with the renames first.
   client doesn't hold on to its carrier thread on Java 21-23 (BJL-55).
 
 ### Added
+
+- `AbstractCommandProcessor.replyLineTooLong(max)`: a request line over the connection's limit is
+  now answered (default `500 Line too long (max N bytes)`; a protocol overrides it for its own
+  reply) before the session ends. It used to end without a reply.
 
 - **Limits per client** (from parley-core): `MaxConnectionsPerClient` caps the connections one client
   address may have, so a single host can't take every place under `MaxConnections` /
