@@ -21,9 +21,26 @@ import us.bringardner.parley.net.server.Server;
 import us.bringardner.parley.net.server.Server.VirtualThreads;
 
 /**
- * BJL-51: Server.setVirtualThreads(OFF | ON | AUTO) decides what runs each session. The tests
- * use bjl_core's multi-release jar, so on JDK 21+ ON gives virtual threads and on JDK 11 it
+ * Server.setVirtualThreads(OFF | ON | AUTO) decides what runs each session. The tests
+ * use parley-core's multi-release jar, so on JDK 21+ ON gives virtual threads and on JDK 11 it
  * quietly stays on platform threads.
+ *
+ * <PRE>
+ * Copyright 1998-2026 <A href="http://bringardner.us/tony">Tony Bringardner</A>
+ *
+ *
+ *   Licensed under the Apache License, Version 2.0 (the "License");
+ *   you may not use this file except in compliance with the License.
+ *   You may obtain a copy of the License at
+ *
+ *       <A href="http://www.apache.org/licenses/LICENSE-2.0">http://www.apache.org/licenses/LICENSE-2.0</A>
+ *
+ *   Unless required by applicable law or agreed to in writing, software
+ *   distributed under the License is distributed on an "AS IS" BASIS,
+ *   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *   See the License for the specific language governing permissions and
+ *   limitations under the License.
+ *  </PRE>
  */
 public class TestVirtualThreads {
 
@@ -107,8 +124,8 @@ public class TestVirtualThreads {
 
 	/**
 	 * The point of it: many open sessions without a platform thread each. On Java 21-23 this
-	 * stalled with bjl_io 1.0.0: every idle session pinned a carrier thread in the synchronized
-	 * readLine, so the server stopped answering once there were as many sessions as CPUs (BJL-55).
+	 * stalled with a synchronized reader: every idle session pinned a carrier thread in the synchronized
+	 * readLine, so the server stopped answering once there were as many sessions as CPUs.
 	 */
 	@Test
 	public void manySessionsFewPlatformThreads() throws Exception {

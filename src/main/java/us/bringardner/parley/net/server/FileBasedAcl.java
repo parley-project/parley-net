@@ -35,6 +35,23 @@ import us.bringardner.parley.io.IoUtils;
  * java -cp ... us.bringardner.parley.net.server.FileBasedAcl mySecret
  * </pre>
  * which prints a value like {PBKDF2}210000:salt:hash to paste into the password field.
+ *
+ * <PRE>
+ * Copyright 1998-2026 <A href="http://bringardner.us/tony">Tony Bringardner</A>
+ *
+ *
+ *   Licensed under the Apache License, Version 2.0 (the "License");
+ *   you may not use this file except in compliance with the License.
+ *   You may obtain a copy of the License at
+ *
+ *       <A href="http://www.apache.org/licenses/LICENSE-2.0">http://www.apache.org/licenses/LICENSE-2.0</A>
+ *
+ *   Unless required by applicable law or agreed to in writing, software
+ *   distributed under the License is distributed on an "AS IS" BASIS,
+ *   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *   See the License for the specific language governing permissions and
+ *   limitations under the License.
+ *  </PRE>
  */
 public class FileBasedAcl extends BaseObject implements IAccessControlList {
 
@@ -49,7 +66,7 @@ public class FileBasedAcl extends BaseObject implements IAccessControlList {
 	/*
 	 * Each PBKDF2 hash takes a few hundred ms of CPU by design. Unlimited, a burst of login
 	 * attempts (wrong passwords or made-up user names cost the same) uses every core and slows
-	 * every transfer and session. So only a few run at once; the rest wait their turn (BJL-40).
+	 * every transfer and session. So only a few run at once; the rest wait their turn.
 	 */
 	/** System property: how many password hashes may run at once (default: half the cores, at least 1) */
 	public static final String PROP_MAX_CONCURRENT_HASHES = "FileBasedAcl.maxConcurrentHashes";

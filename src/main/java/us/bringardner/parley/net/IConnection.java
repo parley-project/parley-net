@@ -1,7 +1,7 @@
 /**
  * <PRE>
  * 
- * Copyright Tony Bringarder 1998, 2025 <A href="http://bringardner.com/tony">Tony Bringardner</A>
+ * Copyright 1998-2026 <A href="http://bringardner.us/tony">Tony Bringardner</A>
  * 
  *
  *   Licensed under the Apache License, Version 2.0 (the "License");
@@ -21,7 +21,6 @@
  *	@author Tony Bringardner   
  *
  *
- * ~version~V000.00.01-V000.00.00-
  */
 /**
  * 
@@ -97,7 +96,7 @@ public interface IConnection extends ILineReader, ILineWriter {
 
 	/**
 	 * Write several lines and flush once, so they go out together (one write, one TCP segment
-	 * or TLS record when they fit) instead of one per line (BJL-41).
+	 * or TLS record when they fit) instead of one per line.
 	 * @param lines the lines, without line ends
 	 * @throws IOException if the connection fails
 	 */

@@ -21,7 +21,6 @@
  *	@author Tony Bringardner
  *
  *
- * ~version~V000.00.01-V000.00.00-
  */
 package us.bringardner.parley.net.nio;
 
@@ -60,7 +59,7 @@ import us.bringardner.parley.net.server.Server;
  * try (NioClient client = new NioClient()) {
  *     client.setDecoderFactory(LineFrameDecoder::new);
  *     INioConnection con = client.connectAndWait("localhost", 2222, new MyHandler());
- *     con.writeLine("SSH-2.0-BjlSsh_1.0");
+ *     con.writeLine("SSH-2.0-ParleySsh_1.0");
  *     ...
  * }
  * </pre>

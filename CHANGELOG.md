@@ -2,8 +2,51 @@
 
 ## parley-net 1.0.0 (unreleased)
 
-BjlNetFramework is now **parley-net**, part of the Parley library family. The code is the same
-as BjlNetFramework 1.1.0 (below); only names changed.
+BjlNetFramework is now **parley-net**, part of the Parley library family. It continues from
+BjlNetFramework 1.0.1 (see [BjlNetFramework history](#bjlnetframework-history)); the changes since
+then are below, with the renames first.
+
+### Changed (needs a code change)
+
+- Maven coordinates: `us.bringardner:bjl_net_framework` is now `us.bringardner.parley:parley-net`.
+- Packages: `us.bringardner.net.framework` (and `.client`, `.server`, `.nio`) is now
+  `us.bringardner.parley.net`.
+- Module name (`Automatic-Module-Name`): `us.bringardner.parley.net` (none was set before).
+- Property names that start with a class name change with the package, for example
+  `us.bringardner.net.framework.server.Server.<name>` is now `us.bringardner.parley.net.server.Server.<name>`.
+- Dependencies: `bjl_core` and `bjl_io` are now `parley-core` and `parley-io`.
+- **Sessions run on virtual threads by default on Java 24 and later.** The `VirtualThreads`
+  default is now AUTO (it was OFF): virtual threads where blocking I/O no longer pins a carrier
+  thread (JEP 491), platform threads on Java 11-23, so nothing changes there. A server that must
+  keep a platform thread per session on Java 24+ calls `setVirtualThreads(OFF)` or sets the
+  `VirtualThreads` property to `OFF`.
+
+### Changed (may need a code change)
+
+- `Server.getSSLContext(name)` accepts only TLS or SSL mechanism names (`TLS`, `SSL`, `TLS-C`,
+  `TLS-P`, `TLSv1.3` ...); anything else throws `IOException`. The name no longer selects a TLS
+  version: use the socket's enabled protocols (for example `SecureBaseObject.PROPERTY_FORCE_TLS_VERSION`).
+- `doAdmin()` (the idle connection check) runs on the server's scheduler thread instead of between
+  accepts. A subclass that overrides it now runs on that thread.
+- Under a burst of logins, a password check can fail after waiting `hashWaitMs` for its turn (the
+  client can retry), instead of every login slowing every session.
+- `Connection`'s TLS upgrade and `Client.setTrustAllCertificates(true)` use `bjl_core`'s `TlsSockets`
+  and `TrustAllCertificates`. Behaviour is unchanged.
+
+### Fixed
+
+- **STARTTLS / AUTH TLS used a new TLS context for every upgrade (BJL-38).** `getSSLContext(name)`
+  switched the server's protocol to the name the client sent, built a context and switched back:
+  the server's main context was thrown away each time, no session could be resumed (so FTP data
+  connections couldn't resume the control session), and another thread could get the wrong context
+  during the switch. Every upgrade now uses the server's one context.
+- **Without an access control provider, every command took the server lock** to look the provider
+  property up again and logged "No access control defined" (BJL-42). It is now looked up and logged once.
+- **TLS sessions ended with a `user_canceled` alert** before `close_notify` (Java's close of a TLS 1.3
+  socket), which GnuTLS clients such as FileZilla and lftp report as a fatal error (BJL-2). Only
+  `close_notify` is sent now.
+- The connection's write lock is a lock, not `synchronized`, so a virtual thread flushing to a slow
+  client doesn't hold on to its carrier thread on Java 21-23 (BJL-55).
 
 ### Added
 
@@ -25,30 +68,6 @@ as BjlNetFramework 1.1.0 (below); only names changed.
   (`-PLUS`) is not offered.
   `SaslClients` creates the client side of the password mechanisms by name and picks one from
   what a server offers, in the caller's order of preference.
-
-### Changed (needs a code change)
-
-- Maven coordinates: `us.bringardner:bjl_net_framework` is now `us.bringardner.parley:parley-net`.
-- Packages: `us.bringardner.net.framework` (and `.client`, `.server`, `.nio`) is now
-  `us.bringardner.parley.net`.
-- Module name (`Automatic-Module-Name`): `us.bringardner.parley.net` (none was set before).
-- Property names that start with a class name change with the package, for example
-  `us.bringardner.net.framework.server.Server.<name>` is now `us.bringardner.parley.net.server.Server.<name>`.
-- Dependencies: `bjl_core` and `bjl_io` are now `parley-core` and `parley-io`.
-- **Sessions run on virtual threads by default on Java 24 and later.** The `VirtualThreads`
-  default is now AUTO (it was OFF): virtual threads where blocking I/O no longer pins a carrier
-  thread (JEP 491), platform threads on Java 11-23, so nothing changes there. A server that must
-  keep a platform thread per session on Java 24+ calls `setVirtualThreads(OFF)` or sets the
-  `VirtualThreads` property to `OFF`.
-
-## 1.1.0 (unreleased)
-
-Requires `bjl_core` 1.3.1 and `bjl_io` 1.1.0 (published to GitHub Packages; the pom now names the
-repository, so a build no longer needs it in `~/.m2/settings.xml`). Nothing is removed or
-incompatible; see Changed for behaviour to be aware of.
-
-### Added
-
 - **A non-blocking (NIO) framework, package `nio` (preview: the API may still change).** For
   protocols where both ends send at any time or many channels share one connection (SSH, WebSocket,
   MQTT...), and for many connections on Java 11-20 without a thread each. `NioServer` (an
@@ -94,21 +113,6 @@ incompatible; see Changed for behaviour to be aware of.
 - **Keep-alive.** Accepted sockets get SO_KEEPALIVE when `bjl_core`'s `KeepAlive` setting is on
   (`setKeepAlive(true)`, default off), so clients that vanish without closing are noticed.
 
-### Fixed
-
-- **STARTTLS / AUTH TLS used a new TLS context for every upgrade (BJL-38).** `getSSLContext(name)`
-  switched the server's protocol to the name the client sent, built a context and switched back:
-  the server's main context was thrown away each time, no session could be resumed (so FTP data
-  connections couldn't resume the control session), and another thread could get the wrong context
-  during the switch. Every upgrade now uses the server's one context.
-- **Without an access control provider, every command took the server lock** to look the provider
-  property up again and logged "No access control defined" (BJL-42). It is now looked up and logged once.
-- **TLS sessions ended with a `user_canceled` alert** before `close_notify` (Java's close of a TLS 1.3
-  socket), which GnuTLS clients such as FileZilla and lftp report as a fatal error (BJL-2). Only
-  `close_notify` is sent now.
-- The connection's write lock is a lock, not `synchronized`, so a virtual thread flushing to a slow
-  client doesn't hold on to its carrier thread on Java 21-23 (BJL-55).
-
 ### Deprecated
 
 - `Server.getSSLContext(protocol, algorithm, keyStoreType, password, keyFile)`: set the key store on the
@@ -116,17 +120,9 @@ incompatible; see Changed for behaviour to be aware of.
   `bjl_core` `SecureBaseObject`. It now does the latter itself instead of loading the key store with its
   own code; the result is the same.
 
-### Changed (may need a code change)
+## BjlNetFramework history
 
-- `Server.getSSLContext(name)` accepts only TLS or SSL mechanism names (`TLS`, `SSL`, `TLS-C`,
-  `TLS-P`, `TLSv1.3` ...); anything else throws `IOException`. The name no longer selects a TLS
-  version: use the socket's enabled protocols (for example `SecureBaseObject.PROPERTY_FORCE_TLS_VERSION`).
-- `doAdmin()` (the idle connection check) runs on the server's scheduler thread instead of between
-  accepts. A subclass that overrides it now runs on that thread.
-- Under a burst of logins, a password check can fail after waiting `hashWaitMs` for its turn (the
-  client can retry), instead of every login slowing every session.
-- `Connection`'s TLS upgrade and `Client.setTrustAllCertificates(true)` use `bjl_core`'s `TlsSockets`
-  and `TrustAllCertificates`. Behaviour is unchanged.
+Releases made before the library became parley-net, as `us.bringardner:bjl_net_framework` (BjlNetFramework).
 
 ## 1.0.1
 

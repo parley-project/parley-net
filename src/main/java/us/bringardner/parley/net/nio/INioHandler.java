@@ -21,7 +21,6 @@
  *	@author Tony Bringardner
  *
  *
- * ~version~V000.00.01-V000.00.00-
  */
 package us.bringardner.parley.net.nio;
 

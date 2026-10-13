@@ -1,7 +1,7 @@
 /**
  * <PRE>
  * 
- * Copyright Tony Bringarder 1998, 2025 <A href="http://bringardner.com/tony">Tony Bringardner</A>
+ * Copyright 1998-2026 <A href="http://bringardner.us/tony">Tony Bringardner</A>
  * 
  *
  *   Licensed under the Apache License, Version 2.0 (the "License");
@@ -21,7 +21,6 @@
  *	@author Tony Bringardner   
  *
  *
- * ~version~V000.00.01-V000.00.00-
  */
 package us.bringardner.parley.net.server;
 /**
@@ -233,7 +232,7 @@ public abstract  class AbstractCommandProcessor extends AbstractProcessor implem
 	/**
 	 * Send several reply lines with one flush, e.g. a multi-line reply ("211-...", ...,
 	 * "211 End"): they go out together instead of one TCP segment / TLS record per line
-	 * (BJL-41). The caller formats the lines.
+	 * The caller formats the lines.
 	 * @param lines the reply lines
 	 */
 	public void reply(java.util.List<String> lines) throws IOException {

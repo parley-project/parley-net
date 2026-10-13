@@ -1,7 +1,7 @@
 /**
  * <PRE>
  * 
- * Copyright Tony Bringarder 1998, 2025 <A href="http://bringardner.com/tony">Tony Bringardner</A>
+ * Copyright 1998-2026 <A href="http://bringardner.us/tony">Tony Bringardner</A>
  * 
  *
  *   Licensed under the Apache License, Version 2.0 (the "License");
@@ -21,7 +21,6 @@
  *	@author Tony Bringardner   
  *
  *
- * ~version~V000.00.02-V000.00.01-V000.00.00-
  */
 package us.bringardner.parley.net.server;
 
@@ -100,14 +99,14 @@ public class Server extends AbstractCoreServer implements IServer {
 
 	/**
 	 * Threads started for a session with {@link #startTask(IProcessor, BaseThread)}, by session
-	 * (BJL-59). A session's entry exists from the time it is accepted until removeClient().
+	 *. A session's entry exists from the time it is accepted until removeClient().
 	 */
 	private final Map<IProcessor, java.util.Set<BaseThread>> sessionTasks = new ConcurrentHashMap<IProcessor, java.util.Set<BaseThread>>();
 	private final AtomicInteger taskNumber = new AtomicInteger();
 	/** How long the stopping server waits for session tasks to end, see {@link #setTaskStopWait(long)}. */
 	public static final long DEFAULT_TASK_STOP_WAIT = 5000;
 	private volatile long taskStopWait = DEFAULT_TASK_STOP_WAIT;
-	/** One daemon platform thread per running server for scheduled work (BJL-59). */
+	/** One daemon platform thread per running server for scheduled work. */
 	private volatile ScheduledThreadPoolExecutor scheduler;
 	/** Sessions that have to log in within LoginTimeLimit, and the check that closes them */
 	private final Map<IProcessor, ScheduledFuture<?>> loginTimers = new ConcurrentHashMap<IProcessor, ScheduledFuture<?>>();
@@ -126,20 +125,20 @@ public class Server extends AbstractCoreServer implements IServer {
 	/**
 	 * True once the access control property has been looked at and named no provider, so
 	 * every command doesn't take the server lock, look the property up again and log
-	 * "No access control defined" (BJL-42). Cleared by setAccessControl.
+	 * "No access control defined". Cleared by setAccessControl.
 	 */
 	private volatile boolean noAccessControl;
 	private String serverGreating;
 
 	/**
-	 * Which threads run the sessions (BJL-51). OFF: platform threads. ON: virtual
+	 * Which threads run the sessions. OFF: platform threads. ON: virtual
 	 * threads where the JVM has them (Java 21+), platform threads otherwise. AUTO: virtual
 	 * threads on Java 24 and later only ({@link BaseThread#isVirtualRecommended()}).
 	 * <p>
-	 * ON is fine on Java 21-23 with bjl_io 1.0.1 or later: sessions wait for commands in a
-	 * line reader that uses a lock. (bjl_io 1.0.0's reader was synchronized, and on 21-23 a
-	 * virtual thread blocked inside a monitor pins its carrier thread, so the server stopped
-	 * answering once there were as many idle sessions as CPUs; BJL-55.) Commands that block on
+	 * ON is fine on Java 21-23: sessions wait for commands in a parley-io line reader that
+	 * uses a lock. (A synchronized reader would not do: on 21-23 a virtual thread blocked
+	 * inside a monitor pins its carrier thread, so the server stopped answering once there
+	 * were as many idle sessions as CPUs.) Commands that block on
 	 * I/O inside their own synchronized code still pin a carrier thread while they do on 21-23;
 	 * Java 24 fixed that (JEP 491), which is why AUTO starts at 24.
 	 */
@@ -250,7 +249,7 @@ public class Server extends AbstractCoreServer implements IServer {
 	private static final Pattern TLS_MECHANISM = Pattern.compile("(?i)(TLS|SSL)([-_V].*)?");
 
 	/**
-	 * The TLS context for a STARTTLS / AUTH style upgrade of a connection (BJL-38).
+	 * The TLS context for a STARTTLS / AUTH style upgrade of a connection.
 	 * <p>
 	 * The name the client sends (AUTH TLS, AUTH SSL, TLS-C, STARTTLS...) means "start TLS"; it
 	 * does not choose a TLS version. A JSSE server context accepts the same versions whatever
@@ -341,7 +340,7 @@ public class Server extends AbstractCoreServer implements IServer {
 	 * @throws IOException if the file is missing, the password is wrong or the context can't be made
 	 * @deprecated set the key store on the server instead ({@code setKeyStoreFileName},
 	 *  {@code setKeyStorePassword}, {@code setKeyStoreType}, {@code setAlgorithm}, {@code setProtocol})
-	 *  and use {@link #getSSLContext()}, or configure a bjl_core SecureBaseObject. This now does
+	 *  and use {@link #getSSLContext()}, or configure a parley-core SecureBaseObject. This now does
 	 *  exactly that instead of loading the key store with its own code.
 	 */
 	@Deprecated
@@ -521,7 +520,7 @@ public class Server extends AbstractCoreServer implements IServer {
 				if( socket != null ) {
 					handleNewConnection(socket);
 				}
-				// doAdmin() runs on the server's scheduler (BJL-59), not here between accepts
+				// doAdmin() runs on the server's scheduler, not here between accepts
 			}
 
 			//  We're done so close the serverSocket and exit.
@@ -626,7 +625,7 @@ public class Server extends AbstractCoreServer implements IServer {
 		}
 	}
 
-	//  Overrides bjl_core's AbstractCoreServer (which defaults to false): this server defaults to true
+	//  Overrides parley-core's AbstractCoreServer (which defaults to false): this server defaults to true
 	@Override
 	public boolean isTcpNoDelay() {
 		return tcpNoDelay;
@@ -692,7 +691,7 @@ public class Server extends AbstractCoreServer implements IServer {
 			}
 
 			if( isKeepAlive() ) {
-				// KeepAlive property (bjl_core, default false): notice clients that vanish without closing
+				// KeepAlive property (parley-core, default false): notice clients that vanish without closing
 				try {
 					socket.setKeepAlive(true);
 				} catch (SocketException e) {
@@ -724,7 +723,7 @@ public class Server extends AbstractCoreServer implements IServer {
 			}
 
 			if( proc instanceof BaseThread ) {
-				// Explicit either way, so bjl_core's own default doesn't apply to sessions (BJL-51)
+				// Explicit either way, so parley-core's own default doesn't apply to sessions
 				((BaseThread) proc).setVirtual(isUsingVirtualThreads());
 			}
 			activeClients.put(socket,proc);
@@ -776,7 +775,7 @@ public class Server extends AbstractCoreServer implements IServer {
 
 	}
 
-	// ------------------------------------------------------------------ session tasks (BJL-59)
+	// ------------------------------------------------------------------ session tasks
 
 	/**
 	 * Start a thread that belongs to a session, so the server manages it: it runs on the same
@@ -928,7 +927,7 @@ public class Server extends AbstractCoreServer implements IServer {
 		this.taskStopWait = Math.max(0, milliSeconds);
 	}
 
-	// ------------------------------------------------------------------ scheduler (BJL-59)
+	// ------------------------------------------------------------------ scheduler
 
 	private void startScheduler() {
 		ScheduledThreadPoolExecutor exec = new ScheduledThreadPoolExecutor(1, new NamedThreadFactory(getName()+"-scheduler"));
@@ -1210,7 +1209,7 @@ public class Server extends AbstractCoreServer implements IServer {
 		if( loginTimer != null ) {
 			loginTimer.cancel(false);
 		}
-		// The session is over: so are the threads it started (BJL-59)
+		// The session is over: so are the threads it started
 		stopTasks(sessionTasks.remove(processor));
 		// Fast path, the connection's current socket is usually the key.
 		IConnection con = processor.getConnection();
@@ -1303,7 +1302,7 @@ public class Server extends AbstractCoreServer implements IServer {
 							throw new IllegalStateException("Fatal Error! Can't configure access control class='"+tmp,e);
 						}
 					} else {
-						// remembered and logged once (BJL-42)
+						// remembered and logged once
 						noAccessControl = true;
 						logInfo("No access control defined in server "+getName());
 					}

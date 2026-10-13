@@ -21,7 +21,6 @@
  *	@author Tony Bringardner
  *
  *
- * ~version~V000.00.01-V000.00.00-
  */
 package us.bringardner.parley.net.nio;
 
@@ -71,7 +70,7 @@ import us.bringardner.parley.net.server.Server;
  * handler executor if one is set (use one when handlers block: authentication,
  * file I/O, starting processes...).
  * <p>
- * Like every BJL server it extends bjl_core's AbstractCoreServer, so the same properties 
+ * Like every Parley server it extends parley-core's AbstractCoreServer, so the same properties 
  * configure it (Port, BindAddress, Backlog, KeepAlive, TcpNoDelay, MaxConnections, the key 
  * store settings of SecureBaseObject...), and the server attributes are shared by all connections.
  * <p>

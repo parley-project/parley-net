@@ -1,7 +1,7 @@
 /**
  * <PRE>
  * 
- * Copyright Tony Bringarder 1998, 2025 <A href="http://bringardner.com/tony">Tony Bringardner</A>
+ * Copyright 1998-2026 <A href="http://bringardner.us/tony">Tony Bringardner</A>
  * 
  *
  *   Licensed under the Apache License, Version 2.0 (the "License");
@@ -21,7 +21,6 @@
  *	@author Tony Bringardner   
  *
  *
- * ~version~V000.00.01-V000.00.00-
  */
 package us.bringardner.parley.net.server;
 
@@ -141,7 +140,7 @@ public interface IServer extends IManagedThread {
 
 	/**
 	 * Start a thread that belongs to a session so the server manages it (thread kind, name,
-	 * stopped with its session and with the server). See Server.startTask (BJL-59).
+	 * stopped with its session and with the server). See Server.startTask.
 	 * The default just starts it, for servers that don't manage tasks.
 	 */
 	default void startTask(IProcessor owner, us.bringardner.parley.core.BaseThread task) {
@@ -149,14 +148,14 @@ public interface IServer extends IManagedThread {
 	}
 
 	/**
-	 * Run a task once after a delay on the server's scheduler. See Server.schedule (BJL-59).
+	 * Run a task once after a delay on the server's scheduler. See Server.schedule.
 	 */
 	default java.util.concurrent.ScheduledFuture<?> schedule(Runnable task, long delay, java.util.concurrent.TimeUnit unit) {
 		throw new UnsupportedOperationException("This server has no scheduler");
 	}
 
 	/**
-	 * Run a task periodically on the server's scheduler. See Server.scheduleAtFixedRate (BJL-59).
+	 * Run a task periodically on the server's scheduler. See Server.scheduleAtFixedRate.
 	 */
 	default java.util.concurrent.ScheduledFuture<?> scheduleAtFixedRate(Runnable task, long initialDelay, long period, java.util.concurrent.TimeUnit unit) {
 		throw new UnsupportedOperationException("This server has no scheduler");

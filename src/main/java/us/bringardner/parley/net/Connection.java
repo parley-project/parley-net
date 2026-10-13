@@ -1,7 +1,7 @@
 /**
  * <PRE>
  * 
- * Copyright Tony Bringarder 1998, 2025 <A href="http://bringardner.com/tony">Tony Bringardner</A>
+ * Copyright 1998-2026 <A href="http://bringardner.us/tony">Tony Bringardner</A>
  * 
  *
  *   Licensed under the Apache License, Version 2.0 (the "License");
@@ -21,7 +21,6 @@
  *	@author Tony Bringardner   
  *
  *
- * ~version~V000.00.02-V000.00.01-V000.00.00-
  */
 package us.bringardner.parley.net;
 
@@ -278,7 +277,7 @@ public abstract class Connection extends BaseObject implements IConnection {
 			/*
 			 * End the TLS session with just a close_notify (RFC 8446 section 6.1). Java's
 			 * close() of a TLS 1.3 socket sends a user_canceled alert first, which GnuTLS
-			 * peers (FileZilla, lftp) report as a fatal alert (BJL-2).
+			 * peers (FileZilla, lftp) report as a fatal alert.
 			 */
 			try {
 				ILineWriter w = writer;
@@ -396,7 +395,7 @@ public abstract class Connection extends BaseObject implements IConnection {
 	public final void writeLines(java.util.List<String> lines) throws IOException {
 		ILineWriter w = openWriter();
 		// A lock, not synchronized: the flush can block on a slow client, and on Java 21-23 a
-		// virtual thread blocked inside a monitor pins its carrier thread (BJL-55)
+		// virtual thread blocked inside a monitor pins its carrier thread
 		writeLinesLock.lock();
 		try {
 			boolean autoFlush = w.isAutoFlush();

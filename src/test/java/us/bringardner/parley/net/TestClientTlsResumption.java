@@ -25,7 +25,7 @@ import us.bringardner.parley.net.client.DynamicTrustManager.CertificateValidator
 import us.bringardner.parley.net.client.ICommandResponse;
 
 /**
- * Clients that reconnect resume their TLS session (BJL-39).
+ * Clients that reconnect resume their TLS session.
  * <p>
  * Every Client used to have its own TLS context and rebuilt it on each negotiation, so every
  * connection was a full handshake.
@@ -33,8 +33,25 @@ import us.bringardner.parley.net.client.ICommandResponse;
  * A resumed session keeps the creation time of the session it resumes (TLS 1.2 and 1.3), so
  * sessions with the same creation time came from one full handshake. This used to count the
  * server's key lookups instead, but JDK 25 looks the key up on resumed handshakes too, so it
- * reported 3 full handshakes where there was 1 (BJL-54; javax.net.debug shows one server
+ * reported 3 full handshakes where there was 1 (javax.net.debug shows one server
  * Certificate message on both JDK 21 and 25).
+ *
+ * <PRE>
+ * Copyright 1998-2026 <A href="http://bringardner.us/tony">Tony Bringardner</A>
+ *
+ *
+ *   Licensed under the Apache License, Version 2.0 (the "License");
+ *   you may not use this file except in compliance with the License.
+ *   You may obtain a copy of the License at
+ *
+ *       <A href="http://www.apache.org/licenses/LICENSE-2.0">http://www.apache.org/licenses/LICENSE-2.0</A>
+ *
+ *   Unless required by applicable law or agreed to in writing, software
+ *   distributed under the License is distributed on an "AS IS" BASIS,
+ *   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *   See the License for the specific language governing permissions and
+ *   limitations under the License.
+ *  </PRE>
  */
 public class TestClientTlsResumption {
 

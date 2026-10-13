@@ -38,13 +38,30 @@ import us.bringardner.parley.net.ServerTestSupport.TestServer;
 import us.bringardner.parley.net.server.ICommand;
 
 /**
- * Server.getSSLContext(String) (BJL-38): every STARTTLS / AUTH upgrade uses the server's one
+ * Server.getSSLContext(String): every STARTTLS / AUTH upgrade uses the server's one
  * TLS context, whatever name the client sends, so sessions can be resumed across connections.
  * <p>
  * It used to switch the server's protocol to the requested name and back, building a new
  * context each time: with a configured protocol (TLSv1.3) that differs from the name clients
  * send ("TLS"), no connection could resume another's session, and concurrent callers could get
  * the wrong context.
+ *
+ * <PRE>
+ * Copyright 1998-2026 <A href="http://bringardner.us/tony">Tony Bringardner</A>
+ *
+ *
+ *   Licensed under the Apache License, Version 2.0 (the "License");
+ *   you may not use this file except in compliance with the License.
+ *   You may obtain a copy of the License at
+ *
+ *       <A href="http://www.apache.org/licenses/LICENSE-2.0">http://www.apache.org/licenses/LICENSE-2.0</A>
+ *
+ *   Unless required by applicable law or agreed to in writing, software
+ *   distributed under the License is distributed on an "AS IS" BASIS,
+ *   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *   See the License for the specific language governing permissions and
+ *   limitations under the License.
+ *  </PRE>
  */
 public class TestServerSslContext {
 

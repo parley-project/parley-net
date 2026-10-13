@@ -21,7 +21,6 @@
  *	@author Tony Bringardner
  *
  *
- * ~version~V000.00.01-V000.00.00-
  */
 package us.bringardner.parley.net.nio;
 
@@ -98,7 +97,7 @@ final class TlsLayer {
 	}
 
 	/**
-	 * A client engine for a host, set up by bjl_core's TlsSockets (SNI unless the host is an 
+	 * A client engine for a host, set up by parley-core's TlsSockets (SNI unless the host is an 
 	 * address, and the host name check when verifyHostname is true), as the blocking 
 	 * framework sets up its client sockets.
 	 * 

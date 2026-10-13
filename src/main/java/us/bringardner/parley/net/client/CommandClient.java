@@ -1,7 +1,7 @@
 /**
  * <PRE>
  * 
- * Copyright Tony Bringarder 1998, 2025 <A href="http://bringardner.com/tony">Tony Bringardner</A>
+ * Copyright 1998-2026 <A href="http://bringardner.us/tony">Tony Bringardner</A>
  * 
  *
  *   Licensed under the Apache License, Version 2.0 (the "License");
@@ -21,7 +21,6 @@
  *	@author Tony Bringardner   
  *
  *
- * ~version~V000.00.01-V000.00.00-
  */
 package us.bringardner.parley.net.client;
 
@@ -52,7 +51,7 @@ public class CommandClient extends Client implements ICommandClient {
 	public static final int MAX_PIPELINED = 64;
 
 	/**
-	 * Pipelining (BJL-43): sends the commands together, with one flush per batch of at most
+	 * Pipelining: sends the commands together, with one flush per batch of at most
 	 * {@link #MAX_PIPELINED}, then reads one reply per command in order. Each command costs a
 	 * round trip with {@link #executeCommand(String)}; a batch costs one. Use it only for
 	 * commands the server lets a client send before the previous reply (for SMTP: when EHLO
@@ -66,7 +65,7 @@ public class CommandClient extends Client implements ICommandClient {
 		java.util.List<ICommandResponse> ret = new java.util.ArrayList<>(commands.size());
 		for (int from = 0; from < commands.size(); from += MAX_PIPELINED) {
 			java.util.List<String> batch = commands.subList(from, Math.min(commands.size(), from + MAX_PIPELINED));
-			// one write and flush for the batch (Connection.writeLines, BJL-41)
+			// one write and flush for the batch (Connection.writeLines)
 			writeLines(batch);
 			for (int idx = 0; idx < batch.size(); idx++) {
 				ICommandResponse resp = getCommandResponseFactory().getCommandResponse();

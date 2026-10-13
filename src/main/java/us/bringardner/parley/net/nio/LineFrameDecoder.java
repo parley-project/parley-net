@@ -21,7 +21,6 @@
  *	@author Tony Bringardner
  *
  *
- * ~version~V000.00.01-V000.00.00-
  */
 package us.bringardner.parley.net.nio;
 
@@ -33,7 +32,7 @@ import us.bringardner.parley.io.LineTooLongException;
 
 /**
  * Splits the input into lines ending in LF or CR LF. The frames don't include the line end.
- * A line over the limit throws bjl_io's LineTooLongException, as the framework's line readers do.
+ * A line over the limit throws parley-io's LineTooLongException, as the framework's line readers do.
  *
  * @author Tony Bringardner
  */
