@@ -133,10 +133,10 @@ public class UpstreamHealth {
 
 	/** The request started at start was answered: the hold-off ends. */
 	public void succeeded(long start) {
-		long rtt = Math.max(1, System.currentTimeMillis()-start);
+		long rtt = Math.max(0, System.currentTimeMillis()-start);
 		totalResponseTime.addAndGet(rtt);
 		answered.incrementAndGet();
-		recordRtt(rtt);
+		recordRtt(Math.max(1, rtt));
 		consecutiveFailures.set(0);
 		inactiveUntil = 0;
 	}
@@ -271,8 +271,13 @@ public class UpstreamHealth {
 		int size = list.size();
 		if( size > 1 ) {
 			Collections.rotate(list, -Math.floorMod(rotation, size));
+			//  The times are read once: other threads change them while this sorts
+			java.util.IdentityHashMap<T, Long> srtt = new java.util.IdentityHashMap<T, Long>();
+			for(T t : list) {
+				srtt.put(t, health.apply(t).getSrtt());
+			}
 			//  stable sort: the rotation decides among equal response times
-			list.sort(Comparator.comparingLong(t -> health.apply(t).getSrtt()));
+			list.sort(Comparator.comparingLong(srtt::get));
 		}
 		return list;
 	}
