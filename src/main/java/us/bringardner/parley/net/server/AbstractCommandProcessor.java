@@ -99,6 +99,15 @@ public abstract  class AbstractCommandProcessor extends AbstractProcessor implem
 			} catch(SocketTimeoutException e) {
 				//  Idle, keep waiting. Server.doAdmin closes connections that are idle too long.
 				continue;
+			} catch(us.bringardner.parley.io.LineTooLongException e) {
+				//  The rest of the line can't be trusted: the session ends, after telling the client
+				try {
+					replyLineTooLong(e.getMaxLineLength());
+				} catch(IOException ignore) {
+					// the client is gone
+				}
+				logDebug("Line longer than "+e.getMaxLineLength()+" bytes, closing");
+				break;
 			} catch(IOException e) {
 				if( !isClosed(con) && !stopping ) {
 					logError("Error reading request",e);
@@ -183,6 +192,17 @@ public abstract  class AbstractCommandProcessor extends AbstractProcessor implem
 				reply(IGenericResponseCode.REPLY_500_GENERIC_ERROR, command.getName()+" not authorized");
 			}
 		}
+	}
+
+	/**
+	 * A request line was longer than the connection's limit
+	 * ({@link us.bringardner.parley.net.Connection#setMaxLineLength(int)}); the session ends after
+	 * this. The default sends a generic 500; a protocol overrides it for its own reply (SMTP 500
+	 * "Line too long", IMAP BAD...).
+	 * @param maxLineLength the limit that was exceeded
+	 */
+	protected void replyLineTooLong(int maxLineLength) throws IOException {
+		reply(IGenericResponseCode.REPLY_500_GENERIC_ERROR, "Line too long (max "+maxLineLength+" bytes)");
 	}
 
 	/**

@@ -124,6 +124,44 @@ public class TestServerLimits {
 		}
 	}
 
+	/** A non-loopback IPv4 address of this machine, or null */
+	private static java.net.InetAddress otherLocalAddress() throws Exception {
+		for(java.net.NetworkInterface ni : java.util.Collections.list(java.net.NetworkInterface.getNetworkInterfaces())) {
+			if( !ni.isUp() || ni.isLoopback() ) {
+				continue;
+			}
+			for(java.net.InetAddress a : java.util.Collections.list(ni.getInetAddresses())) {
+				if( a instanceof java.net.Inet4Address && !a.isLoopbackAddress() ) {
+					return a;
+				}
+			}
+		}
+		return null;
+	}
+
+	@Test
+	public void testBindAddressIsUsed() throws Exception {
+		java.net.InetAddress other = otherLocalAddress();
+		org.junit.jupiter.api.Assumptions.assumeTrue(other != null, "no non-loopback address to test with");
+		TestServer svr = ServerTestSupport.create("BindServer", ServerTestSupport.standardCommands(), null);
+		svr.setBindAddr(java.net.InetAddress.getLoopbackAddress());
+		ServerTestSupport.start(svr);
+		try {
+			try (CommandClient ok = ServerTestSupport.connect(svr)) {
+				assertEcho(ok);
+			}
+			//  the bind address used to be ignored: the server listened on every interface
+			try (java.net.Socket s = new java.net.Socket()) {
+				s.connect(new java.net.InetSocketAddress(other, svr.getLocalPort()), 2000);
+				org.junit.jupiter.api.Assertions.fail("connected on "+other+" to a server bound to loopback");
+			} catch (IOException expected) {
+				// refused
+			}
+		} finally {
+			ServerTestSupport.stop(svr);
+		}
+	}
+
 	@Test
 	public void testIdleConnectionsClosed() throws Exception {
 		TestServer svr = ServerTestSupport.start(ServerTestSupport.create("IdleServer", ServerTestSupport.standardCommands(), null));

@@ -564,11 +564,13 @@ public class Server extends AbstractCoreServer implements IServer {
 			ret = factory.createServerSocket();
 		} catch (SocketException e) {
 			// This factory can't create unbound sockets
-			return factory.createServerSocket(getPort(), getBacklog());
+			return factory.createServerSocket(getPort(), getBacklog(), getBindAddr());
 		}
 		try {
 			ret.setReuseAddress(isReuseAddress());
-			ret.bind(new InetSocketAddress(getPort()), getBacklog());
+			// The BindAddress property / setBindAddr (null: every address) was ignored
+			// here, so a server meant for loopback only listened on every interface
+			ret.bind(new InetSocketAddress(getBindAddr(), getPort()), getBacklog());
 		} catch (IOException e) {
 			IoUtils.closeQuietly(ret);
 			throw e;
