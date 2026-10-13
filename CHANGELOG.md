@@ -54,6 +54,9 @@ then are below, with the renames first.
 
 ### Added
 
+- `NioServer.setServerChannel(channel)`: serve a channel the caller has already bound (to know the
+  port before the server starts, or an inherited channel) instead of opening one at start.
+
 - `AbstractCommandProcessor.replyLineTooLong(max)`: a request line over the connection's limit is
   now answered (default `500 Line too long (max N bytes)`; a protocol overrides it for its own
   reply) before the session ends. It used to end without a reply.
