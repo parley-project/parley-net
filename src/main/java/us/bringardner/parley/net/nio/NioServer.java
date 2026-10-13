@@ -104,6 +104,8 @@ public class NioServer extends AbstractCoreServer implements IManagedThread {
 	private int sendBufferSize = 0;
 	private String serverBusyMessage;
 	private long maxIdleTime = DEFAULT_MAX_IDLE_TIME;
+	//  setServerChannel: a channel bound by the caller, for the next start
+	private volatile ServerSocketChannel boundChannel;
 	/** Property: the most time (ms) a frame may take to arrive once it has started, 0 = no limit */
 	public static final String PROPERTY_FRAME_TIMEOUT = "FrameTimeout";
 	private volatile long frameTimeout = -1;
@@ -260,16 +262,24 @@ public class NioServer extends AbstractCoreServer implements IManagedThread {
 			getSSLContext();
 		}
 		acceptSelector = Selector.open();
-		ServerSocketChannel ch = ServerSocketChannel.open();
-		serverChannel = ch;
-		ch.configureBlocking(false);
-		// set before binding so a restart doesn't fail while the old port is in TIME_WAIT
-		ch.setOption(StandardSocketOptions.SO_REUSEADDR, reuseAddress);
-		if( receiveBufferSize > 0 ) {
-			// set before binding so it applies to the window of accepted sockets
-			ch.setOption(StandardSocketOptions.SO_RCVBUF, receiveBufferSize);
+		ServerSocketChannel ch = boundChannel;
+		boundChannel = null;
+		if( ch != null ) {
+			// Bound by the caller (setServerChannel): its address and options are the caller's
+			serverChannel = ch;
+			ch.configureBlocking(false);
+		} else {
+			ch = ServerSocketChannel.open();
+			serverChannel = ch;
+			ch.configureBlocking(false);
+			// set before binding so a restart doesn't fail while the old port is in TIME_WAIT
+			ch.setOption(StandardSocketOptions.SO_REUSEADDR, reuseAddress);
+			if( receiveBufferSize > 0 ) {
+				// set before binding so it applies to the window of accepted sockets
+				ch.setOption(StandardSocketOptions.SO_RCVBUF, receiveBufferSize);
+			}
+			ch.bind(new InetSocketAddress(getBindAddr(), getPort()), getBacklog());
 		}
-		ch.bind(new InetSocketAddress(getBindAddr(), getPort()), getBacklog());
 		ch.register(acceptSelector, SelectionKey.OP_ACCEPT);
 
 		int count = Math.max(1, reactorCount);
@@ -430,6 +440,17 @@ public class NioServer extends AbstractCoreServer implements IManagedThread {
 	}
 
 	// ------------------------------------------------------------------ properties
+
+	/**
+	 * Serve connections from a channel that is already bound, instead of opening one on
+	 * Port / BindAddress at start: e.g. when the caller has to know the port before the
+	 * server runs, or was handed the channel (an inherited channel). The server owns it
+	 * from then on and closes it when it stops. Used by the next start only.
+	 * @param channel a bound ServerSocketChannel
+	 */
+	public void setServerChannel(ServerSocketChannel channel) {
+		boundChannel = channel;
+	}
 
 	/**
 	 * @return the port the server is listening on (useful when the port was 0), or -1 if not bound.

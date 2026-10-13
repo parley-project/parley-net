@@ -341,4 +341,22 @@ public class NioHardeningTest {
 			assertTrue(closed || closedByServer(s), "the TLS connection was still open");
 		}
 	}
+
+	@Test
+	public void aChannelBoundBeforeStartIsServed() throws Exception {
+		java.nio.channels.ServerSocketChannel ch = java.nio.channels.ServerSocketChannel.open();
+		ch.bind(new java.net.InetSocketAddress(LOOPBACK, 0));
+		int port = ((java.net.InetSocketAddress)ch.getLocalAddress()).getPort();
+		start(Echo::new);
+		server.setServerChannel(ch);
+		server.startAndWait(5000);
+		assertEquals(port, server.getLocalPort());
+		try(Socket s = new Socket(LOOPBACK, port)) {
+			s.setSoTimeout(5000);
+			assertEquals(2, roundTrip(s, new byte[] {4, 2}).length);
+		}
+		server.stop(5000, false);
+		assertTrue(!ch.isOpen(), "the server closes the channel it was given");
+		server = null;
+	}
 }
