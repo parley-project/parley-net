@@ -200,6 +200,27 @@ public interface INioConnection extends Closeable {
 	 */
 	public Map<String,Object> getAttributes();
 
+	/**
+	 * Set a deadline: once it passes, the handler's {@link INioHandler#onDeadline} is called
+	 * (which closes the connection unless the handler overrides it). Use it for anything that
+	 * must happen within a time limit however much traffic there is, e.g. logging in, or
+	 * finishing a request. The idle time can't do that: any byte resets it.
+	 * <p>
+	 * The reactor checks deadlines with its idle checks, about once a second by default
+	 * ({@link NioReactor#setIdleCheckInterval}), so they fire up to that much late.
+	 *
+	 * @param milliSeconds from now; 0 or less clears the deadline
+	 */
+	public void setDeadline(long milliSeconds);
+
+	/** Clear the deadline (same as setDeadline(0)). */
+	public default void clearDeadline() {
+		setDeadline(0);
+	}
+
+	/** @return when the deadline passes (System.currentTimeMillis() time), 0 if none is set */
+	public long getDeadline();
+
 	public long getBytesIn();
 	public long getBytesOut();
 	public long getConnectTime();

@@ -50,6 +50,22 @@ then are below, with the renames first.
 
 ### Added
 
+- **Limits per client** (from parley-core): `MaxConnectionsPerClient` caps the connections one client
+  address may have, so a single host can't take every place under `MaxConnections` /
+  `setMaxClients`, and `AllowedClients` lists the addresses allowed to connect; others are closed as
+  soon as they are accepted. `Server` and `NioServer` both apply them. Both default to no limit.
+- **NIO deadlines**: `INioConnection.setDeadline(ms)` / `clearDeadline()` and
+  `INioHandler.onDeadline` (default: close), for things that must happen in time however much
+  traffic there is, such as logging in. Checked with the idle checks (about once a second).
+- **NIO frame time limit**: `NioServer.setFrameTimeout(ms)` (property `FrameTimeout`, default 0 =
+  none) closes a connection whose frame doesn't arrive in time once it has started. A client sending
+  one byte at a time is never idle, so the idle time alone let it hold a connection for ever.
+- `LengthFieldFrameDecoder.frame(payload, lengthFieldSize)`, for 1 and 2 byte lengths (DNS over TCP
+  uses 2).
+- `FatalErrorHandler` (from parley-dns): logs every thread that dies from an uncaught error and, when
+  installed with halting on, stops the process on a `VirtualMachineError` (OutOfMemoryError...) so a
+  supervisor can start a clean one.
+
 - **Session states**: `StateMachine` (a session's state as an enum, optionally with the legal
   moves) and `IStatefulCommand` (the states a command is valid in). `AbstractCommandProcessor`
   checks them before running a command when the processor returns a machine from

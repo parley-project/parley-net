@@ -116,6 +116,11 @@ public class NioConnection extends BaseObject implements INioConnection {
 	private volatile boolean connected;
 	private volatile boolean readingPaused;
 	private volatile boolean idleNotified;
+	//  setDeadline: when it passes (0 = none)
+	private volatile long deadline;
+	//  The frame time limit (0 = none), and since when an incomplete frame has waited (0 = none)
+	private volatile long frameTimeout;
+	private volatile long partialSince;
 	// The peer closed its side, stop selecting OP_READ (EOF stays readable)
 	private volatile boolean inputShutdown;
 
@@ -543,11 +548,50 @@ public class NioConnection extends BaseObject implements INioConnection {
 		flush();
 	}
 
+	@Override
+	public void setDeadline(long milliSeconds) {
+		deadline = milliSeconds > 0 ? System.currentTimeMillis()+milliSeconds : 0;
+	}
+
+	@Override
+	public long getDeadline() {
+		return deadline;
+	}
+
+	/**
+	 * @param milliSeconds the most time a frame may take to arrive once its first byte is
+	 *  here, 0 for no limit. A peer that sends a frame one byte at a time is never idle, but
+	 *  it doesn't get a whole frame in either: it is closed.
+	 */
+	void setFrameTimeout(long milliSeconds) {
+		frameTimeout = Math.max(0, milliSeconds);
+	}
+
+	long getFrameTimeout() {
+		return frameTimeout;
+	}
+
 	/**
 	 * Called periodically by the reactor.
 	 */
 	void checkIdle(long now) {
-		if( maxIdleTime <= 0 || idleNotified || !connected || closed.get() ) {
+		if( !connected || closed.get() ) {
+			return;
+		}
+		long d = deadline;
+		if( d > 0 && now >= d ) {
+			deadline = 0;
+			logDebug(() -> "Connection "+id+" passed its deadline");
+			dispatch(() -> handler.onDeadline(this));
+		}
+		long p = partialSince;
+		long ft = frameTimeout;
+		if( ft > 0 && p > 0 && now-p > ft ) {
+			logDebug(() -> "Connection "+id+": a frame took more than "+ft+" ms, closing");
+			close();
+			return;
+		}
+		if( maxIdleTime <= 0 || idleNotified ) {
 			return;
 		}
 		long last = Math.max(getLastReadTime(), getLastWriteTime());
@@ -1002,6 +1046,16 @@ public class NioConnection extends BaseObject implements INioConnection {
 				readIndex = view.position();
 				if( frame == null || readIndex > in.capacity()/2 ) {
 					compact();
+				}
+				if( frame != null ) {
+					partialSince = 0;
+				} else if( in.position() > readIndex ) {
+					//  Part of a frame is here: the frame time limit runs from now
+					if( partialSince == 0 ) {
+						partialSince = System.currentTimeMillis();
+					}
+				} else {
+					partialSince = 0;
 				}
 				// Room the reactor needs to go on reading: one byte, or a whole TLS record
 				TlsLayer t = tls;
