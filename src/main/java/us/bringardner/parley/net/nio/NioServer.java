@@ -442,9 +442,6 @@ public class NioServer extends AbstractCoreServer implements IManagedThread {
 	// ------------------------------------------------------------------ properties
 
 	/**
-	 * @return the port the server is listening on (useful when the port was 0), or -1 if not bound.
-	 */
-	/**
 	 * Serve connections from a channel that is already bound, instead of opening one on
 	 * Port / BindAddress at start: e.g. when the caller has to know the port before the
 	 * server runs, or was handed the channel (an inherited channel). The server owns it
@@ -455,6 +452,9 @@ public class NioServer extends AbstractCoreServer implements IManagedThread {
 		boundChannel = channel;
 	}
 
+	/**
+	 * @return the port the server is listening on (useful when the port was 0), or -1 if not bound.
+	 */
 	public int getLocalPort() {
 		ServerSocketChannel ch = serverChannel;
 		if( ch != null ) {
