@@ -72,6 +72,11 @@ and a token that has the `read:packages` scope.
 | `CommandClient` | Connects, sends a command, reads the reply. |
 | `SingleCommandResponse` / `MultiLineCommandResponse` | Parse `250 text` or `250-...` / `250 last` replies. |
 | `DynamicTrustManager` | Decides which server certificates to trust. |
+| `UpstreamHealth` | Tracks one upstream server (a name server, a relay, a mirror): smoothed response time, hold-off after repeated failures, probing when all are down. |
+
+| Both | |
+|---|---|
+| `FatalErrorHandler` | Logs errors that kill a thread; on a JVM error (`OutOfMemoryError`) halts the process so a supervisor restarts it. |
 
 ## A minimal echo server and client
 
@@ -254,8 +259,29 @@ in time whatever the traffic (logging in, say), a handler sets `connection.setDe
 `onDeadline` is called when it passes (the default closes the connection) and `clearDeadline()`
 cancels it. Both are checked about once a second.
 
+**A channel you bound yourself.** `setServerChannel(channel)` serves an already bound
+`ServerSocketChannel` (when the caller needs the port before the server runs, or was handed the
+channel) instead of opening one on Port / BindAddress; the server closes it when it stops.
+
 For request / response protocols (FTP, SMTP, POP3) the blocking `Server` is simpler, and with
 virtual threads (Java 21+) it serves many idle sessions just as cheaply.
+
+## Upstream servers and fatal errors
+
+`client.UpstreamHealth` is for a client that picks among several servers. Call `started()` before a
+request and `succeeded(start)` or `failed(start)` after it. Each server keeps a smoothed response time
+(a failure counts as a slow answer) and, after more than `maxTries` failures in a row, is held off for
+`minHoldOff` ms, doubling up to `maxHoldOff`; any answer ends the hold-off. `timeoutFor(remaining)`
+gives a timeout of about twice the response time. `UpstreamHealth.order(servers, health, rotation)`
+sorts servers fastest first (untried ones first, so they get measured), and when every server is held
+off, `soonest(servers, health)` plus `tryProbe()` lets one through at most once per `probeInterval`, so
+recovery follows the servers, not the hold-off timer. The limits come from a `Policy`
+(`UpstreamHealth.SimplePolicy` has setters).
+
+`FatalErrorHandler.install(true)` in a server's `main()` logs any error that kills a thread and, on a
+`VirtualMachineError`, stops the process at once (`Runtime.halt(1)`) for the supervisor (systemd,
+launchd, a container runtime) to restart. `install(false)` only logs, for applications that embed a
+server; `getThreadDeaths()` counts them.
 
 ## Configuration
 
@@ -272,6 +298,8 @@ virtual threads (Java 21+) it serves many idle sessions just as cheaply.
 | Client connect time-out | 30 s | `client.setConnectTimeout(ms)` or the `connectTimeout` property |
 | TCP_NODELAY | on | `setTcpNoDelay(false)` on `Server` or `Client` |
 | SO_REUSEADDR | on | `Server.setReuseAddress(false)` |
+| Listen address | every address | `setBindAddr(address)` or the `BindAddress` property (`Server` and `NioServer`) |
+| Reply to a too-long line | `500 Line too long` | override `AbstractCommandProcessor.replyLineTooLong(max)` for the protocol's own reply; the session then ends |
 
 Properties are looked up with `BaseObject.getProperty` from `parley-core`: first
 `<fully qualified class name>.<name>`, then `<name>`, as system properties or in class-named
