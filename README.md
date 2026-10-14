@@ -224,8 +224,6 @@ factory and `evaluateChallenge` for each server challenge.
 
 ## Non-blocking (NIO)
 
-*Preview: the API may still change.*
-
 The `us.bringardner.parley.net.nio` package serves many connections from a few selector
 threads instead of a thread per connection. Nothing blocks: input arrives as frames, writes are
 queued.
