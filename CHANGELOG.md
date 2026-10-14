@@ -100,7 +100,7 @@ then are below, with the renames first.
   (`-PLUS`) is not offered.
   `SaslClients` creates the client side of the password mechanisms by name and picks one from
   what a server offers, in the caller's order of preference.
-- **A non-blocking (NIO) framework, package `nio` (preview: the API may still change).** For
+- **A non-blocking (NIO) framework, package `nio`.** For
   protocols where both ends send at any time or many channels share one connection (SSH, WebSocket,
   MQTT...), and for many connections on Java 11-20 without a thread each. `NioServer` (an
   `AbstractCoreServer`, configured by the same properties) accepts on a non-blocking channel and

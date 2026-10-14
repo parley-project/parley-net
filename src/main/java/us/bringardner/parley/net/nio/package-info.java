@@ -13,8 +13,6 @@
  * Use it for protocols where both ends send at any time or many channels share a connection
  * (SSH, WebSocket...). For request / response protocols the blocking
  * {@link us.bringardner.parley.net.server.Server} is simpler.
- * <p>
- * Preview: the API may still change.
  *
  * <PRE>
  * Copyright 1998-2026 <A href="http://bringardner.us/tony">Tony Bringardner</A>
