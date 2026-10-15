@@ -12,8 +12,8 @@ connection, such as SSH), the `nio` package has a non-blocking server and client
 [Non-blocking (NIO)](#non-blocking-nio).
 
 - Java 11 or later
-- Depends on [`parley-core`](https://github.com/tony-bringardner/parley-core) and
-  [`parley-io`](https://github.com/tony-bringardner/parley-io)
+- Depends on [`parley-core`](https://github.com/parley-project/parley-core) and
+  [`parley-io`](https://github.com/parley-project/parley-io)
 - Apache License 2.0
 
 ## Installation
@@ -41,15 +41,15 @@ GitHub Packages needs authentication even for public packages. Add the repositor
 <repositories>
     <repository>
         <id>github</id>
-        <url>https://maven.pkg.github.com/tony-bringardner/parley-net</url>
+        <url>https://maven.pkg.github.com/parley-project/parley-net</url>
     </repository>
     <repository>
         <id>github-core</id>
-        <url>https://maven.pkg.github.com/tony-bringardner/parley-core</url>
+        <url>https://maven.pkg.github.com/parley-project/parley-core</url>
     </repository>
     <repository>
         <id>github-io</id>
-        <url>https://maven.pkg.github.com/tony-bringardner/parley-io</url>
+        <url>https://maven.pkg.github.com/parley-project/parley-io</url>
     </repository>
 </repositories>
 ```
