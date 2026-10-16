@@ -113,6 +113,7 @@ public class TestPrincipalsAndValues {
 	}
 
 	@Test
+	@SuppressWarnings("unlikely-arg-type") // equals() with a String must be false
 	public void testPermissionValueObject() {
 		assertEquals(A, new Permission("A"));
 		assertEquals(A.hashCode(), new Permission("A").hashCode());

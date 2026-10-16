@@ -186,6 +186,8 @@ public class NioReactor extends BaseThread implements IManagedThread {
 		}
 	}
 
+	// conn belongs to the key and stays open after this method; it is closed by fail() or by its owner
+	@SuppressWarnings("resource")
 	private void handle(SelectionKey key) {
 		Object att = key.attachment();
 		if( !(att instanceof NioConnection) ) {

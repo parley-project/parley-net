@@ -1,6 +1,6 @@
 # Changelog
 
-## parley-net 1.0.0 (unreleased)
+## parley-net 1.0.0 (2026-10-16)
 
 BjlNetFramework is now **parley-net**, part of the Parley library family. It continues from
 BjlNetFramework 1.0.1 (see [BjlNetFramework history](#bjlnetframework-history)); the changes since

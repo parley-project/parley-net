@@ -54,12 +54,13 @@ public class TestDeprecatedNames {
 	}
 
 	@Test
-	public void testClientSeparator() {
-		CommandClient client = new CommandClient();
-		client.setSeperator("::");
-		assertEquals("::", client.getSeparator());
-		client.setSeparator("|");
-		assertEquals("|", client.getSeperator());
+	public void testClientSeparator() throws Exception {
+		try (CommandClient client = new CommandClient()) {
+			client.setSeperator("::");
+			assertEquals("::", client.getSeparator());
+			client.setSeparator("|");
+			assertEquals("|", client.getSeperator());
+		}
 	}
 
 	@Test

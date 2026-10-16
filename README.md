@@ -19,7 +19,7 @@ connection, such as SSH), the `nio` package has a non-blocking server and client
 ## Installation
 
 parley-net is part of **Parley**, a family of Java libraries for implementing internet
-protocols. It is published to GitHub Packages (and, once released there, Maven Central):
+protocols. It is on Maven Central, so no extra repository is needed:
 
 ```xml
 <dependency>
@@ -33,29 +33,6 @@ protocols. It is published to GitHub Packages (and, once released there, Maven C
 > packages under `us.bringardner.net.framework`. Moving over means changing the dependency and
 > replacing `us.bringardner.net.framework` with `us.bringardner.parley.net` in imports and in
 > property names that start with a class name.
-
-GitHub Packages needs authentication even for public packages. Add the repositories
-(this project and its two dependencies) to your `pom.xml`:
-
-```xml
-<repositories>
-    <repository>
-        <id>github</id>
-        <url>https://maven.pkg.github.com/parley-project/parley-net</url>
-    </repository>
-    <repository>
-        <id>github-core</id>
-        <url>https://maven.pkg.github.com/parley-project/parley-core</url>
-    </repository>
-    <repository>
-        <id>github-io</id>
-        <url>https://maven.pkg.github.com/parley-project/parley-io</url>
-    </repository>
-</repositories>
-```
-
-Then add a matching `<server>` for each id to `~/.m2/settings.xml`, with your GitHub user name
-and a token that has the `read:packages` scope.
 
 ## How it fits together
 

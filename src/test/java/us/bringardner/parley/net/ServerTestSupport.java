@@ -5,6 +5,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.UncheckedIOException;
+import java.nio.file.Files;
 import java.security.KeyStore;
 import java.security.cert.X509Certificate;
 import java.util.HashMap;
@@ -81,6 +83,7 @@ public class ServerTestSupport {
 		void execute(ICommandProcessor processor, IRequestContext context) throws IOException;
 	}
 
+	@SuppressWarnings("serial") // never serialized
 	public static ICommand command(String name, boolean requiresAuthorization, CommandBody body) {
 		return new ICommand() {
 			@Override
@@ -264,15 +267,26 @@ public class ServerTestSupport {
 		return tmf.getTrustManagers();
 	}
 
+	private static File testHome;
+
 	/**
-	 * DynamicTrustManager saves approvals in ${user.home}/.bjlTructed. 
-	 * Point user.home at target/test-home so tests never touch the real file.
+	 * DynamicTrustManager saves approvals in ${user.home}/.bjlTructed.
+	 * Point user.home at a temporary directory so tests never touch the real file. The directory
+	 * is new for each test run (so approvals saved by an earlier run can't leak in), shared by all
+	 * the tests in this run, and left in place afterwards so it can be inspected; the OS clears its
+	 * temp directory in time.
 	 * @return the test home directory
 	 */
-	public static File useTestHome() {
-		File home = new File("target", "test-home").getAbsoluteFile();
-		home.mkdirs();
-		System.setProperty("user.home", home.getPath());
-		return home;
+	public static synchronized File useTestHome() {
+		if( testHome == null ) {
+			try {
+				testHome = Files.createTempDirectory("parley-net-test-home").toFile();
+			} catch(IOException e) {
+				throw new UncheckedIOException(e);
+			}
+			System.out.println("parley-net test home: "+testHome);
+		}
+		System.setProperty("user.home", testHome.getPath());
+		return testHome;
 	}
 }

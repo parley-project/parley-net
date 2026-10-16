@@ -204,6 +204,7 @@ public class NioHardeningTest {
 	}
 
 	@Test
+	@SuppressWarnings("resource") // the sockets in 'open' are closed in the finally block
 	public void oneAddressCantTakeEveryPlace() throws Exception {
 		start(Echo::new);
 		server.setMaxConnections(10);

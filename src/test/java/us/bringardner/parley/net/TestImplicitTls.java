@@ -193,6 +193,7 @@ public class TestImplicitTls {
 	}
 
 	@Test
+	@SuppressWarnings("deprecation") // tests the deprecated getSSLContext(...) on purpose
 	public void testSslContextFromKeyFile() throws Exception {
 		String path = new File(ServerTestSupport.class.getResource(ServerTestSupport.KEYSTORE).toURI()).getPath();
 		String alg = KeyManagerFactory.getDefaultAlgorithm();
