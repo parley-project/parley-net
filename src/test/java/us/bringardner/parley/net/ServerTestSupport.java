@@ -83,7 +83,6 @@ public class ServerTestSupport {
 		void execute(ICommandProcessor processor, IRequestContext context) throws IOException;
 	}
 
-	@SuppressWarnings("serial") // never serialized
 	public static ICommand command(String name, boolean requiresAuthorization, CommandBody body) {
 		return new ICommand() {
 			@Override
