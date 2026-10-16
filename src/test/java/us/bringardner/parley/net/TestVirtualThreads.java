@@ -16,7 +16,6 @@ import us.bringardner.parley.core.BaseThread;
 import us.bringardner.parley.net.ServerTestSupport.TestServer;
 import us.bringardner.parley.net.client.CommandClient;
 import us.bringardner.parley.net.client.ICommandResponse;
-import us.bringardner.parley.net.IGenericResponseCode;
 import us.bringardner.parley.net.server.Server;
 import us.bringardner.parley.net.server.Server.VirtualThreads;
 
