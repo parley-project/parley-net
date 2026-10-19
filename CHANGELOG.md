@@ -1,5 +1,28 @@
 # Changelog
 
+## parley-net 1.1.0 (unreleased)
+
+### Added
+
+- **Locks for servers** (`us.bringardner.parley.net.lock`): locks on names (a mailbox, a maildrop, a queue entry)
+  that reach this JVM's threads and the other servers using the same stores. Now depends on parley-files 1.1.0.
+  - `Locks.open(LockOptions.sharing(Sharing.OFF | HOST | CLUSTER))`, one per JVM; `locks.domain(name, root)` for
+    each store; then `lock(name, mode, timeout)`, `tryLock(name, mode)`, `request(name)...acquire()` for every
+    option, and `Locks.lockAll(names, mode, timeout)` across domains in one order.
+  - Threads wait first come, first served, up to a timeout (`LockTimeoutException`); readers that come while a
+    writer waits queue behind it. Reentrant by default, like `synchronized`; a request or the options can ask
+    for locks that aren't. A shared holding can't be upgraded to exclusive.
+  - Kept between servers by a provider: `region` (the store's own locks; liberal) or `lease` (lease
+    directories; conservative; readers on several servers share a name), chosen from the store's capabilities
+    with `auto`, or named in the options or `parley.net.lock.provider`; others through the
+    `us.bringardner.parley.net.lock.spi` interfaces. An unsafe choice is refused unless allowed, and a server that
+    would keep a store's locks differently from the others is refused.
+  - A coordination store keeps every domain's locks in one place (`LockOptions.withCoordinationStore`).
+  - `LockDomain.claimStore(serverId)`: a server's claim on its store, alone (OFF: a second server is refused)
+    or shared (HOST, CLUSTER: refuses one that wants it alone). Servers in one JVM claim once.
+  - `AtomicWrite.replace(file, lock, writer)`: a shared file replaced through a uniquely named temporary file,
+    renamed into place (atomically where the store can) only while the lock is still held.
+
 ## parley-net 1.0.0 (2026-10-16)
 
 BjlNetFramework is now **parley-net**, part of the Parley library family. It continues from

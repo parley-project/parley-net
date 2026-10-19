@@ -258,6 +258,61 @@ recovery follows the servers, not the hold-off timer. The limits come from a `Po
 launchd, a container runtime) to restart. `install(false)` only logs, for applications that embed a
 server; `getThreadDeaths()` counts them.
 
+## Locks for servers
+
+Servers that share stores (several IMAP servers on one database, say) need locks that reach each other, and
+threads of one server need to wait their turn for a mailbox or a queue entry. `us.bringardner.parley.net.lock`
+provides both, on top of parley-files.
+
+```java
+Locks locks = Locks.open(LockOptions.sharing(Sharing.CLUSTER));   // one per JVM
+LockDomain mail = locks.domain("mail", mailRoot);                // each store the servers use
+StoreClaim claim = mail.claimStore("imap-1");                     // held while the server runs
+
+try (NamedLock l = mail.lock("tony/INBOX", Mode.EXCLUSIVE, Duration.ofSeconds(5))) {
+    ... read and change ...
+    AtomicWrite.replace(index, l, out -> write(out));             // renamed into place only if still held
+}
+```
+
+- **Among threads:** first come, first served, with a timeout (`LockTimeoutException`); shared locks admit any
+  number of readers, and a writer that waits isn't overtaken by later readers. Reentrant by default, like
+  `synchronized` (`request(name).reentrant(false)`, or `LockOptions.withReentrant(false)`, for locks that aren't).
+  `Locks.lockAll` takes names in several domains in one order (domain, then name), so callers can't deadlock.
+- **Domains:** each store is registered under a name, the same on every server. Lock names are relative to it,
+  so servers that mount a store at different paths still agree. A resource on another store (a mounted archive,
+  say) is a name in that store's domain.
+- **Among servers:** `Sharing` says how many servers use a store: `OFF` (one; its claim keeps a second out),
+  `HOST` (several on one machine) or `CLUSTER` (several anywhere). A *provider* keeps the locks between them:
+  - `region`, the liberal one: the store's own locks (FileSource region locks on one file, a one-byte region per
+    name). Fast, and a dead server's locks go with it, but only where the store's lock scope reaches every server.
+  - `lease`, the conservative one: lease directories, which need only an atomic `mkdir`. Renewed every 10 s and
+    taken over when unchanged for a whole lease (30 s); each reading server has its own entry, so readers on
+    several servers share a name. A server paused longer than its lease can lose a lock, so call
+    `NamedLock.checkValid()` (or use `AtomicWrite`) before committing.
+  - Any other, through `us.bringardner.parley.net.lock.spi.LockProvider`: found with `ServiceLoader` (by its id)
+    or named by class.
+
+  The provider comes from `LockOptions.withProvider(...)` or the `parley.net.lock.provider` system property;
+  `auto` (the default) chooses from the store's capabilities (`FileSource.getCapabilities()`): `region` where the
+  store's lock scope covers the sharing, else `lease`; a provider found with ServiceLoader that has a priority
+  above zero comes first.
+
+  | Store (capabilities) | OFF | HOST | CLUSTER |
+  |---|---|---|---|
+  | local disk (HOST scope) | region | region | lease |
+  | PostgreSQL, MySQL (CLUSTER scope) | region | region | region |
+  | FTP, SFTP, HSQLDB, memory (PROCESS scope) | lease | lease | lease |
+
+  (With `OFF`, names are locked in the JVM only; the provider keeps the store claim.)
+- **Two safety rules.** A provider whose locks wouldn't reach every server (`region` on a store whose scope is
+  too narrow) is refused unless `LockOptions.withAllowUnsafe(true)` or `parley.net.lock.allowUnsafe=true`; one
+  that can't work there at all is always refused (`LockSetupException`). And every server must keep a store's
+  locks the same way: the provider is recorded in the store's `.parley-net-locks` (`provider-<id>`), and a server
+  that would use another is refused, with what to do in the message.
+- **A coordination store:** `LockOptions.withCoordinationStore(store)` keeps every domain's locks in one store
+  every server reaches (a database, say), wherever the data is; the provider is chosen for that store.
+
 ## Configuration
 
 | Setting | Default | Where |

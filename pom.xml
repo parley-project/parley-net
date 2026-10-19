@@ -12,7 +12,7 @@
 	</parent>
 
 	<artifactId>parley-net</artifactId>
-	<version>1.0.0</version>
+	<version>1.1.0-SNAPSHOT</version>
 	<name>Parley Net</name>
 	<description>A framework for implementing network protocols, client and server: line based (FTP, SMTP, POP3, ...) on blocking sockets, and any protocol on non-blocking (NIO) channels. Formerly us.bringardner:bjl_net_framework.</description>
 
@@ -158,6 +158,13 @@
 			<artifactId>parley-io</artifactId>
 			<!-- line reader uses a lock, not synchronized (BJL-55); keeps a line interrupted by a timeout; was bjl_io -->
 			<version>1.0.0</version>
+		</dependency>
+
+		<!-- named locks for servers (us.bringardner.parley.net.lock) are built on FileSource locks -->
+		<dependency>
+			<groupId>us.bringardner.parley</groupId>
+			<artifactId>parley-files</artifactId>
+			<version>1.1.0-SNAPSHOT</version>
 		</dependency>
 
 		<dependency>
