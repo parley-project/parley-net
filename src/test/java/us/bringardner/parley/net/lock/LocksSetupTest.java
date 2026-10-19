@@ -162,6 +162,22 @@ public class LocksSetupTest {
 	}
 
 	@Test
+	public void aClosedDomainCanBeRegisteredAgain() throws Exception {
+		Locks l = locks(opts(Sharing.OFF));
+		FileSource r = MemoryRoots.newRoot();
+		LockDomain d = l.domain("d", r);
+		StoreClaim c = d.claimStore("s");
+		d.close();
+		assertTrue(!c.isValid(), "its claim went with it");
+		c.close(); // closing it afterwards does no harm
+		assertNull(l.domain("d"));
+		LockDomain again = l.domain("d", MemoryRoots.newRoot());
+		try (StoreClaim c2 = again.claimStore("s")) {
+			assertTrue(c2.isValid());
+		}
+	}
+
+	@Test
 	public void lockAllAcrossDomainsTakesThemInOneOrder() throws Exception {
 		Locks l = locks(opts(Sharing.OFF));
 		LockDomain archive = l.domain("archive", MemoryRoots.newRoot());

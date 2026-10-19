@@ -175,6 +175,11 @@ public final class Locks implements AutoCloseable {
 		return d;
 	}
 
+	/** Forget a domain (from {@link LockDomain#close()}). */
+	synchronized void remove(LockDomain d) {
+		domains.remove(d.name(), d);
+	}
+
 	/** @return the domain registered with this name, or null */
 	public synchronized LockDomain domain(String name) {
 		return domains.get(name);

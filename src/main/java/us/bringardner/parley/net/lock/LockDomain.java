@@ -222,6 +222,9 @@ public final class LockDomain {
 	}
 
 	private synchronized void releaseClaim() {
+		if( claimCount <= 0 ) {
+			return; // given up already (the domain was closed)
+		}
 		if( --claimCount == 0 ) {
 			if( serverId != null ) {
 				serverId.closeFromAnyThread();
@@ -230,6 +233,21 @@ public final class LockDomain {
 			claim.closeFromAnyThread();
 			claim = null;
 		}
+	}
+
+	/**
+	 * Unregister the domain: its services stop (leases are no longer renewed) and its name can be
+	 * registered again. Close what it holds first; holdings still open are no longer kept.
+	 */
+	public void close() {
+		synchronized (this) {
+			if( claimCount > 0 ) {
+				claimCount = 1;
+				releaseClaim();
+			}
+		}
+		locks.remove(this);
+		closeServices();
 	}
 
 	void closeServices() {
