@@ -350,9 +350,12 @@ final class LeaseLockService implements LockService {
 		FileSource f = d.getChild(OWNER);
 		try (InputStream in = f.getInputStream()) {
 			return new String(in.readAllBytes(), StandardCharsets.UTF_8);
+		} catch (java.io.FileNotFoundException | java.nio.file.NoSuchFileException missing) {
+			// not there when asked: never an error (another server may make it a moment later)
+			return d.exists() ? NO_OWNER : null;
 		} catch (IOException e) {
 			if( f.exists() ) {
-				throw e;
+				throw e; // a store that doesn't say "not found" plainly: an error only if it is there
 			}
 			return d.exists() ? NO_OWNER : null;
 		}
