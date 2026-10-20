@@ -1,6 +1,7 @@
 package us.bringardner.parley.net.lock;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
@@ -112,6 +113,23 @@ public class LocksSetupTest {
 				() -> locks(opts(Sharing.HOST).withProvider("region")).domain("d", root));
 		assertTrue(e.getMessage().contains("kept by lease") && e.getMessage().contains("provider-lease"), e.getMessage());
 		assertNotNull(locks(opts(Sharing.HOST).withProvider("lease")).domain("d", root), "the same way is fine");
+	}
+
+	@Test
+	public void providerIdsThatLookAlikeKeepApartMarkers() throws Exception {
+		assertNotEquals(ProviderMarker.encode("vendor/locks"), ProviderMarker.encode("vendor_locks"));
+		assertNotEquals(ProviderMarker.encode("a_2fb"), ProviderMarker.encode("a/b"));
+		assertEquals("vendor/locks", ProviderMarker.decode(ProviderMarker.encode("vendor/locks")));
+		FileSource dir = MemoryRoots.newRoot();
+		ProviderMarker.check(dir, null, "vendor/locks");
+		ProviderMarker.check(dir, null, "VENDOR/locks"); // ids are compared without case
+		LockSetupException e = assertThrows(LockSetupException.class, () -> ProviderMarker.check(dir, null, "vendor_locks"));
+		assertTrue(e.getMessage().contains("kept by vendor/locks"), e.getMessage());
+		// domains of one coordination store: their own markers, whatever their case
+		FileSource coordination = MemoryRoots.newRoot();
+		ProviderMarker.check(coordination, "Mail", "lease");
+		ProviderMarker.check(coordination, "mail", "region");
+		assertThrows(LockSetupException.class, () -> ProviderMarker.check(coordination, "Mail", "region"));
 	}
 
 	@Test
