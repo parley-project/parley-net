@@ -100,6 +100,31 @@ public class StoreLocksTest {
 		assertNull(s.acquireFor(top.getChild("x.txt")), "nothing registered holds it now");
 	}
 
+	/** A link in a root that leads outside it is locked by its own path in the root. */
+	@Test
+	public void aLinkLeadingOutsideIsLockedByItsOwnPath() throws Exception {
+		File outside = Files.createTempDirectory("store-locks-outside").toFile();
+		outside.deleteOnExit();
+		File target = new File(outside, "t.txt");
+		Files.write(target.toPath(), new byte[] {1});
+		try {
+			Files.createSymbolicLink(new File(top.getAbsolutePath(), "link.txt").toPath(), target.toPath());
+		} catch (UnsupportedOperationException | java.io.IOException e) {
+			org.junit.jupiter.api.Assumptions.assumeTrue(false, "no symbolic links here: " + e);
+		}
+		StoreLocks s = StoreLocks.get();
+		LockDomain d = s.acquire(top, Sharing.OFF);
+		try {
+			FileSource link = top.getChild("link.txt");
+			LockDomain held = s.acquireFor(link);
+			assertSame(d, held);
+			assertEquals("file/link.txt", StoreLocks.fileLockName(d, link));
+			s.release(held);
+		} finally {
+			s.release(d);
+		}
+	}
+
 	@Test
 	public void theLockDirectoryIsKnown() throws Exception {
 		StoreLocks s = StoreLocks.get();

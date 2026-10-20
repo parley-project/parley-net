@@ -116,6 +116,9 @@ public final class StoreLocks {
 	 */
 	public synchronized LockDomain acquireFor(FileSource f) throws IOException {
 		LockDomain d = deepest(key(f));
+		if( d == null ) {
+			d = deepestAbsolute(absoluteKey(f)); // a link in a root that leads outside it
+		}
 		if( d != null ) {
 			users.merge(d, 1, Integer::sum);
 		}
@@ -134,6 +137,20 @@ public final class StoreLocks {
 			}
 		}
 		return false;
+	}
+
+	/** As deepest, by the paths as given (links not resolved). */
+	private LockDomain deepestAbsolute(String key) throws IOException {
+		LockDomain best = null;
+		int bestLen = -1;
+		for (LockDomain d : domains.values()) {
+			String root = absoluteKey(d.root());
+			if( within(key, root) && root.length() > bestLen ) {
+				best = d;
+				bestLen = root.length();
+			}
+		}
+		return best;
 	}
 
 	private LockDomain deepest(String key) {
@@ -155,17 +172,31 @@ public final class StoreLocks {
 
 	/**
 	 * A file's lock name in a domain: {@code file/} and its path from the domain's root, the same on
-	 * every server whatever the root's path there.
+	 * every server whatever the root's path there. The path is the file's real one (links
+	 * resolved); for a link in the root that leads outside it, the link's own.
 	 * @throws IllegalArgumentException if the file isn't under the domain's root
 	 */
 	public static String fileLockName(LockDomain d, FileSource f) throws IOException {
 		String root = key(d.root());
 		String key = key(f);
 		if( !within(key, root) ) {
-			throw new IllegalArgumentException(key + " isn't under " + root);
+			root = absoluteKey(d.root());
+			key = absoluteKey(f);
+			if( !within(key, root) ) {
+				throw new IllegalArgumentException(key + " isn't under " + root);
+			}
 		}
 		String rel = key.length() > root.length() ? key.substring(root.length() + (root.endsWith("/") ? 0 : 1)) : "";
 		return "file/" + rel;
+	}
+
+	/** A file's path as given (links not resolved), with '/'. */
+	static String absoluteKey(FileSource f) {
+		String key = f.getAbsolutePath().replace('\\', '/');
+		while( key.length() > 1 && key.endsWith("/") ) {
+			key = key.substring(0, key.length() - 1);
+		}
+		return key;
 	}
 
 	/** A file's path as this class compares them: canonical (links resolved), with '/'. */
