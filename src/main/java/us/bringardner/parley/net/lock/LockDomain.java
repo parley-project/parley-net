@@ -192,7 +192,13 @@ public final class LockDomain {
 						: "The store " + root.getAbsolutePath() + " is claimed by a server that doesn't share it");
 			}
 			if( sharing != Sharing.OFF ) {
-				NamedLock id = claimLock(Locks.SERVER + serverId, Mode.EXCLUSIVE, wait);
+				NamedLock id;
+				try {
+					id = claimLock(Locks.SERVER + serverId, Mode.EXCLUSIVE, wait);
+				} catch (IOException | RuntimeException | Error e) {
+					c.closeFromAnyThread(); // interrupted, or the store failed: don't keep the store's lock
+					throw e;
+				}
 				if( id == null ) {
 					c.closeFromAnyThread();
 					throw new StoreClaimException("Another running server of " + root.getAbsolutePath() + " has the id " + serverId);

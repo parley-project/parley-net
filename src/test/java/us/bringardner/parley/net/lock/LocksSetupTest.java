@@ -8,6 +8,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.File;
+import java.io.IOException;
 import java.nio.file.Files;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -128,6 +129,16 @@ public class LocksSetupTest {
 			assertTrue(TestProviders.InMemory.held("x"), "the provider was asked");
 		}
 		assertTrue(!TestProviders.InMemory.held("x"), "and told when it was let go");
+	}
+
+	@Test
+	public void aClaimThatFailsHalfWayKeepsNothing() throws Exception {
+		LockDomain d = locks(opts(Sharing.CLUSTER).withProvider(TestProviders.FailsOnServerId.class.getName())).domain("d",
+				MemoryRoots.newRoot());
+		IOException e = assertThrows(IOException.class, () -> d.claimStore("a"));
+		assertEquals("the store failed", e.getMessage());
+		assertTrue(TestProviders.FailsOnServerId.HELD.stream().noneMatch(n -> n.endsWith(Locks.STORE)),
+				"the store's lock was let go: " + TestProviders.FailsOnServerId.HELD);
 	}
 
 	@Test

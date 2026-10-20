@@ -79,4 +79,54 @@ public final class TestProviders {
 			};
 		}
 	}
+
+	/** Locks in a static set, but the store "fails" when a server id is asked for. */
+	public static final class FailsOnServerId implements LockProvider {
+		static final Set<String> HELD = ConcurrentHashMap.newKeySet();
+
+		@Override
+		public String id() {
+			return "fails-on-server-id-test";
+		}
+
+		@Override
+		public Fit fit(FileSourceCapabilities capabilities, Sharing sharing) {
+			return Fit.SAFE;
+		}
+
+		@Override
+		public LockService open(LockContext context) {
+			return new LockService() {
+				@Override
+				public LockHandle tryAcquire(String name, Mode mode) throws java.io.IOException {
+					if( name.contains(Locks.SERVER) ) {
+						throw new java.io.IOException("the store failed");
+					}
+					if( !HELD.add(name) ) {
+						return null;
+					}
+					return new LockHandle() {
+						@Override
+						public boolean isValid() {
+							return HELD.contains(name);
+						}
+
+						@Override
+						public String toString() {
+							return name;
+						}
+					};
+				}
+
+				@Override
+				public void release(LockHandle h) {
+					HELD.remove(h.toString());
+				}
+
+				@Override
+				public void close() {
+				}
+			};
+		}
+	}
 }
