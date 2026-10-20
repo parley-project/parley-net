@@ -81,8 +81,12 @@ public final class NamedLock implements AutoCloseable {
 		closeFromAnyThread();
 	}
 
-	/** Let go from whatever thread: for holdings owned by the framework (the store claim). */
-	void closeFromAnyThread() {
+	/**
+	 * Let go from whatever thread, for work that the thread that took the lock started and another
+	 * thread finishes (an FTP upload, whose data arrives on a transfer thread, say). Otherwise as
+	 * {@link #close()}. Closing twice does nothing more.
+	 */
+	public void closeFromAnyThread() {
 		synchronized (entry) {
 			if( closed ) {
 				return;

@@ -4,6 +4,9 @@
 
 ### Added
 
+- `StoreLocks`: this JVM's lock domains for file servers (FTP, SFTP), one per served root, nested roots sharing
+  one, with file lock names from the domain's root and `isLockFile` to keep clients out of the lock directory.
+  `NamedLock.closeFromAnyThread()` is public, for work that ends on another thread.
 - **Locks for servers** (`us.bringardner.parley.net.lock`): locks on names (a mailbox, a maildrop, a queue entry)
   that reach this JVM's threads and the other servers using the same stores. Now depends on parley-files 1.1.0.
   - `Locks.open(LockOptions.sharing(Sharing.OFF | HOST | CLUSTER))`, one per JVM; `locks.domain(name, root)` for

@@ -315,6 +315,13 @@ try (NamedLock l = mail.lock("tony/INBOX", Mode.EXCLUSIVE, Duration.ofSeconds(5)
   that would use another is refused, with what to do in the message.
 - **A coordination store:** `LockOptions.withCoordinationStore(store)` keeps every domain's locks in one store
   every server reaches (a database, say), wherever the data is; the provider is chosen for that store.
+- **File servers** (FTP, SFTP): `StoreLocks.get()` keeps this JVM's domains, one per served root, shared by every
+  server here. `acquire(root, sharing)` / `release(d)` per server or session; a root inside one already registered
+  uses its domain, so nested roots (FTP on `/srv`, SFTP on `/srv/tony`) lock a file under one name,
+  `fileLockName(d, file)` (`file/` and its path from the domain's root); `acquireFor(file)` keeps the domain open
+  while a file's lock is held. Servers elsewhere reach the same locks when they serve the same root. The lock
+  directory is in the root, so servers keep clients out of it (`isLockFile(file)`).
+  `NamedLock.closeFromAnyThread()` lets go of a lock whose work ended on another thread (an FTP data transfer).
 
 ## Configuration
 
