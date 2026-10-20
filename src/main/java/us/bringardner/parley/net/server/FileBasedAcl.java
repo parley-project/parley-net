@@ -46,6 +46,8 @@ import us.bringardner.parley.io.IoUtils;
  * </pre>
  * {@code FileBasedAcl --scram mySecret} prints such a value ({@link #hashPasswordWithScram(char[])}).
  * A plain text password serves SCRAM too (its credentials are made when first asked for).
+ * When a password changes, replace the whole field: SCRAM credentials left from the old password
+ * would still let the old password in with SCRAM.
  * SCRAM is offered ({@link #supportsScram(String)}) only when every user in the file can use it,
  * since a client that picks SCRAM can't fall back to a password for a user who can't.
  *
@@ -247,7 +249,9 @@ public class FileBasedAcl extends BaseObject implements IAccessControlList {
 				if( mine != null && m != null ) {
 					String stored = new String(mine, StandardCharsets.UTF_8);
 					if( !stored.startsWith(HASH_PREFIX)) {
-						ret = m.newCredentials(stored);
+						// a salt that is the same at every load, so it doesn't tell a real user from
+						// an unknown one (whose made up salt never changes)
+						ret = m.deriveCredentials(stored, stableSalt(getName(), m.getHash()), ScramMechanism.DEFAULT_ITERATIONS);
 						scram.put(hash, ret);
 					}
 				}
@@ -406,6 +410,22 @@ public class FileBasedAcl extends BaseObject implements IAccessControlList {
 			logError("Ignoring malformed SCRAM credentials for "+p.getName());
 		}
 		return ret;
+	}
+
+	/** Makes the salt of SCRAM credentials for plain text passwords the same each time (this JVM). */
+	private static final byte[] SALT_SECRET = new byte[32];
+	static {
+		new SecureRandom().nextBytes(SALT_SECRET);
+	}
+
+	private static byte[] stableSalt(String user, String hash) {
+		try {
+			javax.crypto.Mac mac = javax.crypto.Mac.getInstance("HmacSHA256");
+			mac.init(new javax.crypto.spec.SecretKeySpec(SALT_SECRET, "HmacSHA256"));
+			return java.util.Arrays.copyOf(mac.doFinal((user+"\0"+hash).getBytes(StandardCharsets.UTF_8)), 16);
+		} catch (GeneralSecurityException e) {
+			throw new IllegalStateException(e);
+		}
 	}
 
 	/** @return the mechanism for "SHA-1" or "SHA-256" (any case), or null */

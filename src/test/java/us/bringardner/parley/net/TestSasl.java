@@ -585,6 +585,8 @@ public class TestSasl {
 		assertNotNull(first);
 		assertArrayEquals(first.getSalt(), acl.getScramCredentials("bob", "sha-256").getSalt(),
 				"the same salt each time, so it doesn't tell a real user from an unknown one");
+		FileBasedAcl reloaded = (FileBasedAcl) ServerTestSupport.acl("bob, pass;word, READ");
+		assertArrayEquals(first.getSalt(), reloaded.getScramCredentials("bob", "SHA-256").getSalt(), "and after the file is read again");
 		assertTrue(acl.getPrincipal("bob").authenticate("pass;word".getBytes(StandardCharsets.UTF_8)),
 				"a ; in a plain text password is part of it");
 		Server svr = ServerTestSupport.create("SaslPlainText", ServerTestSupport.standardCommands(), null);

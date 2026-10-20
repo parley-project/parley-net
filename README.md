@@ -159,7 +159,8 @@ java -cp parley-net-1.0.0.jar:parley-core-1.0.0.jar us.bringardner.parley.net.se
 
 For SCRAM logins, `FileBasedAcl --scram 'the password'` prints the hash followed by SCRAM
 credentials (`{PBKDF2}...;{SCRAM-SHA-256}...;{SCRAM-SHA-1}...`); paste the whole value into the
-password field. A plain text password serves SCRAM as it is. The list offers SCRAM
+password field (and replace the whole field when the password changes: SCRAM credentials left from
+the old password would still let it in). A plain text password serves SCRAM as it is. The list offers SCRAM
 (`supportsScram`) only when every user in the file can use it, because a client that picks SCRAM
 can't fall back to a password for a user who has no SCRAM credentials.
 
