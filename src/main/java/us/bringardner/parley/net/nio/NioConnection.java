@@ -109,6 +109,12 @@ public class NioConnection extends BaseObject implements INioConnection {
 
 	// Output: queued by any thread, written by the reactor
 	private final Queue<ByteBuffer> out = new ConcurrentLinkedQueue<ByteBuffer>();
+	/**
+	 * Held while data or the START_TLS marker goes into {@link #out}, and while startTls sets
+	 * {@link #tls}: a write by a thread that sees TLS started is queued after the marker, so it is
+	 * encrypted.
+	 */
+	private final Object outOrder = new Object();
 	private final AtomicLong pendingWriteBytes = new AtomicLong();
 	private final AtomicBoolean flushScheduled = new AtomicBoolean();
 	private final AtomicBoolean processScheduled = new AtomicBoolean();
@@ -271,12 +277,15 @@ public class NioConnection extends BaseObject implements INioConnection {
 			in.clear();
 			readIndex = 0;
 			fitInputBuffer(t);
-			tls = t;
+			// What is already queued goes out in clear text, the rest encrypted: the marker goes in
+			// as TLS starts, so no write lands between the two
+			synchronized (outOrder) {
+				tls = t;
+				out.add(START_TLS);
+			}
 		} finally {
 			inLock.unlock();
 		}
-		// What is already queued goes out in clear text, the rest encrypted
-		out.add(START_TLS);
 		reactor.execute(() -> {
 			flush();
 			readTls();
@@ -306,7 +315,9 @@ public class NioConnection extends BaseObject implements INioConnection {
 			return;
 		}
 		pendingWriteBytes.addAndGet(len);
-		out.add(data);
+		synchronized (outOrder) {
+			out.add(data);
+		}
 		scheduleFlush();
 	}
 
