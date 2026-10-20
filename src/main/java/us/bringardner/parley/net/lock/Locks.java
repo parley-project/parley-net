@@ -291,13 +291,13 @@ public final class Locks implements AutoCloseable {
 	 */
 	NamedLock acquire(LockDomain domain, String name, String key, String serviceName, LockService service, Mode mode,
 			long timeoutNanos, boolean reentrant) throws IOException {
-		checkOpen();
+		checkOpen(domain);
 		Objects.requireNonNull(mode, "mode");
 		Thread me = Thread.currentThread();
 		boolean once = timeoutNanos < 0;
 		long deadline = once ? 0 : System.nanoTime() + timeoutNanos;
 		while (true) {
-			Entry e = entries.computeIfAbsent(key, k -> new Entry(k, name, serviceName, service));
+			Entry e = entries.computeIfAbsent(key, k -> new Entry(k, domain, name, serviceName, service));
 			synchronized (e) {
 				if( e.dead ) {
 					continue; // let go and removed between computeIfAbsent and here
@@ -312,7 +312,7 @@ public final class Locks implements AutoCloseable {
 				try {
 					long sleep = 1;
 					while (true) {
-						checkOpen();
+						checkOpen(domain);
 						if( e.queue.peekFirst() == w ) {
 							NamedLock l = e.grant(this, domain, w);
 							if( l != null ) {
@@ -381,6 +381,42 @@ public final class Locks implements AutoCloseable {
 		}
 	}
 
+	private void checkOpen(LockDomain d) throws IOException {
+		checkOpen();
+		if( d.isClosed() ) {
+			throw new IOException("The lock domain " + d.name() + " is closed");
+		}
+	}
+
+	/**
+	 * Let go of what this JVM holds in a closing domain: each name's lock is released (holdings
+	 * still open find it lost), waiters are woken (and get an IOException), and the names are
+	 * forgotten, so a domain registered again with the same name starts afresh.
+	 */
+	void releaseAll(LockDomain d) {
+		String prefix = d.name() + "\u0000";
+		for (Entry e : entries.values()) {
+			if( e.key.startsWith(prefix) && e.domain == d ) {
+				synchronized (e) {
+					letGo(e);
+					e.dead = true;
+					entries.remove(e.key, e);
+					e.notifyAll();
+				}
+			}
+		}
+	}
+
+	/** Called with e's monitor held: the store's lock is released, whoever holds it here. */
+	private static void letGo(Entry e) {
+		if( e.handle != null ) {
+			LockHandle h = e.handle;
+			e.handle = null;
+			e.handleMode = null;
+			e.service.release(h);
+		}
+	}
+
 	/**
 	 * Close: what this JVM still holds is let go, claims are given up, leases stop being renewed.
 	 * Threads waiting for a lock get an IOException.
@@ -394,10 +430,7 @@ public final class Locks implements AutoCloseable {
 		}
 		for (Entry e : entries.values()) {
 			synchronized (e) {
-				if( e.handle != null ) {
-					e.service.release(e.handle);
-					e.handle = null;
-				}
+				letGo(e);
 				e.notifyAll();
 			}
 		}
@@ -422,6 +455,7 @@ public final class Locks implements AutoCloseable {
 	/** One name, held or waited for in this JVM. Guarded by its own monitor. */
 	static final class Entry {
 		final String key;
+		final LockDomain domain;
 		final String name;
 		final String serviceName;
 		final LockService service;
@@ -433,8 +467,9 @@ public final class Locks implements AutoCloseable {
 		Mode handleMode;
 		boolean dead;
 
-		Entry(String key, String name, String serviceName, LockService service) {
+		Entry(String key, LockDomain domain, String name, String serviceName, LockService service) {
 			this.key = key;
+			this.domain = domain;
 			this.name = name;
 			this.serviceName = serviceName;
 			this.service = service;

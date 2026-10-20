@@ -33,6 +33,7 @@ public final class LockDomain {
 	private NamedLock claim;
 	private NamedLock serverId;
 	private int claimCount;
+	private volatile boolean closed;
 
 	LockDomain(Locks locks, String name, FileSource root, LockOptions options, LockProvider provider,
 			FileSourceCapabilities capabilities, LockService names, LockService service, String prefix) {
@@ -236,18 +237,30 @@ public final class LockDomain {
 	}
 
 	/**
-	 * Unregister the domain: its services stop (leases are no longer renewed) and its name can be
-	 * registered again. Close what it holds first; holdings still open are no longer kept.
+	 * Unregister the domain: what this JVM holds in it is let go (holdings still open find their
+	 * lock lost: {@link NamedLock#isValid()} is false and {@link NamedLock#checkValid()} throws),
+	 * threads waiting for one of its names get an IOException, its services stop (leases are no
+	 * longer renewed) and its name can be registered again. Closing twice does nothing more.
 	 */
 	public void close() {
 		synchronized (this) {
+			if( closed ) {
+				return;
+			}
+			closed = true;
 			if( claimCount > 0 ) {
 				claimCount = 1;
 				releaseClaim();
 			}
 		}
+		locks.releaseAll(this);
 		locks.remove(this);
 		closeServices();
+	}
+
+	/** @return whether {@link #close()} was called */
+	public boolean isClosed() {
+		return closed;
 	}
 
 	void closeServices() {

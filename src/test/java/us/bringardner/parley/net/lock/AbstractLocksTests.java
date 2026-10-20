@@ -8,6 +8,7 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.io.IOException;
 import java.io.InputStream;
 import java.io.InterruptedIOException;
 import java.nio.charset.StandardCharsets;
@@ -91,6 +92,46 @@ public abstract class AbstractLocksTests {
 		@Override
 		public void close() {
 			thread.shutdownNow();
+		}
+	}
+
+	// ------------------------------------------------------------------ closing a domain
+
+	@Test
+	public void closingADomainLetsGoOfWhatItHolds() throws Exception {
+		Locks mine = spaces.get(0);
+		LockDomain other = open(options().withOwnerId("other"));
+		try (Holder h = new Holder()) {
+			NamedLock held = h.run(() -> space.lock("box", Mode.EXCLUSIVE, LONG));
+			java.util.concurrent.Future<NamedLock> waiter = pool.submit(() -> space.lock("box", Mode.EXCLUSIVE, LONG));
+			Thread.sleep(200);
+			space.close();
+			java.util.concurrent.ExecutionException x = assertThrows(java.util.concurrent.ExecutionException.class,
+					() -> waiter.get(5, TimeUnit.SECONDS));
+			assertTrue(x.getCause() instanceof IOException && x.getCause().getMessage().contains("closed"), "the waiter: " + x.getCause());
+			assertFalse(held.isValid(), "the holding still open finds it lost");
+			assertThrows(LockLostException.class, held::checkValid);
+			assertTrue(elsewhere(() -> {
+				try (NamedLock y = other.tryLock("box", Mode.EXCLUSIVE)) {
+					return y != null;
+				}
+			}), "another server can take it");
+			LockDomain again = mine.domain("test", root);
+			assertTrue(elsewhere(() -> {
+				try (NamedLock y = again.tryLock("box", Mode.EXCLUSIVE)) {
+					return y != null;
+				}
+			}), "and so can the domain registered again");
+			h.run(() -> {
+				held.close(); // later: harmless
+				return null;
+			});
+			assertTrue(elsewhere(() -> {
+				try (NamedLock y = again.tryLock("box", Mode.EXCLUSIVE)) {
+					return y != null;
+				}
+			}), "still free");
+			assertThrows(IOException.class, () -> space.tryLock("box", Mode.EXCLUSIVE), "the closed domain takes nothing");
 		}
 	}
 
