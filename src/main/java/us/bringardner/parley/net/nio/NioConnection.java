@@ -611,9 +611,11 @@ public class NioConnection extends BaseObject implements INioConnection {
 		if( !connected || closed.get() ) {
 			return;
 		}
+		// the generation is read before the deadline: a setDeadline in between makes it a newer
+		// generation (or changes the deadline, so the compareAndSet fails), never this one's
+		int generation = deadlineGeneration;
 		long d = deadline.get();
 		if( d > 0 && now >= d && deadline.compareAndSet(d, 0) ) {
-			int generation = deadlineGeneration;
 			logDebug(() -> "Connection "+id+" passed its deadline");
 			dispatch(() -> {
 				//  not if the deadline was set again or cleared since
