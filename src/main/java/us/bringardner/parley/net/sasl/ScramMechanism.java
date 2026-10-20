@@ -108,6 +108,37 @@ public final class ScramMechanism implements ISaslMechanism {
 	}
 
 	/**
+	 * Make what a server stores for a password, with a new random 16 byte salt and
+	 * {@link #DEFAULT_ITERATIONS}. Store the result, not the password.
+	 *
+	 * @since 1.1.0
+	 */
+	public ScramCredentials newCredentials(String password) {
+		byte[] salt = new byte[16];
+		RANDOM.nextBytes(salt);
+		return deriveCredentials(password, salt, DEFAULT_ITERATIONS);
+	}
+
+	/**
+	 * @param mechanism a mechanism name such as "SCRAM-SHA-256" (any case)
+	 * @return the hash it uses ("SHA-1" or "SHA-256"), or null if it isn't a SCRAM mechanism here
+	 * @since 1.1.0
+	 */
+	public static String hashOf(String mechanism) {
+		if( mechanism == null ) {
+			return null;
+		}
+		String m = mechanism.toUpperCase(java.util.Locale.ROOT);
+		if( m.equals(SHA_256.getName()) ) {
+			return SHA_256.getHash();
+		}
+		if( m.equals(SHA_1.getName()) ) {
+			return SHA_1.getHash();
+		}
+		return null;
+	}
+
+	/**
 	 * Make what a server stores for a password. Store the result, not the password.
 	 *
 	 * @param salt       random, at least 16 bytes; kept with the credentials

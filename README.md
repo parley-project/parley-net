@@ -157,6 +157,14 @@ Store hashed passwords rather than plain text. Create the hash with
 java -cp parley-net-1.0.0.jar:parley-core-1.0.0.jar us.bringardner.parley.net.server.FileBasedAcl 'the password'
 ```
 
+For SCRAM logins, `FileBasedAcl --scram 'the password'` prints the hash followed by SCRAM
+credentials (`{PBKDF2}...;{SCRAM-SHA-256}...;{SCRAM-SHA-1}...`); paste the whole value into the
+password field. A plain text password serves SCRAM as it is. The list offers SCRAM
+(`supportsScram`) only when every user in the file can use it, because a client that picks SCRAM
+can't fall back to a password for a user who has no SCRAM credentials.
+
+To keep users in a database instead, see parley-net-acl-jdbc.
+
 A login command calls `processor.getServer().authenticate(user, password)` and
 `processor.setPrincipal(...)`. Commands whose `requiresAuthorization()` is true then run only
 if the principal has the command's permission; otherwise the client gets "not authorized".
@@ -193,11 +201,16 @@ SaslOutcome out = SaslServerDriver.authenticate(mech, authenticator, initialResp
 if (out.isSuccess()) { /* out.getUser() is who it is */ }
 ```
 
-`ServerSaslAuthenticator` checks PLAIN and LOGIN against the server's access control list. The
-other mechanisms need what a password hash can't give: the clear password (CRAM-MD5) or
-`ScramCredentials` made once with `ScramMechanism.deriveCredentials`. Implement
-`ISaslAuthenticator` over your own store for those. Clients use the mechanism's `client(...)`
-factory and `evaluateChallenge` for each server challenge.
+`ServerSaslAuthenticator` checks PLAIN and LOGIN against the server's access control list, and
+serves SCRAM-SHA-1 and SCRAM-SHA-256 when the list keeps SCRAM credentials
+(`IAccessControlList.supportsScram` and `getScramCredentials`; `FileBasedAcl` and
+parley-net-acl-jdbc do). SCRAM proves the user without a password check, so on success call
+`authenticator.verified(out.getUser())` (or `server.getVerifiedPrincipal(user)`) for the
+principal. Make SCRAM credentials once with `ScramMechanism.SHA_256.newCredentials(password)` and
+keep `credentials.format()`; `ScramCredentials.parse` reads it back. CRAM-MD5 needs the clear
+password, which a hash can't give: implement `ISaslAuthenticator` over your own store for it.
+Clients use the mechanism's `client(...)` factory and `evaluateChallenge` for each server
+challenge.
 
 ## Non-blocking (NIO)
 

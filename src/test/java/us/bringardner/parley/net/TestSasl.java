@@ -38,6 +38,10 @@ import us.bringardner.parley.net.sasl.ScramCredentials;
 import us.bringardner.parley.net.sasl.ScramMechanism;
 import us.bringardner.parley.net.sasl.ServerSaslAuthenticator;
 import us.bringardner.parley.net.sasl.XOAuth2Mechanism;
+import us.bringardner.parley.net.server.FileBasedAcl;
+import us.bringardner.parley.net.server.IAccessControlList;
+import us.bringardner.parley.net.server.IPermission;
+import us.bringardner.parley.net.server.IPrincipal;
 import us.bringardner.parley.net.server.Server;
 
 /**
@@ -450,7 +454,8 @@ public class TestSasl {
 		Server svr = ServerTestSupport.create("SaslServer", ServerTestSupport.standardCommands(), null);
 		svr.setAccessControl(ServerTestSupport.acl("bob, bobpw, Secret"));
 		ServerSaslAuthenticator auth = new ServerSaslAuthenticator(svr);
-		assertEquals(Arrays.asList("PLAIN", "LOGIN"), SaslMechanisms.standard("h").offered(auth, true));
+		// a plain text password can serve SCRAM too
+		assertEquals(Arrays.asList("SCRAM-SHA-256", "SCRAM-SHA-1", "PLAIN", "LOGIN"), SaslMechanisms.standard("h").offered(auth, true));
 
 		SaslOutcome out = run(new PlainMechanism(), PlainMechanism.client("bob", "bobpw"), auth, true);
 		assertTrue(out.isSuccess());
@@ -459,5 +464,132 @@ public class TestSasl {
 		ServerSaslAuthenticator other = new ServerSaslAuthenticator(svr);
 		assertEquals(Status.FAILED, run(new PlainMechanism(), PlainMechanism.client("bob", "wrong"), other, true).getStatus());
 		assertNull(other.getPrincipal());
+	}
+
+	// ------------------------------------------------------------------ SCRAM from the access control list
+
+	@Test
+	public void scramCredentialsAsTextRoundTrip() {
+		ScramCredentials c = ScramMechanism.SHA_256.newCredentials("pencil");
+		ScramCredentials back = ScramCredentials.parse(c.format());
+		assertNotNull(back);
+		assertEquals(c.getIterations(), back.getIterations());
+		assertArrayEquals(c.getSalt(), back.getSalt());
+		assertArrayEquals(c.getStoredKey(), back.getStoredKey());
+		assertArrayEquals(c.getServerKey(), back.getServerKey());
+		assertEquals(ScramMechanism.DEFAULT_ITERATIONS, c.getIterations());
+		assertEquals(16, c.getSalt().length);
+		assertFalse(Arrays.equals(c.getSalt(), ScramMechanism.SHA_256.newCredentials("pencil").getSalt()), "a new salt each time");
+		for (String bad : new String[] {null, "", "4096", "x:AAAA:AAAA:AAAA", "0:AAAA:AAAA:AAAA", "4096:AAAA:AAAA", 
+				"4096:AAAA:AAAA:AA", "4096:!!:AAAA:AAAA", "4096:AAAA:AAAA:AAAA:AAAA"}) {
+			assertNull(ScramCredentials.parse(bad), String.valueOf(bad));
+		}
+		assertEquals("SHA-256", ScramMechanism.hashOf("scram-sha-256"));
+		assertEquals("SHA-1", ScramMechanism.hashOf("SCRAM-SHA-1"));
+		assertNull(ScramMechanism.hashOf("PLAIN"));
+		assertNull(ScramMechanism.hashOf(null));
+	}
+
+	@Test
+	public void accessControlListsDontServeScramByDefault() {
+		IAccessControlList none = new IAccessControlList() {
+			@Override
+			public void initialize(us.bringardner.parley.net.server.IServer server) {
+			}
+
+			@Override
+			public boolean checkPermission(IPrincipal user, IPermission action) {
+				return false;
+			}
+
+			@Override
+			public IPrincipal getPrincipal(String user) {
+				return null;
+			}
+		};
+		assertFalse(none.supportsScram("SHA-256"));
+		assertNull(none.getScramCredentials("bob", "SHA-256"));
+	}
+
+	@Test
+	public void fileBasedAclServesScramFromTheUserFile() throws Exception {
+		String field = FileBasedAcl.hashPasswordWithScram("s3cret".toCharArray());
+		assertTrue(field.startsWith(FileBasedAcl.HASH_PREFIX));
+		FileBasedAcl acl = (FileBasedAcl) ServerTestSupport.acl("carol, " + field + ", READ, maildrop=c");
+		assertTrue(acl.supportsScram("SHA-256"));
+		assertTrue(acl.supportsScram("SHA-1"));
+		assertFalse(acl.supportsScram("MD5"));
+		assertNull(acl.getScramCredentials("nobody", "SHA-256"));
+
+		// the password still works on its own: the SCRAM part isn't part of it
+		IPrincipal p = acl.getPrincipal("carol");
+		assertTrue(p.authenticate("s3cret".getBytes(StandardCharsets.UTF_8)));
+		assertFalse(p.authenticate("wrong".getBytes(StandardCharsets.UTF_8)));
+		assertTrue(new String(p.getCredentials(), StandardCharsets.UTF_8).indexOf(';') < 0);
+
+		Server svr = ServerTestSupport.create("SaslScram", ServerTestSupport.standardCommands(), null);
+		svr.setAccessControl(acl);
+		for (ScramMechanism m : new ScramMechanism[] {ScramMechanism.SHA_256, ScramMechanism.SHA_1}) {
+			ServerSaslAuthenticator auth = new ServerSaslAuthenticator(svr);
+			assertTrue(auth.supports(m.getName()));
+			SaslOutcome out = run(m, m.client("carol", "s3cret"), auth, true);
+			assertTrue(out.isSuccess(), m.getName() + " " + out);
+			assertNull(auth.getPrincipal(), "SCRAM checks no password here");
+			IPrincipal v = auth.verified(out.getUser());
+			assertNotNull(v);
+			assertEquals("carol", v.getName());
+			assertEquals(IPrincipal.State.Authenticated, v.getState());
+			assertEquals("c", v.getParameter("maildrop"));
+			assertTrue(svr.isAuthorized(v, new us.bringardner.parley.net.server.Permission("READ")));
+			assertThrows(UnsupportedOperationException.class, () -> v.setCredentials(new byte[0]));
+
+			assertEquals(Status.FAILED, run(m, m.client("carol", "wrong"), new ServerSaslAuthenticator(svr), true).getStatus());
+			assertEquals(Status.FAILED, run(m, m.client("nobody", "s3cret"), new ServerSaslAuthenticator(svr), true).getStatus());
+		}
+		assertNull(svr.getVerifiedPrincipal("nobody"));
+		assertNull(svr.getVerifiedPrincipal(null));
+	}
+
+	@Test
+	public void scramIsOfferedOnlyWhenEveryUserCanUseIt() throws Exception {
+		String hashed = FileBasedAcl.hashPassword("pw".toCharArray());
+		FileBasedAcl mixed = (FileBasedAcl) ServerTestSupport.acl(
+				"carol, " + FileBasedAcl.hashPasswordWithScram("pw".toCharArray()) + ", READ",
+				"dave, " + hashed + ", READ");
+		assertFalse(mixed.supportsScram("SHA-256"), "dave has no SCRAM credentials");
+		assertNotNull(mixed.getScramCredentials("carol", "SHA-256"));
+		assertNull(mixed.getScramCredentials("dave", "SHA-256"));
+		Server svr = ServerTestSupport.create("SaslMixed", ServerTestSupport.standardCommands(), null);
+		svr.setAccessControl(mixed);
+		assertEquals(Arrays.asList("PLAIN", "LOGIN"), SaslMechanisms.standard("h").offered(new ServerSaslAuthenticator(svr), true));
+
+		// only SHA-256 kept: SHA-1 isn't offered
+		String sha256Only = hashed + ";" + FileBasedAcl.SCRAM_SHA_256_PREFIX + ScramMechanism.SHA_256.newCredentials("pw").format();
+		FileBasedAcl one = (FileBasedAcl) ServerTestSupport.acl("erin, " + sha256Only + ", READ");
+		assertTrue(one.supportsScram("SHA-256"));
+		assertFalse(one.supportsScram("SHA-1"));
+
+		// malformed SCRAM credentials are ignored, the password still works
+		FileBasedAcl bad = (FileBasedAcl) ServerTestSupport.acl("fred, " + hashed + ";" + FileBasedAcl.SCRAM_SHA_256_PREFIX + "junk, READ");
+		assertFalse(bad.supportsScram("SHA-256"));
+		assertTrue(bad.getPrincipal("fred").authenticate("pw".getBytes(StandardCharsets.UTF_8)));
+
+		assertFalse(((FileBasedAcl) ServerTestSupport.acl()).supportsScram("SHA-256"), "no users");
+	}
+
+	@Test
+	public void plainTextPasswordsServeScramWithAStableSalt() throws Exception {
+		FileBasedAcl acl = (FileBasedAcl) ServerTestSupport.acl("bob, pass;word, READ");
+		assertTrue(acl.supportsScram("SHA-256"));
+		ScramCredentials first = acl.getScramCredentials("bob", "SHA-256");
+		assertNotNull(first);
+		assertArrayEquals(first.getSalt(), acl.getScramCredentials("bob", "sha-256").getSalt(),
+				"the same salt each time, so it doesn't tell a real user from an unknown one");
+		assertTrue(acl.getPrincipal("bob").authenticate("pass;word".getBytes(StandardCharsets.UTF_8)),
+				"a ; in a plain text password is part of it");
+		Server svr = ServerTestSupport.create("SaslPlainText", ServerTestSupport.standardCommands(), null);
+		svr.setAccessControl(acl);
+		SaslOutcome out = run(ScramMechanism.SHA_1, ScramMechanism.SHA_1.client("bob", "pass;word"), new ServerSaslAuthenticator(svr), false);
+		assertTrue(out.isSuccess(), out.toString());
 	}
 }

@@ -2,18 +2,21 @@ package us.bringardner.parley.net.sasl;
 
 import java.nio.charset.StandardCharsets;
 
+import us.bringardner.parley.net.server.IAccessControlList;
 import us.bringardner.parley.net.server.IPrincipal;
 import us.bringardner.parley.net.server.IServer;
 
 /**
- * Checks SASL passwords with the server's own access control list, so SASL logins and the
- * protocol's USER / PASS use the same users. It serves PLAIN and LOGIN only: the
- * {@link us.bringardner.parley.net.server.FileBasedAcl} keeps password hashes, which can't
- * answer CRAM-MD5 or SCRAM. Extend it (or write another {@link ISaslAuthenticator}) for a
- * store that has the clear password or SCRAM credentials.
+ * Checks SASL logins with the server's own access control list, so SASL logins and the
+ * protocol's USER / PASS use the same users. It serves PLAIN and LOGIN, and SCRAM-SHA-1 and
+ * SCRAM-SHA-256 when the list keeps SCRAM credentials
+ * ({@link us.bringardner.parley.net.server.IAccessControlList#supportsScram(String)}). Hashed
+ * passwords can't answer CRAM-MD5, so it isn't served.
  * <p>
- * Create one per authentication: after a successful {@link #checkPassword} it holds the
- * authenticated principal, for the protocol to attach to the session.
+ * Create one per authentication. After a successful {@link #checkPassword} it holds the
+ * authenticated principal, for the protocol to attach to the session. SCRAM doesn't check a
+ * password here: when {@link SaslServerDriver} reports success for it, call
+ * {@link #verified(String)} with the outcome's user to get the principal.
  *
  * <PRE>
  * Copyright 1998-2026 <A href="http://bringardner.us/tony">Tony Bringardner</A>
@@ -47,13 +50,37 @@ public class ServerSaslAuthenticator implements ISaslAuthenticator {
 		return principal != null;
 	}
 
-	/** @return the principal of the last successful check, or null */
+	/** @return the principal of the last successful check or {@link #verified(String)}, or null */
 	public IPrincipal getPrincipal() {
 		return principal;
 	}
 
+	/**
+	 * After a mechanism that proves the user without a password (SCRAM) succeeded: look the
+	 * user up and keep the principal.
+	 *
+	 * @param user the user from the successful outcome
+	 * @return the authenticated principal, or null if the user isn't there any more
+	 * @since 1.1.0
+	 */
+	public IPrincipal verified(String user) {
+		principal = server.getVerifiedPrincipal(user);
+		return principal;
+	}
+
+	@Override
+	public ScramCredentials getScramCredentials(String user, String hash) {
+		IAccessControlList acl = server.getAccessControl();
+		return acl == null || user == null ? null : acl.getScramCredentials(user, hash);
+	}
+
 	@Override
 	public boolean supports(String mechanism) {
-		return PlainMechanism.NAME.equals(mechanism) || LoginMechanism.NAME.equals(mechanism);
+		if( PlainMechanism.NAME.equals(mechanism) || LoginMechanism.NAME.equals(mechanism) ) {
+			return true;
+		}
+		String hash = ScramMechanism.hashOf(mechanism);
+		IAccessControlList acl = hash == null ? null : server.getAccessControl();
+		return acl != null && acl.supportsScram(hash);
 	}
 }

@@ -119,6 +119,33 @@ public interface IServer extends IManagedThread {
 		
 	
 	/**
+	 * The principal of a user whose identity a SASL mechanism has already proven without 
+	 * {@link #authenticate(String, byte[])} (SCRAM checks a proof against the credentials 
+	 * from {@link IAccessControlList#getScramCredentials(String, String)}). Call it only 
+	 * after such a mechanism succeeded for this user.
+	 * <p>
+	 * The default looks the user up in {@link #getAccessControl()}.
+	 * 
+	 * @param user the user the mechanism proved
+	 * @return a read only authenticated principal, or null if there is no access control or 
+	 * no such user
+	 * @since 1.1.0
+	 */
+	default IPrincipal getVerifiedPrincipal(String user) {
+		IAccessControlList acl = getAccessControl();
+		if( acl == null || user == null ) {
+			return null;
+		}
+		IPrincipal p = acl.getPrincipal(user);
+		if( p == null ) {
+			return null;
+		}
+		IPrincipal ret = new ImmutablePrincipal(p);
+		ret.setState(IPrincipal.State.Authenticated);
+		return ret;
+	}
+
+	/**
 	 * @param user
 	 * @param action
 	 * @return true if the given user is authorized for the given action 

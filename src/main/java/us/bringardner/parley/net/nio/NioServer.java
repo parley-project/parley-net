@@ -655,6 +655,27 @@ public class NioServer extends AbstractCoreServer implements IManagedThread {
 	}
 
 	/**
+	 * The principal of a user whose identity a SASL mechanism (SCRAM) has already proven,
+	 * as {@link us.bringardner.parley.net.server.IServer#getVerifiedPrincipal(String)}.
+	 * 
+	 * @return a read only authenticated principal, or null if there is no access control or no such user
+	 * @since 1.1.0
+	 */
+	public IPrincipal getVerifiedPrincipal(String user) {
+		IAccessControlList acl = getAccessControl();
+		if( acl == null || user == null ) {
+			return null;
+		}
+		IPrincipal p = acl.getPrincipal(user);
+		if( p == null ) {
+			return null;
+		}
+		IPrincipal ret = new ImmutablePrincipal(p);
+		ret.setState(IPrincipal.State.Authenticated);
+		return ret;
+	}
+
+	/**
 	 * @return true if the user is logged in and the access control allows the action
 	 */
 	public boolean isAuthorized(IPrincipal user, IPermission action) {

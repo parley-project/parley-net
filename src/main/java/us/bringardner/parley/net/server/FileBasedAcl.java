@@ -11,6 +11,7 @@ import java.security.SecureRandom;
 import java.security.spec.KeySpec;
 import java.util.Base64;
 import java.util.HashMap;
+import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
@@ -20,6 +21,8 @@ import javax.crypto.SecretKeyFactory;
 import javax.crypto.spec.PBEKeySpec;
 
 import us.bringardner.parley.core.BaseObject;
+import us.bringardner.parley.net.sasl.ScramCredentials;
+import us.bringardner.parley.net.sasl.ScramMechanism;
 import us.bringardner.parley.net.server.IPrincipal.State;
 import us.bringardner.parley.io.IoUtils;
 
@@ -35,6 +38,16 @@ import us.bringardner.parley.io.IoUtils;
  * java -cp ... us.bringardner.parley.net.server.FileBasedAcl mySecret
  * </pre>
  * which prints a value like {PBKDF2}210000:salt:hash to paste into the password field.
+ * <p>
+ * For SCRAM logins (SCRAM-SHA-1, SCRAM-SHA-256) a hashed password can carry SCRAM credentials 
+ * after it, each after a {@code ;}:
+ * <pre>
+ * {PBKDF2}210000:salt:hash;{SCRAM-SHA-256}4096:salt:storedKey:serverKey;{SCRAM-SHA-1}4096:...
+ * </pre>
+ * {@code FileBasedAcl --scram mySecret} prints such a value ({@link #hashPasswordWithScram(char[])}).
+ * A plain text password serves SCRAM too (its credentials are made when first asked for).
+ * SCRAM is offered ({@link #supportsScram(String)}) only when every user in the file can use it,
+ * since a client that picks SCRAM can't fall back to a password for a user who can't.
  *
  * <PRE>
  * Copyright 1998-2026 <A href="http://bringardner.us/tony">Tony Bringardner</A>
@@ -58,6 +71,10 @@ public class FileBasedAcl extends BaseObject implements IAccessControlList {
 	public static String PROP_FILE_NAME = "userFile";
 
 	public static final String HASH_PREFIX = "{PBKDF2}";
+	/** Starts SCRAM-SHA-256 credentials after a hashed password, see the class comment. @since 1.1.0 */
+	public static final String SCRAM_SHA_256_PREFIX = "{SCRAM-SHA-256}";
+	/** Starts SCRAM-SHA-1 credentials after a hashed password, see the class comment. @since 1.1.0 */
+	public static final String SCRAM_SHA_1_PREFIX = "{SCRAM-SHA-1}";
 	private static final String HASH_ALGORITHM = "PBKDF2WithHmacSHA256";
 	private static final int HASH_ITERATIONS = 210000;
 	private static final int HASH_BITS = 256;
@@ -134,6 +151,18 @@ public class FileBasedAcl extends BaseObject implements IAccessControlList {
 	}
 
 	/**
+	 * @return {@link #hashPassword(char[])} followed by SCRAM-SHA-256 and SCRAM-SHA-1 credentials,
+	 * for the password field of a user who may log in with SCRAM
+	 * @since 1.1.0
+	 */
+	public static String hashPasswordWithScram(char[] password) {
+		String pw = new String(password);
+		return hashPassword(password)
+				+";"+SCRAM_SHA_256_PREFIX+ScramMechanism.SHA_256.newCredentials(pw).format()
+				+";"+SCRAM_SHA_1_PREFIX+ScramMechanism.SHA_1.newCredentials(pw).format();
+	}
+
+	/**
 	 * @return true if the password matches a value created by {@link #hashPassword(char[])}.
 	 */
 	public static boolean verifyPassword(char[] password, String stored) {
@@ -185,19 +214,64 @@ public class FileBasedAcl extends BaseObject implements IAccessControlList {
 	 * Print the hash of each argument, for use in a user file.
 	 */
 	public static void main(String[] args) {
-		if( args.length == 0 ) {
-			System.err.println("Usage: FileBasedAcl password [password ...]");
+		boolean scram = args.length > 0 && args[0].equals("--scram");
+		if( args.length == (scram ? 1 : 0) ) {
+			System.err.println("Usage: FileBasedAcl [--scram] password [password ...]");
 			return;
 		}
-		for (String pw : args) {
-			System.out.println(hashPassword(pw.toCharArray()));
+		for (int idx = scram ? 1 : 0; idx < args.length; idx++) {
+			char[] pw = args[idx].toCharArray();
+			System.out.println(scram ? hashPasswordWithScram(pw) : hashPassword(pw));
 		}
 	}
 
 	public static class FileBasedPrincipal extends AbstractPrincipal {
 
+		private final Map<String, ScramCredentials> scram = new HashMap<>();
+
 		public FileBasedPrincipal(String name) {
 			super(name);			
+		}
+
+		/**
+		 * @param hash "SHA-1" or "SHA-256"
+		 * @return the SCRAM credentials for that hash: those from the user file, or made from a 
+		 * plain text password (once); null if there are none
+		 * @since 1.1.0
+		 */
+		public synchronized ScramCredentials getScramCredentials(String hash) {
+			ScramCredentials ret = scram.get(hash);
+			if( ret == null ) {
+				byte mine [] = getCredentials();
+				ScramMechanism m = mechanism(hash);
+				if( mine != null && m != null ) {
+					String stored = new String(mine, StandardCharsets.UTF_8);
+					if( !stored.startsWith(HASH_PREFIX)) {
+						ret = m.newCredentials(stored);
+						scram.put(hash, ret);
+					}
+				}
+			}
+			return ret;
+		}
+
+		/** @since 1.1.0 */
+		public synchronized void setScramCredentials(String hash, ScramCredentials credentials) {
+			if( credentials == null ) {
+				scram.remove(hash);
+			} else {
+				scram.put(hash, credentials);
+			}
+		}
+
+		/** True if a SCRAM login with this hash can work: credentials kept, or a plain text password. */
+		synchronized boolean canUseScram(String hash) {
+			if( scram.containsKey(hash) ) {
+				return true;
+			}
+			byte mine [] = getCredentials();
+			return mine != null && mechanism(hash) != null 
+					&& !new String(mine, StandardCharsets.UTF_8).startsWith(HASH_PREFIX);
 		}
 
 		@Override
@@ -283,10 +357,24 @@ public class FileBasedAcl extends BaseObject implements IAccessControlList {
 
 		FileBasedPrincipal p = new FileBasedPrincipal(parts[0].trim());
 		//user1  , password   , one|two|three|four|five, key=val|key=val
-		p.setCredentials(parts[1].trim().getBytes(StandardCharsets.UTF_8));
-		if( parts[1].trim().startsWith(HASH_PREFIX)) {
+		String password = parts[1].trim();
+		if( password.startsWith(HASH_PREFIX)) {
 			hasHashedPasswords = true;
+			// a hashed password may carry SCRAM credentials: ;{SCRAM-SHA-256}...;{SCRAM-SHA-1}...
+			String fields[] = password.split(";");
+			password = fields[0].trim();
+			for (int idx = 1; idx < fields.length; idx++) {
+				String f = fields[idx].trim();
+				if( f.startsWith(SCRAM_SHA_256_PREFIX)) {
+					p.setScramCredentials(ScramMechanism.SHA_256.getHash(), parseScram(p, f.substring(SCRAM_SHA_256_PREFIX.length())));
+				} else if( f.startsWith(SCRAM_SHA_1_PREFIX)) {
+					p.setScramCredentials(ScramMechanism.SHA_1.getHash(), parseScram(p, f.substring(SCRAM_SHA_1_PREFIX.length())));
+				} else if( !f.isEmpty()) {
+					logError("Ignoring an unknown credential for "+p.getName());
+				}
+			}
 		}
+		p.setCredentials(password.getBytes(StandardCharsets.UTF_8));
 		users.put(p.getName(),p);
 		if( parts.length> 2) {
 			if( !parts[2].isEmpty()) {
@@ -310,6 +398,49 @@ public class FileBasedAcl extends BaseObject implements IAccessControlList {
 				}
 			}
 		}			
+	}
+
+	private ScramCredentials parseScram(IPrincipal p, String text) {
+		ScramCredentials ret = ScramCredentials.parse(text);
+		if( ret == null ) {
+			logError("Ignoring malformed SCRAM credentials for "+p.getName());
+		}
+		return ret;
+	}
+
+	/** @return the mechanism for "SHA-1" or "SHA-256" (any case), or null */
+	private static ScramMechanism mechanism(String hash) {
+		if( hash == null ) {
+			return null;
+		}
+		String h = hash.toUpperCase(Locale.ROOT);
+		return h.equals(ScramMechanism.SHA_256.getHash()) ? ScramMechanism.SHA_256 
+				: h.equals(ScramMechanism.SHA_1.getHash()) ? ScramMechanism.SHA_1 : null;
+	}
+
+	/**
+	 * True when every user in the file can log in with SCRAM using this hash (SCRAM credentials,
+	 * or a plain text password), and there is at least one user.
+	 */
+	@Override
+	public boolean supportsScram(String hash) {
+		ScramMechanism m = mechanism(hash);
+		if( m == null || users.isEmpty() ) {
+			return false;
+		}
+		for (IPrincipal p : users.values()) {
+			if( !(p instanceof FileBasedPrincipal) || !((FileBasedPrincipal)p).canUseScram(m.getHash())) {
+				return false;
+			}
+		}
+		return true;
+	}
+
+	@Override
+	public ScramCredentials getScramCredentials(String user, String hash) {
+		ScramMechanism m = mechanism(hash);
+		IPrincipal p = user == null || m == null ? null : users.get(user);
+		return p instanceof FileBasedPrincipal ? ((FileBasedPrincipal)p).getScramCredentials(m.getHash()) : null;
 	}
 
 	@Override

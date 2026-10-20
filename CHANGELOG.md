@@ -4,6 +4,17 @@
 
 ### Added
 
+- **SCRAM from the access control list.** `IAccessControlList.supportsScram(hash)` and
+  `getScramCredentials(user, hash)` (defaults: no, null), so a server can offer SCRAM-SHA-1 and
+  SCRAM-SHA-256 with its own users. `ServerSaslAuthenticator` serves them when the list does;
+  after a SCRAM success, `verified(user)` gives the principal. `IServer.getVerifiedPrincipal(user)`
+  (and `NioServer.getVerifiedPrincipal`) is the principal of a user a SASL mechanism proved.
+  `ScramCredentials.format()` / `parse(text)` keep credentials as text,
+  `ScramMechanism.newCredentials(password)` makes them with a new salt, `ScramMechanism.hashOf(name)`.
+- `FileBasedAcl` keeps SCRAM credentials after a hashed password
+  (`{PBKDF2}...;{SCRAM-SHA-256}...;{SCRAM-SHA-1}...`, made by `FileBasedAcl --scram` or
+  `hashPasswordWithScram`) and makes them for plain text passwords; it offers SCRAM only when every
+  user in the file can use it. Servers whose users all have plain text passwords now offer SCRAM.
 - `StoreLocks`: this JVM's lock domains for file servers (FTP, SFTP), one per served root, nested roots sharing
   one, with file lock names from the domain's root and `isLockFile` to keep clients out of the lock directory.
   `NamedLock.closeFromAnyThread()` is public, for work that ends on another thread.

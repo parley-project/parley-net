@@ -26,6 +26,8 @@ package us.bringardner.parley.net.server;
 
 import java.io.IOException;
 
+import us.bringardner.parley.net.sasl.ScramCredentials;
+
 /**
  * Access Control list maintains or produces a list of principles (a.k..a. users) at runtime 
  * and is responsible for authentication and authorization.
@@ -80,6 +82,39 @@ public interface IAccessControlList {
 	 * reveal which user names are valid. 
 	 */
 	default void authenticateUnknownUser(byte[] credentials) {
+	}
+
+	/**
+	 * True if this list can serve SCRAM logins with that hash (RFC 5802, RFC 7677), so a 
+	 * server may offer SCRAM-SHA-1 or SCRAM-SHA-256. A list should say so only when every 
+	 * user who can log in has SCRAM credentials: a client that picks SCRAM because it was 
+	 * offered can't fall back to a password mechanism for a user who has none.
+	 * <p>
+	 * The default says no.
+	 * 
+	 * @param hash "SHA-1" or "SHA-256", as {@link us.bringardner.parley.net.sasl.ScramMechanism#getHash()}
+	 * @return true if SCRAM with this hash can be offered
+	 * @since 1.1.0
+	 */
+	default boolean supportsScram(String hash) {
+		return false;
+	}
+
+	/**
+	 * The SCRAM credentials kept for the user, so a server can check a SCRAM login 
+	 * without the password. Return null for a user that doesn't exist, can't log in or 
+	 * has no credentials for that hash; the SCRAM mechanism then fails the login the 
+	 * same way it fails a wrong password.
+	 * <p>
+	 * The default returns null.
+	 * 
+	 * @param user the user name, as the client gave it (after SASLprep)
+	 * @param hash "SHA-1" or "SHA-256"
+	 * @return the user's credentials for that hash, or null
+	 * @since 1.1.0
+	 */
+	default ScramCredentials getScramCredentials(String user, String hash) {
+		return null;
 	}
 
 }
