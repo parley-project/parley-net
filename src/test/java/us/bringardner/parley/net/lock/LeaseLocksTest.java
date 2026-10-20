@@ -197,4 +197,47 @@ public class LeaseLocksTest extends AbstractLocksTests {
 		assertFalse(l.isValid(), "the renewer saw it too");
 		l.close();
 	}
+
+	/**
+	 * A holder that was paused for most of a lease (a long garbage collection, say) wakes up to
+	 * find its lease lost, and never renews it: by then another server may be taking it over.
+	 */
+	@Test
+	public void aPausedHolderStopsTrustingItsLeaseAndDoesntRenewIt() throws Exception {
+		LeaseLockService svc = new LeaseLockService(MemoryRoots.newRoot(), "a", Duration.ofSeconds(1), Duration.ofMillis(200), true);
+		try {
+			LeaseLockService.LeaseHandle h = (LeaseLockService.LeaseHandle) svc.tryAcquire("box", Mode.EXCLUSIVE);
+			assertNotNull(h);
+			assertTrue(h.isValid());
+			// as if this process was paused: its last renewal is a lease minus a renew interval old
+			h.lastRenew = System.nanoTime() - Duration.ofMillis(810).toNanos();
+			assertFalse(h.isValid(), "no longer trusted");
+			assertThrows(LockLostException.class, h::verify);
+			long beat = h.beat;
+			Thread.sleep(600); // a few renewer runs
+			assertEquals(beat, h.beat, "and not renewed");
+		} finally {
+			svc.close();
+		}
+	}
+
+	/** A takeover marker left by a server that died while taking over is cleared after a lease. */
+	@Test
+	public void aDeadTakersMarkerIsClearedAndTheLeaseTakenOver() throws Exception {
+		fakeEntry(leaseDir("box"), "dead");
+		fakeEntry(leases().getChild(leaseDir("box").getName() + ".stale-taking"), "dead-taker");
+		long start = System.nanoTime();
+		try (NamedLock l = space.lock("box", Mode.EXCLUSIVE, LONG)) {
+			long ms = (System.nanoTime() - start) / 1_000_000;
+			assertTrue(ms >= 1800, "the marker after a lease, then the entry: " + ms + " ms");
+			l.checkValid();
+		}
+		assertFalse(leases().getChild(leaseDir("box").getName() + ".stale-taking").exists(), "the marker is gone");
+	}
+
+	@Test
+	public void theRenewIntervalIsAtMostAThirdOfTheLease() {
+		assertThrows(IllegalArgumentException.class, () -> options().withLease(Duration.ofSeconds(1), Duration.ofMillis(400)));
+		options().withLease(Duration.ofSeconds(3), Duration.ofSeconds(1));
+	}
 }

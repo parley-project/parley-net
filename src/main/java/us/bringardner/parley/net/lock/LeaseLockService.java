@@ -43,9 +43,16 @@ import us.bringardner.parley.net.lock.spi.LockService;
  * <li>Staleness is judged without trusting any clock but this JVM's own: an entry whose
  * {@code owner} (or its absence, for a holder that died before writing it) stays the same for a
  * whole lease, as seen from here, belongs to a holder that stopped renewing. It is taken over:
- * re-read to check it is still the same, renamed aside to a unique name, and deleted. Two servers
- * taking over the same stale entry at once can end with the second removing the first's new one;
- * that holder finds out at its next renewal (or {@link LockHandle#verify()}).</li>
+ * one server at a time (it makes {@code <entry>.stale-taking} first), re-read to check it is still
+ * the same, renamed aside to a unique name, and deleted. If what was moved aside isn't what was
+ * judged stale, it is put back.</li>
+ * <li>A holder fences itself: it trusts its lease, and renews it, only while its last renewal is
+ * less than a lease minus a renew interval old. A server that judges an entry stale has seen it
+ * unchanged for a whole lease, so by then its holder has stopped trusting it and can no longer
+ * renew it: a holder that was paused (a long garbage collection, a machine asleep) and wakes up
+ * finds its lease lost instead of renewing it under a server that is taking it over. The renew
+ * interval is the margin for differences between the servers' clock rates and for a write that
+ * takes a while to be seen.</li>
  * </ul>
  * The order "announce, then look" on both sides is correct on a store that applies each operation
  * in one order (one FTP, SFTP or file server: {@link us.bringardner.parley.files.FileSourceCapabilities#orderedOperations()}).
@@ -62,11 +69,15 @@ final class LeaseLockService implements LockService {
 	static final String READER = ".r.";
 	private static final String NO_OWNER = "";
 	private static final String STALE = ".stale-";
+	/** The marker of a takeover in progress: {@code <entry>.stale-taking}. */
+	private static final String TAKING = STALE + "taking";
 
 	private final FileSource dir;
 	private final String ownerId;
 	private final long leaseNanos;
 	private final long renewMillis;
+	/** A holder trusts its lease only this long after its last renewal: a lease minus a renew interval. */
+	private final long fenceNanos;
 	private final Set<LeaseHandle> held = ConcurrentHashMap.newKeySet();
 	/** Writer markers made while this JVM waits for readers to finish, by name. */
 	private final Map<String, LeaseHandle> pending = new ConcurrentHashMap<>();
@@ -88,6 +99,7 @@ final class LeaseLockService implements LockService {
 		this.ownerId = ownerId;
 		this.leaseNanos = lease.toNanos();
 		this.renewMillis = renew.toMillis();
+		this.fenceNanos = leaseNanos - renew.toNanos();
 		renewer = Executors.newSingleThreadScheduledExecutor(r -> {
 			Thread t = new Thread(r, "parley-lease-renewer");
 			t.setDaemon(true);
@@ -216,6 +228,9 @@ final class LeaseLockService implements LockService {
 
 	/** @return the holding if this call made the directory, else null */
 	private LeaseHandle make(String name, FileSource d) throws IOException {
+		// a renewal's time is taken before anything is written: nobody can see it earlier, so a
+		// holder never trusts its lease longer than others give it
+		long t0 = System.nanoTime();
 		if( !d.mkdir() ) {
 			return null;
 		}
@@ -226,7 +241,7 @@ final class LeaseLockService implements LockService {
 			deleteQuietly(d);
 			throw e;
 		}
-		h.lastRenew = System.nanoTime();
+		h.lastRenew = t0;
 		held.add(h);
 		seen.remove(d.getName());
 		return h;
@@ -243,21 +258,59 @@ final class LeaseLockService implements LockService {
 		return now - o.since >= leaseNanos;
 	}
 
-	/** Remove a stale lock, if it is still the one seen. */
+	/**
+	 * Remove a stale lock, if it is still the one seen: one server at a time, under the entry's
+	 * takeover marker (so one server's takeover never removes the entry another just made after its
+	 * own), and quickly (a taker as slow as a lease minus a renew interval gives up, since others
+	 * may then judge its marker stale).
+	 */
 	private void takeOver(FileSource d, String staleContent) throws IOException {
-		if( !staleContent.equals(read(d)) ) {
-			return; // renewed, released or taken meanwhile
+		FileSource marker = dir.getChild(d.getName() + TAKING);
+		if( !marker.mkdir() ) {
+			// another server is taking it over now; or it died doing so: its marker is cleared once
+			// it has looked the same for a whole lease
+			String m = read(marker);
+			if( m != null && stale(marker.getName(), m) ) {
+				deleteTree(marker);
+				seen.remove(marker.getName());
+				LOG.info("Removed the takeover marker " + marker.getName() + " of a server that stopped");
+			}
+			return;
 		}
-		FileSource aside = dir.getChild(d.getName() + STALE + UUID.randomUUID());
-		if( !d.renameTo(aside) ) {
-			return; // someone else moved it first
-		}
-		String moved = read(aside);
-		deleteTree(aside);
-		if( !staleContent.equals(moved) ) {
-			LOG.warning("Took over " + d.getName() + " just as it was renewed or taken again; its holder loses it at its next renewal");
-		} else {
-			LOG.info("Took over the stale lock " + d.getName() + " (" + firstLine(staleContent) + ")");
+		long start = System.nanoTime();
+		try {
+			try (OutputStream out = marker.getChild(OWNER).getOutputStream()) {
+				out.write(("owner=" + URLEncoder.encode(ownerId, StandardCharsets.UTF_8) + "\ntoken=" + UUID.randomUUID() + "\n")
+						.getBytes(StandardCharsets.UTF_8));
+			} catch (IOException e) {
+				// the marker works without it; it only tells markers apart
+			}
+			if( !staleContent.equals(read(d)) ) {
+				return; // renewed, released or taken meanwhile
+			}
+			if( System.nanoTime() - start >= fenceNanos ) {
+				return; // too slow to trust the marker any longer
+			}
+			FileSource aside = dir.getChild(d.getName() + STALE + UUID.randomUUID());
+			if( !d.renameTo(aside) ) {
+				return; // gone meanwhile
+			}
+			String moved = read(aside);
+			if( !staleContent.equals(moved) ) {
+				// not the entry judged stale (a new one, made under a marker cleared as stale): give it back
+				if( aside.renameTo(d) ) {
+					LOG.warning("Moved " + d.getName() + " aside just as it was made again; put it back");
+					return;
+				}
+				LOG.warning("Took over " + d.getName() + " just as it was made again and couldn't put it back; its holder loses it at its next renewal");
+			} else {
+				LOG.info("Took over the stale lock " + d.getName() + " (" + firstLine(staleContent) + ")");
+			}
+			deleteTree(aside);
+		} finally {
+			if( System.nanoTime() - start < fenceNanos ) {
+				deleteTree(marker); // still ours
+			}
 		}
 	}
 
@@ -311,23 +364,46 @@ final class LeaseLockService implements LockService {
 			if( h.released || h.lost ) {
 				return;
 			}
+			if( fenced(h) ) {
+				return; // too late: others may be taking it over, so it is not renewed
+			}
 			try {
 				if( !ownedBy(read(h.dir), h.token) ) {
 					h.lost = true;
 					LOG.warning("Lost the lease on " + h.name + ": another server took it over");
 					return;
 				}
+				if( fenced(h) ) {
+					return; // the read took too long
+				}
+				long t0 = System.nanoTime();
 				h.beat++;
 				write(h);
-				h.lastRenew = System.nanoTime();
+				h.lastRenew = t0;
 			} catch (IOException | RuntimeException e) {
 				LOG.log(Level.FINE, "Renewing the lease on " + h.name, e);
-				if( System.nanoTime() - h.lastRenew >= leaseNanos ) {
+				if( System.nanoTime() - h.lastRenew >= fenceNanos ) {
 					h.lost = true;
 					LOG.warning("Lost the lease on " + h.name + ": it couldn't be renewed for a whole lease (" + e + ")");
 				}
 			}
 		}
+	}
+
+	/**
+	 * Whether a holding's last renewal is too old to trust (a lease minus a renew interval): then it
+	 * is lost, whatever the store says, and never renewed again.
+	 */
+	private boolean fenced(LeaseHandle h) {
+		if( System.nanoTime() - h.lastRenew >= fenceNanos ) {
+			if( !h.lost ) {
+				h.lost = true;
+				LOG.warning("Lost the lease on " + h.name + ": not renewed for " + (System.nanoTime() - h.lastRenew) / 1_000_000
+						+ " ms (this process was paused or the store was slow), so another server may take it over");
+			}
+			return true;
+		}
+		return false;
 	}
 
 	@Override
@@ -427,7 +503,7 @@ final class LeaseLockService implements LockService {
 
 		@Override
 		public boolean isValid() {
-			return !released && !lost && System.nanoTime() - lastRenew < leaseNanos;
+			return !released && !lost && System.nanoTime() - lastRenew < fenceNanos;
 		}
 
 		@Override
@@ -435,7 +511,7 @@ final class LeaseLockService implements LockService {
 			if( released ) {
 				throw new LockLostException("The lock on " + name + " was released");
 			}
-			if( lost || System.nanoTime() - lastRenew >= leaseNanos ) {
+			if( lost || System.nanoTime() - lastRenew >= fenceNanos ) {
 				lost = true;
 				throw new LockLostException("The lease on " + name + " ran out");
 			}

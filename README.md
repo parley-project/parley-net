@@ -287,9 +287,12 @@ try (NamedLock l = mail.lock("tony/INBOX", Mode.EXCLUSIVE, Duration.ofSeconds(5)
   - `region`, the liberal one: the store's own locks (FileSource region locks on one file, a one-byte region per
     name). Fast, and a dead server's locks go with it, but only where the store's lock scope reaches every server.
   - `lease`, the conservative one: lease directories, which need only an atomic `mkdir`. Renewed every 10 s and
-    taken over when unchanged for a whole lease (30 s); each reading server has its own entry, so readers on
-    several servers share a name. A server paused longer than its lease can lose a lock, so call
-    `NamedLock.checkValid()` (or use `AtomicWrite`) before committing.
+    taken over when unchanged for a whole lease (30 s), by one server at a time; each reading server has its own
+    entry, so readers on several servers share a name. A holder stops trusting its lease a renew interval before
+    it runs out (20 s), and never renews it after that, so a server that was paused (a long garbage collection, a
+    machine asleep) finds its lock lost instead of renewing it while another server takes it over. Call
+    `NamedLock.checkValid()` (or use `AtomicWrite`) before committing. `LockOptions.withLease(lease, renew)`:
+    the renew interval is at most a third of the lease.
   - Any other, through `us.bringardner.parley.net.lock.spi.LockProvider`: found with `ServiceLoader` (by its id)
     or named by class.
 

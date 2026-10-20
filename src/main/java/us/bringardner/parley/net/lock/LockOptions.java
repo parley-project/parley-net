@@ -47,8 +47,10 @@ public final class LockOptions {
 		this.reentrant = reentrant;
 		this.lease = positive(lease, "lease");
 		this.renew = positive(renew, "renew");
-		if( renew.compareTo(lease) >= 0 ) {
-			throw new IllegalArgumentException("The renew interval (" + renew + ") must be shorter than the lease (" + lease + ")");
+		if( renew.multipliedBy(3).compareTo(lease) > 0 ) {
+			// a holder stops trusting its lease a renew interval before it runs out (see the lease
+			// provider), so it needs room for at least one renewal before then, and a missed one
+			throw new IllegalArgumentException("The renew interval (" + renew + ") must be at most a third of the lease (" + lease + ")");
 		}
 		this.ownerId = ownerId;
 		this.coordinationStore = coordinationStore;
@@ -147,7 +149,7 @@ public final class LockOptions {
 
 	/**
 	 * @param lease how long a lease lasts without being renewed
-	 * @param renew how often it is renewed; shorter than the lease
+	 * @param renew how often it is renewed; at most a third of the lease
 	 */
 	public LockOptions withLease(Duration lease, Duration renew) {
 		return new LockOptions(sharing, provider, allowUnsafe, timeout, reentrant, lease, renew, ownerId, coordinationStore);
