@@ -38,6 +38,7 @@ import us.bringardner.parley.net.sasl.ScramCredentials;
 import us.bringardner.parley.net.sasl.ScramMechanism;
 import us.bringardner.parley.net.sasl.ServerSaslAuthenticator;
 import us.bringardner.parley.net.sasl.XOAuth2Mechanism;
+import us.bringardner.parley.net.server.AccessControlUnavailableException;
 import us.bringardner.parley.net.server.FileBasedAcl;
 import us.bringardner.parley.net.server.IAccessControlList;
 import us.bringardner.parley.net.server.IPermission;
@@ -491,7 +492,7 @@ public class TestSasl {
 	}
 
 	@Test
-	public void accessControlListsDontServeScramByDefault() {
+	public void accessControlListsDontServeScramByDefault() throws Exception {
 		IAccessControlList none = new IAccessControlList() {
 			@Override
 			public void initialize(us.bringardner.parley.net.server.IServer server) {
@@ -593,5 +594,67 @@ public class TestSasl {
 		svr.setAccessControl(acl);
 		SaslOutcome out = run(ScramMechanism.SHA_1, ScramMechanism.SHA_1.client("bob", "pass;word"), new ServerSaslAuthenticator(svr), false);
 		assertTrue(out.isSuccess(), out.toString());
+	}
+
+	/** A list whose store is down: every lookup throws. */
+	private static IAccessControlList down() {
+		return new IAccessControlList() {
+			@Override
+			public void initialize(us.bringardner.parley.net.server.IServer server) {
+			}
+
+			@Override
+			public boolean checkPermission(IPrincipal user, IPermission action) {
+				return false;
+			}
+
+			@Override
+			public IPrincipal getPrincipal(String user) {
+				return null;
+			}
+
+			@Override
+			public IPrincipal findPrincipal(String user) throws AccessControlUnavailableException {
+				throw new AccessControlUnavailableException("the database is down");
+			}
+
+			@Override
+			public boolean supportsScram(String hash) {
+				return true;
+			}
+
+			@Override
+			public ScramCredentials getScramCredentials(String user, String hash) throws AccessControlUnavailableException {
+				throw new AccessControlUnavailableException("the database is down");
+			}
+		};
+	}
+
+	@Test
+	public void anAccessControlListThatCantAnswerIsNotAWrongPassword() throws Exception {
+		Server svr = ServerTestSupport.create("SaslDown", ServerTestSupport.standardCommands(), null);
+		svr.getLogger().setLevel(us.bringardner.parley.core.ILogger.Level.NONE);
+		svr.setAccessControl(down());
+		assertNull(svr.authenticate("bob", "pw".getBytes(StandardCharsets.UTF_8)), "the old method can only say no");
+		assertThrows(AccessControlUnavailableException.class, () -> svr.checkLogin("bob", "pw".getBytes(StandardCharsets.UTF_8)));
+		assertThrows(AccessControlUnavailableException.class, () -> svr.getVerifiedPrincipal("bob"));
+
+		ServerSaslAuthenticator plain = new ServerSaslAuthenticator(svr);
+		assertEquals(Status.FAILED, run(new PlainMechanism(), PlainMechanism.client("bob", "pw"), plain, true).getStatus());
+		assertTrue(plain.isUnavailable());
+
+		ServerSaslAuthenticator scram = new ServerSaslAuthenticator(svr);
+		assertEquals(Status.FAILED, run(ScramMechanism.SHA_256, ScramMechanism.SHA_256.client("bob", "pw"), scram, true).getStatus());
+		assertTrue(scram.isUnavailable());
+		assertThrows(AccessControlUnavailableException.class, () -> scram.verified("bob"));
+
+		// a list that can answer: a wrong password isn't "unavailable"
+		svr.setAccessControl(ServerTestSupport.acl("bob, pw, READ"));
+		ServerSaslAuthenticator wrong = new ServerSaslAuthenticator(svr);
+		assertEquals(Status.FAILED, run(new PlainMechanism(), PlainMechanism.client("bob", "x"), wrong, true).getStatus());
+		assertFalse(wrong.isUnavailable());
+		assertNotNull(svr.checkLogin("bob", "pw".getBytes(StandardCharsets.UTF_8)));
+		assertNull(svr.checkLogin("bob", "x".getBytes(StandardCharsets.UTF_8)));
+		assertNull(svr.checkLogin("nobody", "pw".getBytes(StandardCharsets.UTF_8)));
 	}
 }

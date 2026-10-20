@@ -11,6 +11,12 @@
   (and `NioServer.getVerifiedPrincipal`) is the principal of a user a SASL mechanism proved.
   `ScramCredentials.format()` / `parse(text)` keep credentials as text,
   `ScramMechanism.newCredentials(password)` makes them with a new salt, `ScramMechanism.hashOf(name)`.
+- **An access control list that can't answer** (its database is down) isn't a wrong password:
+  `AccessControlUnavailableException`, `IAccessControlList.findPrincipal(user)` (the default calls
+  `getPrincipal`, so it never throws) and `IServer.checkLogin(user, credentials)` (and `NioServer.checkLogin`)
+  say "try again later" apart from "failed". `authenticate` still returns null for both, and logs the outage.
+  `getScramCredentials`, `getVerifiedPrincipal` and `ServerSaslAuthenticator.verified` throw it;
+  `ServerSaslAuthenticator.isUnavailable()` tells why a SASL login failed.
 - `FileBasedAcl` keeps SCRAM credentials after a hashed password
   (`{PBKDF2}...;{SCRAM-SHA-256}...;{SCRAM-SHA-1}...`, made by `FileBasedAcl --scram` or
   `hashPasswordWithScram`) and makes them for plain text passwords; it offers SCRAM only when every

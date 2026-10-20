@@ -167,7 +167,10 @@ can't fall back to a password for a user who has no SCRAM credentials.
 To keep users in a database instead, see parley-net-acl-jdbc.
 
 A login command calls `processor.getServer().authenticate(user, password)` and
-`processor.setPrincipal(...)`. Commands whose `requiresAuthorization()` is true then run only
+`processor.setPrincipal(...)`. An access control list whose store can fail (a database) throws
+`AccessControlUnavailableException` from `findPrincipal`; call `server.checkLogin(user, password)`
+instead of `authenticate` to tell that from a wrong password and answer "try again later" (without
+counting a failed login). Commands whose `requiresAuthorization()` is true then run only
 if the principal has the command's permission; otherwise the client gets "not authorized".
 
 ## Session state, capabilities and SASL

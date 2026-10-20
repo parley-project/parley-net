@@ -52,6 +52,7 @@ import javax.net.ssl.SSLEngine;
 import us.bringardner.parley.core.util.AbstractCoreServer;
 import us.bringardner.parley.io.IoUtils;
 import us.bringardner.parley.net.IManagedThread;
+import us.bringardner.parley.net.server.AccessControlUnavailableException;
 import us.bringardner.parley.net.server.IAccessControlList;
 import us.bringardner.parley.net.server.IPermission;
 import us.bringardner.parley.net.server.IPrincipal;
@@ -639,18 +640,37 @@ public class NioServer extends AbstractCoreServer implements IManagedThread {
 	 * or there is no access control
 	 */
 	public IPrincipal authenticate(String user, byte[] credentials) {
-		IPrincipal ret = null;
-		IAccessControlList acl = getAccessControl();
-		if( acl != null && user != null ) {
-			IPrincipal tmp = acl.getPrincipal(user);
-			if( tmp == null ) {
-				// Same work as a real check so timing doesn't reveal valid user names
-				acl.authenticateUnknownUser(credentials);
-			} else if( tmp.authenticate(credentials) ) {
-				ret = new ImmutablePrincipal(tmp);
-				ret.setState(IPrincipal.State.Authenticated);
-			}
+		try {
+			return checkLogin(user, credentials);
+		} catch (AccessControlUnavailableException e) {
+			// this method can only say "failed"; checkLogin tells the two apart
+			logError("Can't check the login of "+user+": "+e.getMessage());
+			return null;
 		}
+	}
+
+	/**
+	 * Check a login, telling a failed login (null) from an access control list that can't answer
+	 * now (the exception), as {@link us.bringardner.parley.net.server.IServer#checkLogin(String, byte[])}.
+	 *
+	 * @since 1.1.0
+	 */
+	public IPrincipal checkLogin(String user, byte[] credentials) throws AccessControlUnavailableException {
+		IAccessControlList acl = getAccessControl();
+		if( acl == null || user == null ) {
+			return null;
+		}
+		IPrincipal tmp = acl.findPrincipal(user);
+		if( tmp == null ) {
+			// Same work as a real check so timing doesn't reveal valid user names
+			acl.authenticateUnknownUser(credentials);
+			return null;
+		}
+		if( !tmp.authenticate(credentials) ) {
+			return null;
+		}
+		IPrincipal ret = new ImmutablePrincipal(tmp);
+		ret.setState(IPrincipal.State.Authenticated);
 		return ret;
 	}
 
@@ -661,12 +681,12 @@ public class NioServer extends AbstractCoreServer implements IManagedThread {
 	 * @return a read only authenticated principal, or null if there is no access control or no such user
 	 * @since 1.1.0
 	 */
-	public IPrincipal getVerifiedPrincipal(String user) {
+	public IPrincipal getVerifiedPrincipal(String user) throws AccessControlUnavailableException {
 		IAccessControlList acl = getAccessControl();
 		if( acl == null || user == null ) {
 			return null;
 		}
-		IPrincipal p = acl.getPrincipal(user);
+		IPrincipal p = acl.findPrincipal(user);
 		if( p == null ) {
 			return null;
 		}

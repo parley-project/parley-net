@@ -1288,20 +1288,13 @@ public class Server extends AbstractCoreServer implements IServer {
 	 * @see us.bringardner.parley.net.IServer#authenticate(java.lang.String, byte[])
 	 */
 	public IPrincipal authenticate(String user, byte[] credentials) {
-		IPrincipal ret = null;
-		IAccessControlList acl = getAccessControl();
-		if(acl != null ) {
-			IPrincipal tmp = acl.getPrincipal(user);
-			if( tmp == null ) {
-				// Same work as a real check so timing doesn't reveal valid user names
-				acl.authenticateUnknownUser(credentials);
-			} else if( tmp.authenticate(credentials)) {
-				ret = new ImmutablePrincipal(tmp);
-				ret.setState(State.Authenticated);
-			}
+		try {
+			return checkLogin(user, credentials);
+		} catch (AccessControlUnavailableException e) {
+			// this method can only say "failed"; checkLogin tells the two apart
+			logError("Can't check the login of "+user+": "+e.getMessage());
+			return null;
 		}
-		
-		return ret;
 	}
 
 	/* (non-Javadoc)

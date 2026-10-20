@@ -2,6 +2,7 @@ package us.bringardner.parley.net.sasl;
 
 import java.nio.charset.StandardCharsets;
 
+import us.bringardner.parley.net.server.AccessControlUnavailableException;
 import us.bringardner.parley.net.server.IAccessControlList;
 import us.bringardner.parley.net.server.IPrincipal;
 import us.bringardner.parley.net.server.IServer;
@@ -17,6 +18,9 @@ import us.bringardner.parley.net.server.IServer;
  * authenticated principal, for the protocol to attach to the session. SCRAM doesn't check a
  * password here: when {@link SaslServerDriver} reports success for it, call
  * {@link #verified(String)} with the outcome's user to get the principal.
+ * <p>
+ * When the access control list can't answer (its database is down, say), the login fails and
+ * {@link #isUnavailable()} is true: answer with a temporary failure, not "wrong password".
  *
  * <PRE>
  * Copyright 1998-2026 <A href="http://bringardner.us/tony">Tony Bringardner</A>
@@ -39,6 +43,7 @@ public class ServerSaslAuthenticator implements ISaslAuthenticator {
 
 	private final IServer server;
 	private IPrincipal principal;
+	private volatile boolean unavailable;
 
 	public ServerSaslAuthenticator(IServer server) {
 		this.server = server;
@@ -46,7 +51,12 @@ public class ServerSaslAuthenticator implements ISaslAuthenticator {
 
 	@Override
 	public boolean checkPassword(String user, String password) {
-		principal = server.authenticate(user, password.getBytes(StandardCharsets.UTF_8));
+		try {
+			principal = server.checkLogin(user, password.getBytes(StandardCharsets.UTF_8));
+		} catch (AccessControlUnavailableException e) {
+			unavailable = true;
+			principal = null;
+		}
 		return principal != null;
 	}
 
@@ -61,17 +71,42 @@ public class ServerSaslAuthenticator implements ISaslAuthenticator {
 	 *
 	 * @param user the user from the successful outcome
 	 * @return the authenticated principal, or null if the user isn't there any more
+	 * @throws AccessControlUnavailableException if the access control list can't answer now
 	 * @since 1.1.0
 	 */
-	public IPrincipal verified(String user) {
-		principal = server.getVerifiedPrincipal(user);
+	public IPrincipal verified(String user) throws AccessControlUnavailableException {
+		try {
+			principal = server.getVerifiedPrincipal(user);
+		} catch (AccessControlUnavailableException e) {
+			unavailable = true;
+			principal = null;
+			throw e;
+		}
 		return principal;
 	}
 
+	/**
+	 * @return true if the access control list couldn't answer during this authentication; the
+	 * login then failed for that reason, not because of the credentials
+	 * @since 1.1.0
+	 */
+	public boolean isUnavailable() {
+		return unavailable;
+	}
+
+	/** The SCRAM credentials from the access control list; null (and {@link #isUnavailable()}) if it can't answer. */
 	@Override
 	public ScramCredentials getScramCredentials(String user, String hash) {
 		IAccessControlList acl = server.getAccessControl();
-		return acl == null || user == null ? null : acl.getScramCredentials(user, hash);
+		if( acl == null || user == null ) {
+			return null;
+		}
+		try {
+			return acl.getScramCredentials(user, hash);
+		} catch (AccessControlUnavailableException e) {
+			unavailable = true;
+			return null;
+		}
 	}
 
 	@Override

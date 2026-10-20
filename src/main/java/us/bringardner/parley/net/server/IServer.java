@@ -129,14 +129,47 @@ public interface IServer extends IManagedThread {
 	 * @param user the user the mechanism proved
 	 * @return a read only authenticated principal, or null if there is no access control or 
 	 * no such user
+	 * @throws AccessControlUnavailableException if the access control list can't answer now
 	 * @since 1.1.0
 	 */
-	default IPrincipal getVerifiedPrincipal(String user) {
+	/**
+	 * Check a login like {@link #authenticate(String, byte[])}, but tell a failed login (null)
+	 * from an access control list that can't answer now (the exception), so the server can answer
+	 * "try again later" instead of "wrong password".
+	 * <p>
+	 * The default looks the user up in {@link #getAccessControl()} with
+	 * {@link IAccessControlList#findPrincipal(String)}.
+	 *
+	 * @return a read only authenticated principal, or null if the login failed or there is no 
+	 * access control
+	 * @throws AccessControlUnavailableException if the access control list can't answer now
+	 * @since 1.1.0
+	 */
+	default IPrincipal checkLogin(String user, byte[] credentials) throws AccessControlUnavailableException {
 		IAccessControlList acl = getAccessControl();
 		if( acl == null || user == null ) {
 			return null;
 		}
-		IPrincipal p = acl.getPrincipal(user);
+		IPrincipal tmp = acl.findPrincipal(user);
+		if( tmp == null ) {
+			// same work as a real check so timing doesn't reveal valid user names
+			acl.authenticateUnknownUser(credentials);
+			return null;
+		}
+		if( !tmp.authenticate(credentials) ) {
+			return null;
+		}
+		IPrincipal ret = new ImmutablePrincipal(tmp);
+		ret.setState(IPrincipal.State.Authenticated);
+		return ret;
+	}
+
+	default IPrincipal getVerifiedPrincipal(String user) throws AccessControlUnavailableException {
+		IAccessControlList acl = getAccessControl();
+		if( acl == null || user == null ) {
+			return null;
+		}
+		IPrincipal p = acl.findPrincipal(user);
 		if( p == null ) {
 			return null;
 		}

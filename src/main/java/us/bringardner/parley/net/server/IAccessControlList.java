@@ -77,6 +77,21 @@ public interface IAccessControlList {
 	IPrincipal getPrincipal(String user);
 
 	/**
+	 * Look a user up like {@link #getPrincipal(String)}, but tell "no such user" (null) from "I
+	 * can't answer now" (the exception). Servers use this one, so a list whose store can fail
+	 * (a database) should implement it; getPrincipal can then return null for both.
+	 * <p>
+	 * The default calls {@link #getPrincipal(String)}, so it never throws.
+	 *
+	 * @return the principal, or null if the user doesn't exist or can't log in
+	 * @throws AccessControlUnavailableException if the list can't answer right now
+	 * @since 1.1.0
+	 */
+	default IPrincipal findPrincipal(String user) throws AccessControlUnavailableException {
+		return getPrincipal(user);
+	}
+
+	/**
 	 * Called when a login names a user that doesn't exist. Implementations that 
 	 * hash passwords should do equivalent work here so the response time doesn't
 	 * reveal which user names are valid. 
@@ -111,9 +126,10 @@ public interface IAccessControlList {
 	 * @param user the user name, as the client gave it (after SASLprep)
 	 * @param hash "SHA-1" or "SHA-256"
 	 * @return the user's credentials for that hash, or null
+	 * @throws AccessControlUnavailableException if the list can't answer right now
 	 * @since 1.1.0
 	 */
-	default ScramCredentials getScramCredentials(String user, String hash) {
+	default ScramCredentials getScramCredentials(String user, String hash) throws AccessControlUnavailableException {
 		return null;
 	}
 
