@@ -47,14 +47,14 @@ public interface IAccessControlList {
 	void initialize (IServer server) throws IOException;
 
 	/**
-	 * Initialize for a server known only by name, for servers that are not an IServer 
+	 * Initialize for a server known only by its property prefix, for servers that are not an IServer 
 	 * (e.g. a non-blocking server). The name is the prefix of the controller's properties, 
-	 * as {@link #initialize(IServer)} uses the server's name.
+	 * as {@link #initialize(IServer)} uses the server's property prefix.
 	 * <p>
 	 * The default throws UnsupportedOperationException; FileBasedAcl and PropertyAuthenticator 
 	 * implement it, and their initialize(IServer) calls it.
 	 * 
-	 * @param serverName the server's name
+	 * @param serverName the server's property prefix
 	 * @throws IOException
 	 */
 	default void initialize(String serverName) throws IOException {

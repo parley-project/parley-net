@@ -299,7 +299,7 @@ public class TestServerLimits {
 		}
 	}
 
-	/** LoginTimeLimit: a session that hasn't logged in by then is closed, one that has stays */
+	/** loginTimeLimit: a session that hasn't logged in by then is closed, one that has stays */
 	@Test
 	public void testLoginTimeLimit() throws Exception {
 		TestServer svr = ServerTestSupport.create("LoginLimitServer", ServerTestSupport.standardCommands(), null);

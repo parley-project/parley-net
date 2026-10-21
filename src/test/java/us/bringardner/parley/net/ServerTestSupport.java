@@ -58,7 +58,7 @@ public class ServerTestSupport {
 	public static final String KEYSTORE = "/test-keystore.p12";
 	public static final String KEY_ALIAS = "test";
 	public static final char[] PASSWORD = "changeit".toCharArray();
-	/** {@link #PASSWORD} as text, for a server's KeyStorePassword property. */
+	/** {@link #PASSWORD} as text, for a server's keyStorePassword property. */
 	public static final String KEYSTORE_PASSWORD = new String(PASSWORD);
 
 	public static final String ECHO = "Echo";
@@ -239,8 +239,8 @@ public class ServerTestSupport {
 
 	/**
 	 * Write the test keystore ({@link #KEYSTORE}: PKCS12, alias {@link #KEY_ALIAS}, password
-	 * {@link #KEYSTORE_PASSWORD}) to a file, for a server configured with its KeyStoreName,
-	 * KeyStorePassword and KeyStoreType (PKCS12) properties. The file is replaced in one step, so
+	 * {@link #KEYSTORE_PASSWORD}) to a file, for a server configured with its keyStoreName,
+	 * keyStorePassword and keyStoreType (PKCS12) properties. The file is replaced in one step, so
 	 * tests running at once never see it half written.
 	 */
 	public static synchronized void writeKeystore(File file) throws IOException {

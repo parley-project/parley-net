@@ -108,9 +108,9 @@ public class Server extends AbstractCoreServer implements IServer {
 	private volatile long taskStopWait = DEFAULT_TASK_STOP_WAIT;
 	/** One daemon platform thread per running server for scheduled work. */
 	private volatile ScheduledThreadPoolExecutor scheduler;
-	/** Sessions that have to log in within LoginTimeLimit, and the check that closes them */
+	/** Sessions that have to log in within loginTimeLimit, and the check that closes them */
 	private final Map<IProcessor, ScheduledFuture<?>> loginTimers = new ConcurrentHashMap<IProcessor, ScheduledFuture<?>>();
-	//  The client address of each session, to give back its per-client place (MaxConnectionsPerClient)
+	//  The client address of each session, to give back its per-client place (maxConnectionsPerClient)
 	private final Map<IProcessor, java.net.InetAddress> clientAddresses = new ConcurrentHashMap<IProcessor, java.net.InetAddress>();
 	private volatile ScheduledFuture<?> adminTask;
 	private int connectionTimeout = getDefaultConnectionTimeout();
@@ -147,7 +147,7 @@ public class Server extends AbstractCoreServer implements IServer {
 	public enum VirtualThreads { OFF, ON, AUTO }
 
 	/** Property for {@link #setVirtualThreads(VirtualThreads)}: OFF, ON or AUTO (any case). */
-	public static final String PROPERTY_VIRTUAL_THREADS = "VirtualThreads";
+	public static final String PROPERTY_VIRTUAL_THREADS = "virtualThreads";
 	/**
 	 * The default: virtual threads on Java 24 and later, where blocking I/O no longer pins a
 	 * carrier thread (JEP 491) and a session costs a few KB instead of a platform thread;
@@ -201,9 +201,16 @@ public class Server extends AbstractCoreServer implements IServer {
 	}
 
 
+	/**
+	 * @param name the server's name, which is also the prefix of its properties (name.port,
+	 *  name.userFile ...) unless a subclass sets another one
+	 */
 	public Server(int port, String name) {
 		this(port);
 		setName(name);
+		if( name != null && !name.isEmpty() ) {
+			setPropertyPrefix(name);
+		}
 	}
 
 
@@ -568,7 +575,7 @@ public class Server extends AbstractCoreServer implements IServer {
 		}
 		try {
 			ret.setReuseAddress(isReuseAddress());
-			// The BindAddress property / setBindAddr (null: every address) was ignored
+			// The bindAddress property / setBindAddr (null: every address) was ignored
 			// here, so a server meant for loopback only listened on every interface
 			ret.bind(new InetSocketAddress(getBindAddr(), getPort()), getBacklog());
 		} catch (IOException e) {
@@ -708,7 +715,7 @@ public class Server extends AbstractCoreServer implements IServer {
 			}
 
 			if( isKeepAlive() ) {
-				// KeepAlive property (parley-core, default false): notice clients that vanish without closing
+				// keepAlive property (parley-core, default false): notice clients that vanish without closing
 				try {
 					socket.setKeepAlive(true);
 				} catch (SocketException e) {
@@ -1054,7 +1061,7 @@ public class Server extends AbstractCoreServer implements IServer {
 	}
 
 	/**
-	 * @return true if every session must log in, so the LoginTimeLimit applies to it (the
+	 * @return true if every session must log in, so the loginTimeLimit applies to it (the
 	 * default); false for a protocol that can be used without logging in (e.g. SMTP relay)
 	 */
 	protected boolean isLoginRequired() {
@@ -1062,7 +1069,7 @@ public class Server extends AbstractCoreServer implements IServer {
 	}
 
 	/**
-	 * With a LoginTimeLimit, close the session's connection if nobody has logged in
+	 * With a loginTimeLimit, close the session's connection if nobody has logged in
 	 * (it has no principal) by then. Closed like an idle connection.
 	 */
 	private void startLoginTimer(IProcessor proc) {

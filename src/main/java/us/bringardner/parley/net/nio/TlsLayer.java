@@ -37,7 +37,7 @@ import us.bringardner.parley.core.util.TlsSockets;
  * Used only by {@link NioConnection} on its reactor thread (netIn also under the input lock).
  * <p>
  * The static methods make engines configured as the blocking framework configures its
- * sockets: TlsSockets for the client settings (host name check, SNI), and ForceTlsVersion.
+ * sockets: TlsSockets for the client settings (host name check, SNI), and parley.core.forceTlsVersion.
  *
  * @author Tony Bringardner
  */
@@ -84,7 +84,7 @@ final class TlsLayer {
 	}
 
 	/**
-	 * A server engine: client certificates as configured, ForceTlsVersion applied.
+	 * A server engine: client certificates as configured, parley.core.forceTlsVersion applied.
 	 */
 	static SSLEngine serverEngine(SSLContext ctx, boolean needClientAuth) {
 		SSLEngine ret = ctx.createSSLEngine();
@@ -110,7 +110,7 @@ final class TlsLayer {
 	}
 
 	/**
-	 * Some clients don't support TLS 1.3: the ForceTlsVersion system property limits the
+	 * Some clients don't support TLS 1.3: the parley.core.forceTlsVersion system property limits the
 	 * engine to one version, as the framework's Connection does for sockets.
 	 */
 	private static void forceVersion(SSLEngine engine) {

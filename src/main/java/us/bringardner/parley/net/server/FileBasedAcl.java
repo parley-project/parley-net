@@ -88,9 +88,9 @@ public class FileBasedAcl extends BaseObject implements IAccessControlList {
 	 * every transfer and session. So only a few run at once; the rest wait their turn.
 	 */
 	/** System property: how many password hashes may run at once (default: half the cores, at least 1) */
-	public static final String PROP_MAX_CONCURRENT_HASHES = "FileBasedAcl.maxConcurrentHashes";
+	public static final String PROP_MAX_CONCURRENT_HASHES = "parley.net.acl.maxConcurrentHashes";
 	/** System property: ms a login waits for its turn before it fails (default 30000) */
-	public static final String PROP_HASH_WAIT_MS = "FileBasedAcl.hashWaitMs";
+	public static final String PROP_HASH_WAIT_MS = "parley.net.acl.hashWaitMs";
 	public static final int DEFAULT_HASH_WAIT_MS = 30000;
 
 	private static volatile int maxConcurrentHashes = Math.max(1, Integer.getInteger(PROP_MAX_CONCURRENT_HASHES,
@@ -303,7 +303,7 @@ public class FileBasedAcl extends BaseObject implements IAccessControlList {
 
 	@Override
 	public void initialize(IServer server) throws IOException {
-		initialize(server.getName());
+		initialize(server.getPropertyPrefix());
 	}
 
 	@Override

@@ -29,9 +29,9 @@ import java.io.IOException;
 
 /**
  * This class provided authentication and authorization the runtime properties;
- * In the initialize method, it uses the server name as a property prefix and
+ * In the initialize method, it uses the server's property prefix and
  * searches for properties in the form of :
- * 'server name'.user0 .. 'server name'.user[n].  The search stops when this name pattern fails to find a value; 
+ * 'prefix'.user0 .. 'prefix'.user[n].  The search stops when this name pattern fails to find a value; 
  *   
  * The structure of the property value is a set a fields that are comma ('') separated.
  * The first fields in the user name.  The second field is the user password and the rest of the fields are permission names;

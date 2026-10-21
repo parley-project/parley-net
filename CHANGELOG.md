@@ -1,5 +1,19 @@
 # Changelog
 
+## parley-net 2.0.0 (unreleased)
+
+### Changed (needs a configuration change)
+
+- **Property names** (Parley 2.0.0; the old names are no longer read): `AuthenticationProvider` is
+  `authenticationProvider`, `FrameTimeout` `frameTimeout`, `VirtualThreads` `virtualThreads`, and parley-core's
+  server settings are lowerCamel too (`port`, `maxConnections`, `keyStoreName` ...).
+  `FileBasedAcl.maxConcurrentHashes` and `FileBasedAcl.hashWaitMs` are `parley.net.acl.maxConcurrentHashes`
+  and `parley.net.acl.hashWaitMs`.
+- **Access control lists use the server's property prefix**, not its name: `IServer.getPropertyPrefix()` is
+  new, and `FileBasedAcl`, `PropertyAuthenticator` and `NioServer` read `<prefix>.userFile`, `<prefix>.user0` ...
+  `new Server(port, name)` and `new NioServer(port, name)` make the name the property prefix, so a server
+  made that way reads `name.port`, `name.userFile` ... as its access control list did before.
+
 ## parley-net 1.1.0 (unreleased)
 
 ### Added

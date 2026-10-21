@@ -74,7 +74,7 @@ import us.bringardner.parley.net.server.Server;
  * file I/O, starting processes...).
  * <p>
  * Like every Parley server it extends parley-core's AbstractCoreServer, so the same properties 
- * configure it (Port, BindAddress, Backlog, KeepAlive, TcpNoDelay, MaxConnections, the key 
+ * configure it (port, bindAddress, backlog, keepAlive, tcpNoDelay, maxConnections, the key 
  * store settings of SecureBaseObject...), and the server attributes are shared by all connections.
  * <p>
  * TLS uses the server's SSLContext ({@code getSSLContext()}, from the key store settings): a 
@@ -108,7 +108,7 @@ public class NioServer extends AbstractCoreServer implements IManagedThread {
 	//  setServerChannel: a channel bound by the caller, for the next start
 	private volatile ServerSocketChannel boundChannel;
 	/** Property: the most time (ms) a frame may take to arrive once it has started, 0 = no limit */
-	public static final String PROPERTY_FRAME_TIMEOUT = "FrameTimeout";
+	public static final String PROPERTY_FRAME_TIMEOUT = "frameTimeout";
 	private volatile long frameTimeout = -1;
 	//  The client address of each connection, to give back its per-client place
 	private final Map<Long, InetAddress> clientAddresses = new ConcurrentHashMap<Long, InetAddress>();
@@ -140,9 +140,16 @@ public class NioServer extends AbstractCoreServer implements IManagedThread {
 		setPort(port);
 	}
 
+	/**
+	 * @param name the server's name, which is also the prefix of its properties (name.port,
+	 *  name.user0 ...) unless a subclass sets another one
+	 */
 	public NioServer(int port, String name) {
 		this(port);
 		setName(name);
+		if( name != null && !name.isEmpty() ) {
+			setPropertyPrefix(name);
+		}
 	}
 
 	public NioServer(int port, INioHandlerFactory handlerFactory) {
@@ -444,7 +451,7 @@ public class NioServer extends AbstractCoreServer implements IManagedThread {
 
 	/**
 	 * Serve connections from a channel that is already bound, instead of opening one on
-	 * Port / BindAddress at start: e.g. when the caller has to know the port before the
+	 * port / bindAddress at start: e.g. when the caller has to know the port before the
 	 * server runs, or was handed the channel (an inherited channel). The server owns it
 	 * from then on and closes it when it stops. Used by the next start only.
 	 * @param channel a bound ServerSocketChannel
@@ -721,7 +728,7 @@ public class NioServer extends AbstractCoreServer implements IManagedThread {
 						try {
 							Class<?> authClass = Class.forName(tmp.trim());
 							IAccessControlList auth = (IAccessControlList) authClass.getDeclaredConstructor().newInstance();
-							auth.initialize(getName());
+							auth.initialize(getPropertyPrefix());
 							accessControl = auth;
 						} catch (Exception e) {
 							logError("Can't configure access control class='"+tmp+"'", e);

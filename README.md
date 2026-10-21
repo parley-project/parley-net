@@ -119,7 +119,7 @@ server.setKeyStoreType("PKCS12");
 server.setKeyStorePassword(password);
 ```
 
-(or the `KeyStoreName`, `KeyStoreType` and `KeyStorePassword` properties). The client
+(or the `keyStoreName`, `keyStoreType` and `keyStorePassword` properties). The client
 connects with a TLS socket factory: `client.setSocketFactory(sslContext.getSocketFactory())`.
 
 **STARTTLS.** Return a server `SSLContext` from your `Connection.getSSLContext()`, and write
@@ -141,9 +141,11 @@ certificate must match the host name. For self-signed certificates either
 ## Authentication and permissions
 
 Set an `IAccessControlList` with `server.setAccessControl(...)`, or name the class in the
-`AuthenticationProvider` property (`IServer.AUTHENTICATION_PROVIDER_PROPERTY`).
-`FileBasedAcl` reads users from the file named by the `<server name>.userFile` property;
-`PropertyAuthenticator` reads them from `<server name>.user0`, `.user1`, ... properties.
+`authenticationProvider` property (`IServer.AUTHENTICATION_PROVIDER_PROPERTY`).
+`FileBasedAcl` reads users from the file named by the `<property prefix>.userFile` property (for example
+`parley.mail.pop3.userFile`); `PropertyAuthenticator` reads them from `<property prefix>.user0`, `.user1`, ...
+properties. The prefix is the server's `getPropertyPrefix()`: the name given to `new Server(port, name)`
+(or `NioServer`), or the one a Parley server sets, such as `parley.mail.pop3`.
 Each user is one line:
 
 ```
@@ -224,7 +226,7 @@ queued.
 
 | | |
 |---|---|
-| `NioServer` | Accepts on a non-blocking channel and hands connections to its `NioReactor`s. An `AbstractCoreServer`, so the usual properties (Port, MaxConnections, key store...) configure it. |
+| `NioServer` | Accepts on a non-blocking channel and hands connections to its `NioReactor`s. An `AbstractCoreServer`, so the usual properties (port, maxConnections, key store...) configure it. |
 | `NioClient` | Non-blocking connects (`connect` returns a `CompletableFuture`, or `connectAndWait`). |
 | `INioHandlerFactory` → `INioHandler` | Your protocol: `onConnect`, `onMessage`, `onIdle`, `onError`, `onClose`. One call at a time per connection. |
 | `IFrameDecoder` | Splits the input: `LineFrameDecoder`, `LengthFieldFrameDecoder`, `RawFrameDecoder`, or your own. A handler can switch decoders between frames. |
@@ -253,7 +255,7 @@ cancels it. Both are checked about once a second.
 
 **A channel you bound yourself.** `setServerChannel(channel)` serves an already bound
 `ServerSocketChannel` (when the caller needs the port before the server runs, or was handed the
-channel) instead of opening one on Port / BindAddress; the server closes it when it stops.
+channel) instead of opening one on port / bindAddress; the server closes it when it stops.
 
 For request / response protocols (FTP, SMTP, POP3) the blocking `Server` is simpler, and with
 virtual threads (Java 21+) it serves many idle sessions just as cheaply.
@@ -347,15 +349,15 @@ try (NamedLock l = mail.lock("tony/INBOX", Mode.EXCLUSIVE, Duration.ofSeconds(5)
 | Server read time-out | 60 s | `Server.setConnectionTimeout(ms)`, 0 = none |
 | Idle connections closed after | 24 h | `Server.setMaxIdleConnection(ms)` |
 | Maximum concurrent clients | unlimited | `Server.setMaxClients(n)`, `setServerBusyMessage("421 ...")` |
-| Connections per client address | unlimited | `setMaxConnectionsPerClient(n)` or the `MaxConnectionsPerClient` property (`Server` and `NioServer`) |
-| Client addresses allowed | everyone | `setAllowedClients("127.0.0.1 10.0.0.0/8")` or the `AllowedClients` property; others are closed at once |
-| NIO frame time limit | none | `NioServer.setFrameTimeout(ms)` or the `FrameTimeout` property: a frame must arrive within this once it has started |
+| Connections per client address | unlimited | `setMaxConnectionsPerClient(n)` or the `maxConnectionsPerClient` property (`Server` and `NioServer`) |
+| Client addresses allowed | everyone | `setAllowedClients("127.0.0.1 10.0.0.0/8")` or the `allowedClients` property; others are closed at once |
+| NIO frame time limit | none | `NioServer.setFrameTimeout(ms)` or the `frameTimeout` property: a frame must arrive within this once it has started |
 | Longest line | 64 KiB | `Connection.setDefaultMaxLineLength(n)` or `setMaxLineLength(n)`, 0 = none |
 | Client read time-out | 5 min | `client.setTimeout(ms)`, `Client.setDefaultReadTimeout(ms)`, or the `readTimeout` property |
 | Client connect time-out | 30 s | `client.setConnectTimeout(ms)` or the `connectTimeout` property |
 | TCP_NODELAY | on | `setTcpNoDelay(false)` on `Server` or `Client` |
 | SO_REUSEADDR | on | `Server.setReuseAddress(false)` |
-| Listen address | every address | `setBindAddr(address)` or the `BindAddress` property (`Server` and `NioServer`) |
+| Listen address | every address | `setBindAddr(address)` or the `bindAddress` property (`Server` and `NioServer`) |
 | Reply to a too-long line | `500 Line too long` | override `AbstractCommandProcessor.replyLineTooLong(max)` for the protocol's own reply; the session then ends |
 
 Properties are looked up with `BaseObject.getProperty` from `parley-core`: first
