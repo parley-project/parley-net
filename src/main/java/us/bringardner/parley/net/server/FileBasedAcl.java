@@ -310,7 +310,7 @@ public class FileBasedAcl extends BaseObject implements IAccessControlList {
 	public void initialize(String serverName) throws IOException {
 		setPropertyPrefix(serverName);
 
-		String path = getProperty(PROP_FILE_NAME);
+		String path = getProperty(propertyName(PROP_FILE_NAME));
 		if( path == null ) {
 			throw new IOException("Can't find a property for "+PROP_FILE_NAME+" ");
 		}

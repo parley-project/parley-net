@@ -4,6 +4,9 @@
 
 ### Changed (needs a configuration change)
 
+- Properties are read with `propertyName(name)` (`<prefix>.authenticationProvider`, `<prefix>.userFile`,
+  `<prefix>.virtualThreads` ...): the name alone (`-DauthenticationProvider=...`) no longer applies to every
+  server, since parley-core's `getProperty` now looks up exactly the name it is given.
 - **Property names** (Parley 2.0.0; the old names are no longer read): `AuthenticationProvider` is
   `authenticationProvider`, `FrameTimeout` `frameTimeout`, `VirtualThreads` `virtualThreads`, and parley-core's
   server settings are lowerCamel too (`port`, `maxConnections`, `keyStoreName` ...).

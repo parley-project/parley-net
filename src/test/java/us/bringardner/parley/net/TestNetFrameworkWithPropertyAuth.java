@@ -143,7 +143,7 @@ public class TestNetFrameworkWithPropertyAuth {
 	@AfterEach
 	public void clearProperties() {
 		// System properties are JVM wide, don't leak them into other tests
-		System.clearProperty(IServer.AUTHENTICATION_PROVIDER_PROPERTY);
+		System.clearProperty("EchoServer."+IServer.AUTHENTICATION_PROVIDER_PROPERTY);
 		System.clearProperty("EchoServer.user0");
 	}
 
@@ -153,7 +153,7 @@ public class TestNetFrameworkWithPropertyAuth {
 		// 0 = any free port, so tests don't collide with each other or other programs
 		int port = 0;
 		String serverName = "EchoServer";
-		System.setProperty(IServer.AUTHENTICATION_PROVIDER_PROPERTY, PropertyAuthenticator.class.getCanonicalName());
+		System.setProperty(serverName+"."+IServer.AUTHENTICATION_PROVIDER_PROPERTY, PropertyAuthenticator.class.getCanonicalName());
 		System.setProperty(serverName+".user0", "echoUser,password,"+ECHO_COMMAND);
 		
 		/**

@@ -84,17 +84,17 @@ public class TestVirtualThreads {
 	public void propertySetsIt() {
 		Server svr = server("VtProperty");
 		try {
-			System.setProperty(Server.PROPERTY_VIRTUAL_THREADS, "on");
+			System.setProperty(svr.propertyName(Server.PROPERTY_VIRTUAL_THREADS), "on");
 			svr.setVirtualThreads(null); // read the property again
 			assertEquals(VirtualThreads.ON, svr.getVirtualThreads());
-			System.setProperty(Server.PROPERTY_VIRTUAL_THREADS, " Auto ");
+			System.setProperty(svr.propertyName(Server.PROPERTY_VIRTUAL_THREADS), " Auto ");
 			svr.setVirtualThreads(null);
 			assertEquals(VirtualThreads.AUTO, svr.getVirtualThreads());
-			System.setProperty(Server.PROPERTY_VIRTUAL_THREADS, "nonsense");
+			System.setProperty(svr.propertyName(Server.PROPERTY_VIRTUAL_THREADS), "nonsense");
 			svr.setVirtualThreads(null);
 			assertEquals(Server.DEFAULT_VIRTUAL_THREADS, svr.getVirtualThreads(), "an invalid value falls back to the default");
 		} finally {
-			System.clearProperty(Server.PROPERTY_VIRTUAL_THREADS);
+			System.clearProperty(svr.propertyName(Server.PROPERTY_VIRTUAL_THREADS));
 		}
 	}
 

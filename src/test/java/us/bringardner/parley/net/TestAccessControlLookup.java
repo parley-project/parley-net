@@ -49,7 +49,7 @@ public class TestAccessControlLookup {
 
 		@Override
 		public String getProperty(String name, String defaultValue) {
-			if (IServer.AUTHENTICATION_PROVIDER_PROPERTY.equals(name)) {
+			if (propertyName(IServer.AUTHENTICATION_PROVIDER_PROPERTY).equals(name)) {
 				lookups.incrementAndGet();
 			}
 			return super.getProperty(name, defaultValue);

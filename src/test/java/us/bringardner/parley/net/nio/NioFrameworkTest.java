@@ -298,7 +298,7 @@ public class NioFrameworkTest {
 	@Test
 	public void accessControl() throws Exception {
 		String name = "nio-auth-test";
-		System.setProperty(NioServer.AUTHENTICATION_PROVIDER_PROPERTY, PropertyAuthenticator.class.getName());
+		System.setProperty(name+"."+NioServer.AUTHENTICATION_PROVIDER_PROPERTY, PropertyAuthenticator.class.getName());
 		System.setProperty(name+".user0", "alice, secret, shell|sftp");
 		try {
 			server = new NioServer(0, name);
@@ -332,7 +332,7 @@ public class NioFrameworkTest {
 			con.writeLine("CAN admin");
 			assertEquals("no", c.nextLine());
 		} finally {
-			System.clearProperty(NioServer.AUTHENTICATION_PROVIDER_PROPERTY);
+			System.clearProperty(name+"."+NioServer.AUTHENTICATION_PROVIDER_PROPERTY);
 			System.clearProperty(name+".user0");
 		}
 	}

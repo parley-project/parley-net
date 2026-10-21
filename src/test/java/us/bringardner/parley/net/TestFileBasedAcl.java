@@ -43,7 +43,7 @@ public class TestFileBasedAcl {
 	@AfterEach
 	public void clearProperties() {
 		// System properties are JVM wide, don't leak them into other tests
-		System.clearProperty(IServer.AUTHENTICATION_PROVIDER_PROPERTY);
+		System.clearProperty("TestSetver."+IServer.AUTHENTICATION_PROVIDER_PROPERTY);
 		System.clearProperty("TestSetver.user0");
 		System.clearProperty("TestSetver.user1");
 		System.clearProperty("TestSetver.userFile");
@@ -53,7 +53,7 @@ public class TestFileBasedAcl {
 	public void testPropertyAcl() {
 		String serverName = "TestSetver";
 
-		System.setProperty(IServer.AUTHENTICATION_PROVIDER_PROPERTY, PropertyAuthenticator.class.getCanonicalName());
+		System.setProperty(serverName+"."+IServer.AUTHENTICATION_PROVIDER_PROPERTY, PropertyAuthenticator.class.getCanonicalName());
 		System.setProperty(serverName+".user0","echoUser, password  , Echo|Login, key1=val1|key2=val2");
 		System.setProperty(serverName+".user1","user1  , password   , one|two|three|four|five, key3=val3|key4=val4");
 		validateAcl(serverName);
@@ -64,7 +64,7 @@ public class TestFileBasedAcl {
 	public void testFileBasedAcl () {
 		String serverName = "TestSetver";
 
-		System.setProperty(IServer.AUTHENTICATION_PROVIDER_PROPERTY, FileBasedAcl.class.getCanonicalName());
+		System.setProperty(serverName+"."+IServer.AUTHENTICATION_PROVIDER_PROPERTY, FileBasedAcl.class.getCanonicalName());
 		System.setProperty(serverName+".userFile","FileBasedAcl.txt");
 		
 		validateAcl(serverName);

@@ -601,7 +601,7 @@ public class Server extends AbstractCoreServer implements IServer {
 		VirtualThreads ret = virtualThreads;
 		if( ret == null ) {
 			ret = DEFAULT_VIRTUAL_THREADS;
-			String tmp = getProperty(PROPERTY_VIRTUAL_THREADS);
+			String tmp = getProperty(propertyName(PROPERTY_VIRTUAL_THREADS));
 			if( tmp != null && !tmp.trim().isEmpty() ) {
 				try {
 					ret = VirtualThreads.valueOf(tmp.trim().toUpperCase(java.util.Locale.ROOT));
@@ -1328,7 +1328,7 @@ public class Server extends AbstractCoreServer implements IServer {
 		if( accessControl == null && !noAccessControl ) {
 			synchronized (this) {
 				if( accessControl == null && !noAccessControl ) {
-					String tmp = getProperty(AUTHENTICATION_PROVIDER_PROPERTY);
+					String tmp = getProperty(propertyName(AUTHENTICATION_PROVIDER_PROPERTY));
 					if(tmp != null ) {
 						try {
 							Class<?> authClass = Class.forName(tmp);

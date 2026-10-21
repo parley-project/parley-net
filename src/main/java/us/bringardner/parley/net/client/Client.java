@@ -227,7 +227,7 @@ public class Client extends Connection implements IClient {
 	}
 
 	private int getConfiguredTimeout(String name, int defaultValue) {
-		String value = getProperty(name, null);
+		String value = getProperty(propertyName(name), null);
 		if( value != null ) {
 			try {
 				return Math.max(0, Integer.parseInt(value.trim()));

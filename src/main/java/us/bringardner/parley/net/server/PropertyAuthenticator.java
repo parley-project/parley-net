@@ -52,10 +52,10 @@ public class PropertyAuthenticator extends FileBasedAcl  {
 		}
 
 		int idx = 0;
-		String tmp = getProperty(USER_PROPERTY+idx);
+		String tmp = getProperty(propertyName(USER_PROPERTY+idx));
 		while( tmp != null ) {
 			parseLine(tmp);			
-			tmp = getProperty(USER_PROPERTY+(++idx));
+			tmp = getProperty(propertyName(USER_PROPERTY+(++idx)));
 		}
 		
 		logInfo("PropertyAuthenticator Initialezed "+idx+" users");

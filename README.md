@@ -360,8 +360,10 @@ try (NamedLock l = mail.lock("tony/INBOX", Mode.EXCLUSIVE, Duration.ofSeconds(5)
 | Listen address | every address | `setBindAddr(address)` or the `bindAddress` property (`Server` and `NioServer`) |
 | Reply to a too-long line | `500 Line too long` | override `AbstractCommandProcessor.replyLineTooLong(max)` for the protocol's own reply; the session then ends |
 
-Properties are looked up with `BaseObject.getProperty` from `parley-core`: first
-`<fully qualified class name>.<name>`, then `<name>`, as system properties or in class-named
+Each property name in the table is read with the object's property prefix in front of it
+(`propertyName(name)` in `parley-core`'s `BaseObject`): `<prefix>.<name>`, where the prefix is the name given
+to `new Server(port, name)`, the one a Parley server sets (such as `parley.mail.pop3`), or else the fully
+qualified class name. `getProperty` looks that full name up as a system property, then in class-named
 `.properties` files on the class path.
 
 ## Building

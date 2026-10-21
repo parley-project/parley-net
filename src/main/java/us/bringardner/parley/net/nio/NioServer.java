@@ -554,7 +554,7 @@ public class NioServer extends AbstractCoreServer implements IManagedThread {
 	 */
 	public long getFrameTimeout() {
 		if( frameTimeout < 0 ) {
-			frameTimeout = Math.max(0, getIntProperty(PROPERTY_FRAME_TIMEOUT, 0));
+			frameTimeout = Math.max(0, getIntProperty(propertyName(PROPERTY_FRAME_TIMEOUT), 0));
 		}
 		return frameTimeout;
 	}
@@ -723,7 +723,7 @@ public class NioServer extends AbstractCoreServer implements IManagedThread {
 		if( accessControl == null && !noAccessControl ) {
 			synchronized (this) {
 				if( accessControl == null && !noAccessControl ) {
-					String tmp = getProperty(AUTHENTICATION_PROVIDER_PROPERTY);
+					String tmp = getProperty(propertyName(AUTHENTICATION_PROVIDER_PROPERTY));
 					if( tmp != null && !tmp.trim().isEmpty() ) {
 						try {
 							Class<?> authClass = Class.forName(tmp.trim());
