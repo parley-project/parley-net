@@ -32,6 +32,21 @@
 				<version>3.13.0</version>
 			</plugin>
 
+			<!-- The test classes (ServerTestSupport: test users, the test keystore) as
+			     parley-net-<version>-tests.jar, for the protocols' tests:
+			     <type>test-jar</type><scope>test</scope>. -->
+			<plugin>
+				<groupId>org.apache.maven.plugins</groupId>
+				<artifactId>maven-jar-plugin</artifactId>
+				<executions>
+					<execution>
+						<goals>
+							<goal>test-jar</goal>
+						</goals>
+					</execution>
+				</executions>
+			</plugin>
+
 			<!-- Was only in pluginManagement, so the sources jar was never built -->
 			<plugin>
 				<groupId>org.apache.maven.plugins</groupId>

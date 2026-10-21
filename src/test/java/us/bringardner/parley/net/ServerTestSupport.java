@@ -58,6 +58,8 @@ public class ServerTestSupport {
 	public static final String KEYSTORE = "/test-keystore.p12";
 	public static final String KEY_ALIAS = "test";
 	public static final char[] PASSWORD = "changeit".toCharArray();
+	/** {@link #PASSWORD} as text, for a server's KeyStorePassword property. */
+	public static final String KEYSTORE_PASSWORD = new String(PASSWORD);
 
 	public static final String ECHO = "Echo";
 	public static final String FAIL = "Fail";
@@ -234,6 +236,30 @@ public class ServerTestSupport {
 	}
 
 	// ---------- TLS material
+
+	/**
+	 * Write the test keystore ({@link #KEYSTORE}: PKCS12, alias {@link #KEY_ALIAS}, password
+	 * {@link #KEYSTORE_PASSWORD}) to a file, for a server configured with its KeyStoreName,
+	 * KeyStorePassword and KeyStoreType (PKCS12) properties. The file is replaced in one step, so
+	 * tests running at once never see it half written.
+	 */
+	public static synchronized void writeKeystore(File file) throws IOException {
+		File dir = file.getAbsoluteFile().getParentFile();
+		if( dir != null ) {
+			dir.mkdirs();
+		}
+		File tmp = File.createTempFile("keystore", ".tmp", dir);
+		try (InputStream in = ServerTestSupport.class.getResourceAsStream(KEYSTORE)) {
+			if( in == null ) {
+				throw new IllegalStateException("Missing test resource " + KEYSTORE);
+			}
+			Files.copy(in, tmp.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+			Files.move(tmp.toPath(), file.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING,
+					java.nio.file.StandardCopyOption.ATOMIC_MOVE);
+		} finally {
+			Files.deleteIfExists(tmp.toPath());
+		}
+	}
 
 	public static KeyStore keyStore() throws Exception {
 		KeyStore ks = KeyStore.getInstance("PKCS12");

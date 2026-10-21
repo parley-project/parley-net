@@ -11,6 +11,8 @@
   (and `NioServer.getVerifiedPrincipal`) is the principal of a user a SASL mechanism proved.
   `ScramCredentials.format()` / `parse(text)` keep credentials as text,
   `ScramMechanism.newCredentials(password)` makes them with a new salt, `ScramMechanism.hashOf(name)`.
+- A tests jar (`parley-net-<version>-tests.jar`) with `ServerTestSupport`, for the protocols' tests:
+  `writeKeystore(file)` writes the test keystore (`KEYSTORE_PASSWORD`) for a server's KeyStoreName.
 - **An access control list that can't answer** (its database is down) isn't a wrong password:
   `AccessControlUnavailableException`, `IAccessControlList.findPrincipal(user)` (the default calls
   `getPrincipal`, so it never throws) and `IServer.checkLogin(user, credentials)` (and `NioServer.checkLogin`)
