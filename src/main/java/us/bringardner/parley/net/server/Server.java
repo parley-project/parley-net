@@ -68,9 +68,6 @@ public class Server extends AbstractCoreServer implements IServer {
 	public static final int DEFAULT_CONNECTION_TIMEOUT = 60000;
 	//  Max idle connection 24 hr
 	public static final long DEFAULT_MAX_IDLE_CONNECTION = 1000*60*60*24;
-	/** @deprecated misspelled, use {@link #DEFAULT_MAX_IDLE_CONNECTION} */
-	@Deprecated
-	public static final long DEFAULT_MAX_IDEL_CONNECTION = DEFAULT_MAX_IDLE_CONNECTION;
 	//  Default admin freq = 5min
 	private static final long DEFAULT_ADMIN_REFQ = 1000*60*5;
 	//  Max concurrent clients, 0 = unlimited
@@ -180,17 +177,7 @@ public class Server extends AbstractCoreServer implements IServer {
 		this.serverGreating = serverGreeting;
 	}
 
-	/** @deprecated misspelled, use {@link #getServerGreeting()} */
-	@Deprecated
-	public String getServerGreating() {
-		return serverGreating;
-	}
 
-	/** @deprecated misspelled, use {@link #setServerGreeting(String)} */
-	@Deprecated
-	public void setServerGreating(String serverGreating) {
-		this.serverGreating = serverGreating;
-	}
 
 	public Server() {
 		getLogger().setLevel(defaultLogLevel);
@@ -335,38 +322,6 @@ public class Server extends AbstractCoreServer implements IServer {
 				return ret;
 			}
 		};
-	}
-
-	/**
-	 * Build a TLS context from a key store file, separately from this server's own settings.
-	 *
-	 * @param sslOrTls the SSLContext protocol, e.g. "TLS"
-	 * @param instanceName the key manager algorithm, e.g. "SunX509" or "PKIX"
-	 * @param keyStoreType e.g. "PKCS12"
-	 * @param passPhrase the key store (and key) password
-	 * @param keyFileName the key store file
-	 * @return a new SSLContext with the key store's keys and the JVM's default trust managers
-	 * @throws IOException if the file is missing, the password is wrong or the context can't be made
-	 * @deprecated set the key store on the server instead ({@code setKeyStoreFileName},
-	 *  {@code setKeyStorePassword}, {@code setKeyStoreType}, {@code setAlgorithm}, {@code setProtocol})
-	 *  and use {@link #getSSLContext()}, or configure a parley-core SecureBaseObject. This now does
-	 *  exactly that instead of loading the key store with its own code.
-	 */
-	@Deprecated
-	public SSLContext getSSLContext(String sslOrTls, String instanceName, String keyStoreType, String passPhrase, String keyFileName) throws IOException {
-		if( passPhrase == null ) {
-			//  Without a password SecureBaseObject makes a context with no keys; this always needed one
-			throw new IOException("A key store password is required");
-		}
-		SecureBaseObject sbo = new SecureBaseObject();
-		sbo.setProtocol(sslOrTls);
-		sbo.setAlgorithm(instanceName);
-		sbo.setKeyStoreType(keyStoreType);
-		sbo.setKeyStoreFileName(keyFileName);
-		sbo.setKeyStorePassword(passPhrase);
-		//  The JVM's default trust managers, as before (not SecureBaseObject's shared default)
-		sbo.setTrustManagers(null);
-		return sbo.getSSLContext();
 	}
 
 	/**

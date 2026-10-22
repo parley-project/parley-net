@@ -35,38 +35,25 @@ import us.bringardner.parley.core.BaseObject;
 public class DefaultRequestContext extends BaseObject implements IRequestContext {
 	private static final long serialVersionUID = 1L;
 	
-	private static  String defaultSeperator = " ";
+	private static  String defaultSeparator = " ";
 	
 	
 	private String commandLine;
 	private String [] tokens;
 	// Offset of each token in the command line, used by getRemainingTokens()
 	private int [] starts;
-	private String seperator =getDefaultSeparator();
+	private String separator =getDefaultSeparator();
 	private int pos=0;
 	
 	
 	public static String getDefaultSeparator() {
-		return defaultSeperator;
+		return defaultSeparator;
 	}
 
 	public static void setDefaultSeparator(String separator) {
-		DefaultRequestContext.defaultSeperator = separator;
+		DefaultRequestContext.defaultSeparator = separator;
 	}
 
-	/** @deprecated misspelled, use {@link #getDefaultSeparator()} */
-	@Deprecated
-	public static String getDefaultSeperator() {
-		return defaultSeperator;
-	}
-
-
-
-	/** @deprecated misspelled, use {@link #setDefaultSeparator(String)} */
-	@Deprecated
-	public static void setDefaultSeperator(String defaultSeperator) {
-		DefaultRequestContext.defaultSeperator = defaultSeperator;
-	}
 
 
 
@@ -114,8 +101,8 @@ public class DefaultRequestContext extends BaseObject implements IRequestContext
 		return ret;
 	}
 
-	public String getSeperator() {
-		return seperator;
+	public String getSeparator() {
+		return separator;
 	}
 
 	public String[] getTokens() {
@@ -189,8 +176,8 @@ public class DefaultRequestContext extends BaseObject implements IRequestContext
 		return ret;
 	}
 
-	public void setSeperator(String seperator) {
-		this.seperator = seperator;
+	public void setSeparator(String separator) {
+		this.separator = separator;
 		reset();
 	}
 

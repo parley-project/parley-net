@@ -63,7 +63,7 @@ public abstract class AbstractPrincipal implements IPrincipal {
 		return key != null && permissions.remove(key) != null;
 	}
 	
-	public List<IPermission> getPermisssions() {
+	public List<IPermission> getPermissions() {
 		return new ArrayList<>(permissions.values());
 	}
 	

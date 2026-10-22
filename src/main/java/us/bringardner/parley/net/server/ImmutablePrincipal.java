@@ -87,7 +87,7 @@ public class ImmutablePrincipal implements IPrincipal {
 	}
 
 	@Override
-	public List<IPermission> getPermisssions() {			
+	public List<IPermission> getPermissions() {			
 		return Collections.unmodifiableList(target.getPermissions());
 	}
 

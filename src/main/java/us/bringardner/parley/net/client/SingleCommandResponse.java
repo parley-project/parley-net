@@ -70,7 +70,7 @@ public class SingleCommandResponse extends BaseObject implements ICommandRespons
 		return code >= IGenericResponseCode.REPLY_400_GENERIC_TEMPORARY_ERROR && code < IGenericResponseCode.REPLY_500_GENERIC_ERROR;
 	}
 
-	public void readResonse(ICommandClient client) throws IOException {
+	public void readResponse(ICommandClient client) throws IOException {
 		//  Set this in case some error occurs.
 		code = IGenericResponseCode.REPLY_500_GENERIC_ERROR;
 

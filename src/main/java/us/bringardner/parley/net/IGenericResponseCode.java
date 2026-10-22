@@ -72,9 +72,6 @@ public interface IGenericResponseCode extends Serializable {
                command sequence groups.
 	 */
 	public static final int REPLY_300_GENERIC_TEMPORARY_OK = 300;
-	/** @deprecated misspelled, use {@link #REPLY_300_GENERIC_TEMPORARY_OK} */
-	@Deprecated
-	public static final int REPLY_300_GENERIC_TEMPOARY_OK = REPLY_300_GENERIC_TEMPORARY_OK;
 	/*
 	 *  4yz   Transient Negative Completion reply
 
@@ -99,9 +96,6 @@ public interface IGenericResponseCode extends Serializable {
 
 	 */
 	public static final int REPLY_400_GENERIC_TEMPORARY_ERROR = 400;
-	/** @deprecated misspelled, use {@link #REPLY_400_GENERIC_TEMPORARY_ERROR} */
-	@Deprecated
-	public static final int REPLY_400_GENERIC_TEMPOARY_ERROR = REPLY_400_GENERIC_TEMPORARY_ERROR;
 	/*
 	 * 5yz   Permanent Negative Completion reply
 

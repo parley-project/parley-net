@@ -56,7 +56,7 @@ public class MultiLineCommandResponse extends SingleCommandResponse {
 	}
 
 	@Override
-	public void readResonse(ICommandClient client) throws IOException {
+	public void readResponse(ICommandClient client) throws IOException {
 		//  Set this in case some error occurs.
 		code = IGenericResponseCode.REPLY_500_GENERIC_ERROR;
 

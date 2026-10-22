@@ -7,13 +7,11 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import java.io.File;
 import java.io.IOException;
 import java.util.Map;
 
 import javax.net.ServerSocketFactory;
 import javax.net.SocketFactory;
-import javax.net.ssl.KeyManagerFactory;
 import javax.net.ssl.SSLContext;
 import javax.net.ssl.SSLServerSocketFactory;
 import javax.net.ssl.SSLSocket;
@@ -190,17 +188,5 @@ public class TestImplicitTls {
 		assertSame(svr.getSSLContext(), ctx);
 		assertEquals(before, svr.getProtocol(), "the server's own protocol must not change");
 		assertNotNull(svr.getSSLContext((String) null));
-	}
-
-	@Test
-	@SuppressWarnings("deprecation") // tests the deprecated getSSLContext(...) on purpose
-	public void testSslContextFromKeyFile() throws Exception {
-		String path = new File(ServerTestSupport.class.getResource(ServerTestSupport.KEYSTORE).toURI()).getPath();
-		String alg = KeyManagerFactory.getDefaultAlgorithm();
-		SSLContext ctx = svr.getSSLContext("TLS", alg, "PKCS12", "changeit", path);
-		assertNotNull(ctx.getServerSocketFactory());
-
-		assertThrows(IOException.class, () -> svr.getSSLContext("TLS", alg, "PKCS12", "changeit", path + ".missing"));
-		assertThrows(IOException.class, () -> svr.getSSLContext("TLS", alg, "PKCS12", "wrong", path));
 	}
 }

@@ -48,7 +48,6 @@ public class TestResponses {
 					switch (method.getName()) {
 					case "readLine":
 						return queue.poll();
-					case "getSeperator":
 					case "getSeparator":
 						return separator;
 					default:

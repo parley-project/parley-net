@@ -32,7 +32,7 @@ import java.io.IOException;
 public class CommandClient extends Client implements ICommandClient {
 
 	ICommandResponseFactory commandResponseFactory;
-	String seperator=" ";
+	String separator=" ";
 	
 	protected static final long serialVersionUID = 1L;
 
@@ -87,9 +87,9 @@ public class CommandClient extends Client implements ICommandClient {
 	public ICommandResponse executeCommand(String command, String[] args) throws IOException {
 		StringBuffer buf = new StringBuffer(command);
 		if( args != null ) {
-			String seperator = getSeparator();
+			String separator = getSeparator();
 			for (int idx = 0; idx < args.length; idx++) {
-				buf.append(seperator);
+				buf.append(separator);
 				buf.append(args[idx]);
 			}
 		}
@@ -115,12 +115,12 @@ public class CommandClient extends Client implements ICommandClient {
 		this.commandResponseFactory = commandResponseFactory;
 	}
 
-	public String getSeperator() {
-		return seperator;
+	public String getSeparator() {
+		return separator;
 	}
 
-	public void setSeperator(String seperator) {
-		this.seperator = seperator;
+	public void setSeparator(String separator) {
+		this.separator = separator;
 	}
 	
 

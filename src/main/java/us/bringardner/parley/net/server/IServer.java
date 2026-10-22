@@ -46,9 +46,6 @@ import us.bringardner.parley.net.IProcessorFactory;
 
 public interface IServer extends IManagedThread {
 	public static final String AUTHENTICATION_PROVIDER_PROPERTY = "authenticationProvider";
-	/** @deprecated misspelled, use {@link #AUTHENTICATION_PROVIDER_PROPERTY} (same value) */
-	@Deprecated
-	public static final String AUTHENTICATOION_PROVIDER_PROPERTY = AUTHENTICATION_PROVIDER_PROPERTY;
 	
 	/**
 	 * The prefix of this server's properties (for example parley.mail.pop3): its own settings, such as

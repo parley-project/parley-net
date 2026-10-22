@@ -2,6 +2,17 @@
 
 ## parley-net 2.0.0 (unreleased)
 
+### Removed (needs a code change)
+
+- The misspelled names deprecated in 1.0.0: `IPrincipal.getPermisssions` (implement `getPermissions`),
+  `ICommandResponse.readResonse` (implement `readResponse`), `ICommandClient` and `IRequestContext`
+  `get/setSeperator` (implement `get/setSeparator`), `DefaultRequestContext.get/setDefaultSeperator`,
+  `IServer.AUTHENTICATOION_PROVIDER_PROPERTY`, `IGenericResponseCode.REPLY_300_GENERIC_TEMPOARY_OK` and
+  `REPLY_400_GENERIC_TEMPOARY_ERROR`, `Server.DEFAULT_MAX_IDEL_CONNECTION` and `get/setServerGreating`, and the
+  class `CertificateValidotorDialog` (use `CertificateValidatorDialog`).
+- `Server.getSSLContext(sslOrTls, instanceName, keyStoreType, passPhrase, keyFileName)`: set the key store on the
+  server (`setKeyStoreFileName`, `setKeyStorePassword` ...) and call `getSSLContext()`.
+
 ### Changed (needs a configuration change)
 
 - Properties are read with `propertyName(name)` (`<prefix>.authenticationProvider`, `<prefix>.userFile`,
