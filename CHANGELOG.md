@@ -2,6 +2,20 @@
 
 ## parley-net 2.0.0 (unreleased)
 
+### Added
+
+- **`ServerMain.run`: a server's `main` as a service** (systemd, launchd, a Windows service), shared by every
+  Parley server: settings from the command line and the settings file (the one the server's `configFile`
+  property names, else `parley-NAME.properties` in Parley's administrator folder: `/etc/parley`,
+  `%ProgramData%\Parley`, or `$PARLEY_CONF`'s folder; `ServerMain.confDir()`); each server started and
+  waited for, the process exiting with 1 when one can't start; the servers stopped when the process is
+  stopped (SIGTERM). `ServerMain.service(Server|NioServer, name)` adapts a server; `ServerMain.Service` is
+  for anything else.
+
+### Changed (needs a configuration change)
+
+- `ServerMain.configure`: **the command line wins over the settings file** (it was the other way round).
+
 ### Removed (needs a code change)
 
 - The misspelled names deprecated in 1.0.0: `IPrincipal.getPermisssions` (implement `getPermissions`),
