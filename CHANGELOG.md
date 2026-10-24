@@ -6,13 +6,13 @@
 
 - **Servers alone or together, managed with JMX.** `ServerProvider` (found at run time with `ServiceLoader`,
   plugins included) offers a server by id; `ServerLauncher` runs any set of them in one JVM with a shared
-  `ServerContext`, and registers a `ParleyServerMBean` per server (state, port, connections, start, stop,
-  restart) and a `ParleyLauncherMBean` (startAll, stopAll, reloadSettings, shutdown) under
+  `ServerContext`, and registers a `ParleyServerMBean` per server (state, port, connections and who they are
+  (`getConnectionList()`, `ParleyConnection`: client, user, TLS), start, stop, restart) and a `ParleyLauncherMBean` (startAll, stopAll, reloadSettings, shutdown) under
   `us.bringardner.parley`. `ServerMain.main` runs the servers `parley.servers` lists (command line, `-D`, or
   `CONF/parley-servers.properties`); `ServerMain.launch(name, args, ids...)` is a server's own `main`.
   `LaunchSettings` reads each server's shared settings files (such as `parley-mail.properties`), then its own;
   the JVM's `-D` wins over the files and the command line over both. A server stopped with JMX doesn't end the
-  process; the last one stopping by itself exits with 1. `ServerMain.Service.connections()` (default 0). `ServerProvider.enabled()`: a server its settings turn off is skipped (state OFF); with every one
+  process; the last one stopping by itself exits with 1. `ServerMain.Service.connections()` (default 0) and `connectionList()` (default empty; `ServerMain.service` gives both for thread-per-connection and NIO servers). `ServerProvider.enabled()`: a server its settings turn off is skipped (state OFF); with every one
   off the process says there is nothing to run and exits with 1.
 - **`FileBasedAcl` reads its file again when it changes** (checked at most every `parley.net.acl.reloadSeconds`,
   default 15); a file that can't be read keeps the users it had. `FileBasedAcl.initialize(File)` reads a file

@@ -26,6 +26,9 @@ public interface ParleyServerMBean {
 	/** Open connections, or -1 if the server doesn't say */
 	int getConnections();
 
+	/** The open connections (empty when it isn't running, or the server doesn't say) */
+	ParleyConnection[] getConnectionList();
+
 	/** Start it (made from the settings as they are now) */
 	void start() throws Exception;
 

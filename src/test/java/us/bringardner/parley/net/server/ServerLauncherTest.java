@@ -86,6 +86,11 @@ public class ServerLauncherTest {
 		public int connections() {
 			return 3;
 		}
+
+		@Override
+		public List<ParleyConnection> connectionList() {
+			return List.of(new ParleyConnection("127.0.0.1:50000", "tony", true), new ParleyConnection("10.0.0.2:50001", null, false));
+		}
 	}
 
 	static final AtomicReference<FakeService> last = new AtomicReference<>();
@@ -198,6 +203,12 @@ public class ServerLauncherTest {
 		assertEquals("RUNNING", mbs.getAttribute(server, "State"));
 		assertEquals(4242, mbs.getAttribute(server, "Port"));
 		assertEquals(3, mbs.getAttribute(server, "Connections"));
+		ParleyConnection[] conns = (ParleyConnection[]) mbs.getAttribute(server, "ConnectionList");
+		assertEquals(2, conns.length);
+		assertEquals("127.0.0.1:50000", conns[0].getRemote());
+		assertEquals("tony", conns[0].getUser());
+		assertTrue(conns[0].isSecure());
+		assertNull(conns[1].getUser());
 		FakeService first = last.get();
 
 		write("parley-fake.properties", "parley.fake.value=two\n");
@@ -209,6 +220,7 @@ public class ServerLauncherTest {
 
 		mbs.invoke(server, "stop", null, null);
 		assertEquals("STOPPED", mbs.getAttribute(server, "State"));
+		assertEquals(0, ((ParleyConnection[]) mbs.getAttribute(server, "ConnectionList")).length);
 		assertNull(mbs.getAttribute(server, "Error"));
 
 		String[] servers = (String[]) mbs.getAttribute(proc, "Servers");

@@ -96,6 +96,16 @@ public final class ServerLauncher implements ParleyLauncherMBean, AutoCloseable 
 		}
 
 		@Override
+		public ParleyConnection[] getConnectionList() {
+			ServerMain.Service s = service;
+			if (s == null || state != State.RUNNING) {
+				return new ParleyConnection[0];
+			}
+			List<ParleyConnection> list = s.connectionList();
+			return list == null ? new ParleyConnection[0] : list.toArray(new ParleyConnection[0]);
+		}
+
+		@Override
 		public void start() throws Exception {
 			ServerLauncher.this.start(provider.id());
 		}

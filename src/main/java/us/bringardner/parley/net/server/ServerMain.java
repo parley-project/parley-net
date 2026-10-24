@@ -85,6 +85,11 @@ public final class ServerMain {
 		default int connections() {
 			return 0;
 		}
+
+		/** the connections open now: who and from where (empty if it doesn't say) */
+		default List<ParleyConnection> connectionList() {
+			return Collections.emptyList();
+		}
 	}
 
 	/** Makes the servers, set up from the system properties {@link #run} has set */
@@ -135,7 +140,39 @@ public final class ServerMain {
 				}
 				return 0;
 			}
+
+			@Override
+			public List<ParleyConnection> connectionList() {
+				List<ParleyConnection> ret = new ArrayList<ParleyConnection>();
+				if (server instanceof IServer) {
+					java.util.Map<java.net.Socket, us.bringardner.parley.net.IProcessor> m = ((IServer) server).getActiveClients();
+					if (m != null) {
+						for (java.util.Map.Entry<java.net.Socket, us.bringardner.parley.net.IProcessor> e : new java.util.LinkedHashMap<>(m).entrySet()) {
+							java.net.Socket s = e.getKey();
+							IPrincipal p = null;
+							try {
+								p = e.getValue() == null ? null : e.getValue().getPrincipal();
+							} catch (RuntimeException ex) {
+								// not known
+							}
+							ret.add(new ParleyConnection(address(s.getRemoteSocketAddress()), p == null ? null : p.getName(),
+									s instanceof javax.net.ssl.SSLSocket));
+						}
+					}
+				} else if (server instanceof us.bringardner.parley.net.nio.NioServer) {
+					for (us.bringardner.parley.net.nio.INioConnection c : ((us.bringardner.parley.net.nio.NioServer) server).getConnections()) {
+						IPrincipal p = c.getPrincipal();
+						ret.add(new ParleyConnection(address(c.getRemoteAddress()), p == null ? null : p.getName(), c.isSecure()));
+					}
+				}
+				return ret;
+			}
 		};
+	}
+
+	/** host:port of an address, without the leading / of an InetSocketAddress with no host name */
+	static String address(java.net.SocketAddress a) {
+		return a == null ? "" : a.toString().replaceFirst("^/", "");
 	}
 
 	/**
