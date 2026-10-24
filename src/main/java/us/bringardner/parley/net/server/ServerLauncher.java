@@ -38,7 +38,9 @@ public final class ServerLauncher implements ParleyLauncherMBean, AutoCloseable 
 	public static final String SERVERS_PROPERTY = "parley.servers";
 
 	public enum State {
-		STOPPED, RUNNING, FAILED
+		STOPPED, RUNNING, FAILED,
+		/** turned off by its settings ({@link ServerProvider#enabled()}) */
+		OFF
 	}
 
 	/** One server: its provider and, while it runs, the server */
@@ -194,6 +196,11 @@ public final class ServerLauncher implements ParleyLauncherMBean, AutoCloseable 
 			return;
 		}
 		settings.apply();
+		for (Entry e : entries.values()) {
+			if (!e.provider.enabled()) {
+				e.state = State.OFF;
+			}
+		}
 		launcherName = context.register("Launcher", name, this);
 		for (Entry e : entries.values()) {
 			e.name = context.register("Server", e.provider.id(), e);
@@ -216,6 +223,11 @@ public final class ServerLauncher implements ParleyLauncherMBean, AutoCloseable 
 		synchronized (e) {
 			if (e.state == State.RUNNING) {
 				return;
+			}
+			if (!e.provider.enabled()) {
+				e.state = State.OFF;
+				e.error = null;
+				throw new IOException(e.provider.description() + " is turned off by its settings");
 			}
 			ServerMain.Service s;
 			try {
@@ -273,7 +285,7 @@ public final class ServerLauncher implements ParleyLauncherMBean, AutoCloseable 
 			if (s != null && e.state == State.RUNNING) {
 				s.stop(ServerMain.STOP_TIMEOUT);
 			}
-			e.state = State.STOPPED;
+			e.state = e.provider.enabled() ? State.STOPPED : State.OFF;
 		}
 	}
 
@@ -287,10 +299,22 @@ public final class ServerLauncher implements ParleyLauncherMBean, AutoCloseable 
 		}
 	}
 
-	/** Start the servers in order; if one can't start, those started are stopped and the error thrown. */
+	/**
+	 * Start the servers in order, except those turned off by their settings; if one can't start,
+	 * those started are stopped and the error thrown.
+	 */
 	public void startAll() throws Exception {
 		List<String> started = new ArrayList<>();
 		for (Entry e : entries.values()) {
+			if (!e.provider.enabled()) {
+				synchronized (e) {
+					if (e.state != State.RUNNING) {
+						e.state = State.OFF;
+						e.error = null;
+					}
+				}
+				continue;
+			}
 			try {
 				start(e.provider.id());
 				started.add(e.provider.id());

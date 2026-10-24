@@ -340,23 +340,38 @@ public class FileBasedAcl extends BaseObject implements IAccessControlList {
 			in = getClass().getResourceAsStream("/"+path);
 		}
 		if( in == null ) {
-			File file = new File(path).getCanonicalFile();
-			if(!file.exists() || !file.canRead()) {
-				throw new IOException(path+" is not a valid file");
-			}
-			long modified = file.lastModified();
-			long length = file.length();
-			in = new FileInputStream(file);
-			load(in);
-			sourceModified = modified;
-			sourceLength = length;
-			lastCheck = System.currentTimeMillis();
-			sourceFile = file;
+			initialize(new File(path));
 			return;
 		}
 
 
 		load(in);		
+	}
+
+	/**
+	 * Read the users from this file (and again whenever it changes, see {@link #PROP_RELOAD_SECONDS}),
+	 * without a property naming it.
+	 *
+	 * @throws IOException if the file can't be read
+	 * @since 2.0.0
+	 */
+	public void initialize(File f) throws IOException {
+		File file = f.getCanonicalFile();
+		if(!file.exists() || !file.canRead()) {
+			throw new IOException(f+" is not a valid file");
+		}
+		long modified = file.lastModified();
+		long length = file.length();
+		load(new FileInputStream(file));
+		sourceModified = modified;
+		sourceLength = length;
+		lastCheck = System.currentTimeMillis();
+		sourceFile = file;
+	}
+
+	/** The file the users were read from, or null (a class path resource) */
+	public File getSourceFile() {
+		return sourceFile;
 	}
 
 	private synchronized void load(InputStream in) throws IOException {

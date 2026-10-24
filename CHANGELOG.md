@@ -12,9 +12,11 @@
   `CONF/parley-servers.properties`); `ServerMain.launch(name, args, ids...)` is a server's own `main`.
   `LaunchSettings` reads each server's shared settings files (such as `parley-mail.properties`), then its own;
   the JVM's `-D` wins over the files and the command line over both. A server stopped with JMX doesn't end the
-  process; the last one stopping by itself exits with 1. `ServerMain.Service.connections()` (default 0).
+  process; the last one stopping by itself exits with 1. `ServerMain.Service.connections()` (default 0). `ServerProvider.enabled()`: a server its settings turn off is skipped (state OFF); with every one
+  off the process says there is nothing to run and exits with 1.
 - **`FileBasedAcl` reads its file again when it changes** (checked at most every `parley.net.acl.reloadSeconds`,
-  default 15); a file that can't be read keeps the users it had.
+  default 15); a file that can't be read keeps the users it had. `FileBasedAcl.initialize(File)` reads a file
+  without a property naming it.
 - **`ServerMain.run`: a server's `main` as a service** (systemd, launchd, a Windows service), shared by every
   Parley server: settings from the command line and the settings file (the one the server's `configFile`
   property names, else `parley-NAME.properties` in Parley's administrator folder: `/etc/parley`,

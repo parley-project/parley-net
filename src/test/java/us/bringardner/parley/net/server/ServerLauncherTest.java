@@ -107,6 +107,11 @@ public class ServerLauncherTest {
 		}
 
 		@Override
+		public boolean enabled() {
+			return !"off".equals(System.getProperty("parley.fake.value"));
+		}
+
+		@Override
 		public ServerMain.Service create(ServerContext context) throws Exception {
 			Object shared = context.shared("fake.shared", Object.class, Object::new);
 			FakeService s = new FakeService(System.getProperty("parley.fake.value"), shared);
@@ -232,6 +237,31 @@ public class ServerLauncherTest {
 		IOException e = assertThrows(IOException.class, () -> launcher.startAll());
 		assertTrue(e.getMessage().contains("can't listen"), e.getMessage());
 		assertEquals(ServerLauncher.State.FAILED, launcher.getState("fake"));
+	}
+
+	@Test
+	public void turnedOffBySettings() throws Exception {
+		write("parley-fake.properties", "parley.fake.value=off\n");
+		launcher();
+		assertEquals(ServerLauncher.State.OFF, launcher.getState("fake"));
+		launcher.startAll(); // skipped, not an error
+		assertEquals(ServerLauncher.State.OFF, launcher.getState("fake"));
+		assertThrows(IOException.class, () -> launcher.start("fake"));
+		write("parley-fake.properties", "parley.fake.value=on\n");
+		launcher.restart("fake"); // the settings are read again
+		assertEquals(ServerLauncher.State.RUNNING, launcher.getState("fake"));
+	}
+
+	@Test
+	public void processExitsWithOneWhenEveryServerIsOff() throws Exception {
+		Process p = process("-Dparley.servers=fake", "-Dparley.fake.value=off");
+		try {
+			assertTrue(p.waitFor(60, TimeUnit.SECONDS), "the process ends");
+			assertEquals(1, p.exitValue());
+			assertTrue(read(p).contains("nothing to run"));
+		} finally {
+			p.destroyForcibly();
+		}
 	}
 
 	@Test

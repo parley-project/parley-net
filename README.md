@@ -166,7 +166,7 @@ the old password would still let it in). A plain text password serves SCRAM as i
 (`supportsScram`) only when every user in the file can use it, because a client that picks SCRAM
 can't fall back to a password for a user who has no SCRAM credentials.
 
-`FileBasedAcl` notices when its file changes (checked at most every 15 seconds, set by
+`FileBasedAcl` notices when its file changes (`initialize(File)` reads a file without a property naming it) (checked at most every 15 seconds, set by
 `parley.net.acl.reloadSeconds`; 0 turns it off) and reads it again, so users added or
 removed take effect without a restart. A file that can't be read keeps the users it had.
 
@@ -354,7 +354,8 @@ it, decides that).
 
 - **Providers.** A server is offered by a `ServerProvider` (found with `ServiceLoader`, on the class
   path or in a plugin folder): an id (`pop3`), the settings files it reads, and `create(context)`
-  that makes it from the system properties. `ServerContext` holds what the servers in one process
+  that makes it from the system properties, and `enabled()`: a server its settings turn off (port 0,
+  say) is skipped and shown as OFF. `ServerContext` holds what the servers in one process
   share (`shared(key, type, make)`: a user list, the SMTP queue).
 - **One launcher.** `ServerMain.main` runs the servers `parley.servers` lists
   (`parley.servers=smtp,submission,imap,pop3`), set on the command line, with `java -D`, or in

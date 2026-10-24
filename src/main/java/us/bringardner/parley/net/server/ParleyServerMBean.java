@@ -11,7 +11,7 @@ public interface ParleyServerMBean {
 
 	String getDescription();
 
-	/** STOPPED, RUNNING or FAILED */
+	/** STOPPED, RUNNING, FAILED or OFF (turned off by its settings) */
 	String getState();
 
 	/** The port it listens on, or the port it will listen on */

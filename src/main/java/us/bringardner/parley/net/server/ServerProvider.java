@@ -45,6 +45,14 @@ public interface ServerProvider {
 		return null;
 	}
 
+	/**
+	 * Whether its settings (as the system properties are now) turn it on; a server that is off (its
+	 * port is 0, say) isn't started with the others, and can't be started until its settings change.
+	 */
+	default boolean enabled() {
+		return true;
+	}
+
 	/** Make the server, from the system properties; it is started by the launcher. */
 	ServerMain.Service create(ServerContext context) throws Exception;
 }

@@ -241,9 +241,20 @@ public final class ServerMain {
 			failed(processName, e);
 			return;
 		}
+		boolean any = false;
 		for (String id : launcher.getServers()) {
 			ParleyServerMBean s = launcher.getServer(id);
-			System.out.println(s.getDescription() + " (" + id + ") started on port " + s.getPort());
+			if (launcher.getState(id) == ServerLauncher.State.RUNNING) {
+				any = true;
+				System.out.println(s.getDescription() + " (" + id + ") started on port " + s.getPort());
+			} else {
+				System.out.println(s.getDescription() + " (" + id + ") is turned off by its settings");
+			}
+		}
+		if (!any) {
+			launcher.close();
+			failed(processName, new IOException("Every server is turned off by its settings: nothing to run"));
+			return;
 		}
 		Runtime.getRuntime().addShutdownHook(new Thread(() -> {
 			launcher.close();
