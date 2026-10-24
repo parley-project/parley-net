@@ -65,6 +65,36 @@ public class ServerMainTest {
 	}
 
 	@Test
+	public void theJvmsDashDWinsOverTheFile() throws Exception {
+		used("test.sm.configFile", "test.sm.port", "test.sm.root");
+		System.setProperty("test.sm.port", "7"); // as java -Dtest.sm.port=7 would
+		file("parley-test.properties", "test.sm.port=1", "test.sm.root=/from/file");
+		ServerMain.configure("Test", new String[0], "test.sm.configFile", "parley-test.properties", dir);
+		assertEquals("7", System.getProperty("test.sm.port"), "the JVM's -D wins over the file");
+		assertEquals("/from/file", System.getProperty("test.sm.root"));
+		ServerMain.configure("Test", new String[] {"-Dtest.sm.port=8"}, "test.sm.configFile", "parley-test.properties", dir);
+		assertEquals("8", System.getProperty("test.sm.port"), "the command line wins over both");
+	}
+
+	@Test
+	public void theFileIsUtf8OrLatin1() throws Exception {
+		File utf8 = new File(dir, "utf8.properties");
+		Files.write(utf8.toPath(), "greeting=Gr\u00fc\u00dfe \u2014 caf\u00e9\n".getBytes(StandardCharsets.UTF_8));
+		assertEquals("Gr\u00fc\u00dfe \u2014 caf\u00e9", ServerMain.load(utf8).getProperty("greeting"));
+		File latin1 = new File(dir, "latin1.properties");
+		Files.write(latin1.toPath(), "greeting=caf\u00e9\n".getBytes(StandardCharsets.ISO_8859_1));
+		assertEquals("caf\u00e9", ServerMain.load(latin1).getProperty("greeting"), "not valid UTF-8: ISO-8859-1");
+	}
+
+	@Test
+	public void secretsAreNotPrinted() {
+		assertEquals("********", ServerMain.printable("parley.mail.smtp.relayPassword", "pw"));
+		assertEquals("********", ServerMain.printable("parley.mail.imap.keyStorePassword", "pw"));
+		assertEquals("********", ServerMain.printable("x.clientSecret", "pw"));
+		assertEquals("2525", ServerMain.printable("parley.mail.smtp.port", "2525"));
+	}
+
+	@Test
 	public void aNamedFileInsteadOfTheDefault() throws Exception {
 		used("test.sm.configFile", "test.sm.port");
 		file("parley-test.properties", "test.sm.port=1");
@@ -139,9 +169,28 @@ public class ServerMainTest {
 	 * a NioServer, both run through {@link ServerMain#service(IBaseServer, String)}
 	 */
 	public static void main(String[] args) throws Exception {
-		ServerMain.run("TestServer", args, "test.sm.configFile", "parley-test.properties", () -> Arrays.asList(
-				ServerMain.service(server(Integer.getInteger("test.sm.port1", 0), "one"), "TestServer one"),
-				ServerMain.service(nioServer(Integer.getInteger("test.sm.port2", 0), "two"), "TestServer two")));
+		ServerMain.run("TestServer", args, "test.sm.configFile", "parley-test.properties", () -> {
+			Server one = server(Integer.getInteger("test.sm.port1", 0), "one");
+			NioServer two = nioServer(Integer.getInteger("test.sm.port2", 0), "two");
+			if (Boolean.getBoolean("test.sm.stopByThemselves")) {
+				// both stop a moment after starting, as a server that fails while running would
+				Thread t = new Thread(() -> {
+					try {
+						while (!one.isRunning() || two.getLocalPort() <= 0) {
+							Thread.sleep(50);
+						}
+						Thread.sleep(300);
+						one.stop(5000, false);
+						two.stop(5000, false);
+					} catch (InterruptedException e) {
+						Thread.currentThread().interrupt();
+					}
+				}, "stopper");
+				t.setDaemon(true);
+				t.start();
+			}
+			return Arrays.asList(ServerMain.service(one, "TestServer one"), ServerMain.service(two, "TestServer two"));
+		});
 	}
 
 	private Process process(String... args) throws Exception {
@@ -176,6 +225,17 @@ public class ServerMainTest {
 			assertTrue(p.isAlive(), "the process lives while the servers run");
 			p.destroy();	// SIGTERM
 			assertTrue(p.waitFor(20, TimeUnit.SECONDS), "SIGTERM stops the servers and the process");
+		} finally {
+			p.destroyForcibly();
+		}
+	}
+
+	@Test
+	public void exitsWithOneWhenTheServersStopByThemselves() throws Exception {
+		Process p = process("-Dtest.sm.stopByThemselves=true");
+		try {
+			assertTrue(p.waitFor(60, TimeUnit.SECONDS), "the process ends");
+			assertEquals(1, p.exitValue(), "a failure, for the service manager");
 		} finally {
 			p.destroyForcibly();
 		}

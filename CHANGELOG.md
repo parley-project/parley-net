@@ -10,7 +10,9 @@
   `%ProgramData%\Parley`, or `$PARLEY_CONF`'s folder; `ServerMain.confDir()`); each server started and
   waited for, the process exiting with 1 when one can't start; the servers stopped when the process is
   stopped (SIGTERM). `ServerMain.service(IBaseServer, name)` adapts any Parley server; `ServerMain.Service` is
-  for anything else.
+  for anything else. The process also exits with 1 when every server stops by itself (not because it was
+  stopped), so a service manager can restart it. Values of settings named like passwords or secrets are never
+  printed. The settings file is read as UTF-8 (as ISO-8859-1 when it isn't valid UTF-8).
 - **`IBaseServer`: what every Parley server is**, thread-per-connection (`Server`, `IServer`) or
   non-blocking (`NioServer`): property prefix, port and secure, the life cycle (`startAndWait`,
   `getStartupError`, `getLocalPort`, `stop(timeout, interrupt)`, `join`) and access control
@@ -23,7 +25,8 @@
 
 ### Changed (needs a configuration change)
 
-- `ServerMain.configure`: **the command line wins over the settings file** (it was the other way round).
+- `ServerMain.configure`: **the command line wins over the settings file** (it was the other way round). A
+  setting the JVM already has (`java -Dname=value ...`) also wins over the file; the command line wins over both.
 
 ### Removed (needs a code change)
 

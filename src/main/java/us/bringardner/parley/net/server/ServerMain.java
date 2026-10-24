@@ -2,7 +2,6 @@ package us.bringardner.parley.net.server;
 
 import java.io.File;
 import java.io.IOException;
-import java.io.InputStream;
 import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -31,11 +30,14 @@ import us.bringardner.parley.plugin.PluginFolders;
  * file named by the server's configFile property, else {@code CONF/parley-NAME.properties} when it
  * is there. CONF is the folder of Parley's administrator file: /etc/parley (Windows
  * %ProgramData%\Parley), or the folder of the file the PARLEY_CONF environment variable names. The
- * command line wins over the file.</li>
+ * command line wins over the JVM's own {@code -D} options (java -Dname=value ...), which win over
+ * the file. The file is UTF-8 (a file that isn't valid UTF-8 is read as ISO-8859-1, as
+ * Properties.load reads it). Values whose names say password or secret are never printed.</li>
  * <li>The servers start, each waiting until it listens; if one can't start, those started are
  * stopped and the process exits with 1, so a service manager sees the failure.</li>
  * <li>Stopping the process (SIGTERM, a service stop) stops the servers; the process lives as long
- * as one of them runs.</li>
+ * as one of them runs. When the last one stops by itself (not because the process was stopped), the
+ * process exits with 1, so a service manager can restart it.</li>
  * </ol>
  *
  * <PRE>
@@ -149,10 +151,19 @@ public final class ServerMain {
 				return;
 			}
 		}
-		Runtime.getRuntime().addShutdownHook(new Thread(() -> stopAll(started), serverName+"-shutdown"));
+		java.util.concurrent.atomic.AtomicBoolean stopping = new java.util.concurrent.atomic.AtomicBoolean();
+		Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+			stopping.set(true);
+			stopAll(started);
+		}, serverName+"-shutdown"));
 		// (the servers' threads may be daemons: the process lives as long as this waits)
 		for (Service s : started) {
 			s.awaitStop();
+		}
+		if (!stopping.get()) {
+			// every server stopped by itself: a failure the service manager should see (and may restart)
+			System.err.println(serverName+" stopped: no server is running");
+			System.exit(1);
 		}
 	}
 
@@ -198,8 +209,8 @@ public final class ServerMain {
 	}
 
 	/**
-	 * Set the system properties: the settings file's, then the command line's ({@code -Dname=value}
-	 * or {@code name value}), which win. The file is the one configProperty names (on the command
+	 * Set the system properties: the settings file's (except those already set, with java -D), then
+	 * the command line's ({@code -Dname=value} or {@code name value}), which win. The file is the one configProperty names (on the command
 	 * line or as a system property), else CONF/defaultFileName when it is there ({@link #confDir()};
 	 * configProperty is then set to it).
 	 *
@@ -227,7 +238,7 @@ public final class ServerMain {
 			}
 		}
 		for (String name : commandLine.stringPropertyNames()) {
-			System.out.println("\t" + name + "=" + commandLine.getProperty(name));
+			System.out.println("\t" + name + "=" + printable(name, commandLine.getProperty(name)));
 		}
 		String file = commandLine.getProperty(configProperty, System.getProperty(configProperty));
 		if (file == null && defaultFileName != null && confDir != null) {
@@ -238,14 +249,46 @@ public final class ServerMain {
 			}
 		}
 		if (file != null) {
-			Properties fromFile = new Properties();
-			try (InputStream in = Files.newInputStream(new File(file).toPath())) {
-				fromFile.load(in);
+			Properties fromFile = load(new File(file));
+			for (String name : fromFile.stringPropertyNames()) {
+				String jvm = System.getProperty(name);
+				if (jvm == null) {
+					System.setProperty(name, fromFile.getProperty(name));
+				} else if (!jvm.equals(fromFile.getProperty(name))) {
+					// set with java -Dname=value: that wins over the file
+					System.out.println("\t" + name + "=" + printable(name, jvm) + " (the JVM's -D, not the file's)");
+				}
 			}
-			System.getProperties().putAll(fromFile);
 			System.out.println("Loaded properties from " + file);
 		}
-		// (the command line wins over the file)
+		// (the command line wins over the file and the JVM's -D)
 		System.getProperties().putAll(commandLine);
+	}
+
+	/** A settings file: UTF-8, or ISO-8859-1 (what Properties.load reads) when it isn't valid UTF-8. */
+	static Properties load(File f) throws IOException {
+		byte[] bytes = Files.readAllBytes(f.toPath());
+		String text;
+		try {
+			text = java.nio.charset.StandardCharsets.UTF_8.newDecoder()
+					.onMalformedInput(java.nio.charset.CodingErrorAction.REPORT)
+					.onUnmappableCharacter(java.nio.charset.CodingErrorAction.REPORT)
+					.decode(java.nio.ByteBuffer.wrap(bytes)).toString();
+		} catch (java.nio.charset.CharacterCodingException e) {
+			text = new String(bytes, java.nio.charset.StandardCharsets.ISO_8859_1);
+		}
+		if (text.startsWith("\uFEFF")) {
+			text = text.substring(1);
+		}
+		Properties ret = new Properties();
+		ret.load(new java.io.StringReader(text));
+		return ret;
+	}
+
+	/** A value for the console: hidden when the name says it's a password or secret. */
+	static String printable(String name, String value) {
+		String n = name.toLowerCase(java.util.Locale.ROOT);
+		boolean secret = n.contains("password") || n.contains("secret") || n.contains("passphrase") || n.endsWith("token");
+		return secret ? "********" : value;
 	}
 }
