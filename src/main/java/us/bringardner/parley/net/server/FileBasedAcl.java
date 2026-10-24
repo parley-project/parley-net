@@ -50,6 +50,10 @@ import us.bringardner.parley.io.IoUtils;
  * would still let the old password in with SCRAM.
  * SCRAM is offered ({@link #supportsScram(String)}) only when every user in the file can use it,
  * since a client that picks SCRAM can't fall back to a password for a user who can't.
+ * <p>
+ * A user file on the file system is read again when it changes (checked at most every
+ * {@value #PROP_RELOAD_SECONDS} seconds, default 15), so users can be added, removed or given new
+ * passwords while the server runs. If the new file can't be read, the users read before stay.
  *
  * <PRE>
  * Copyright 1998-2026 <A href="http://bringardner.us/tony">Tony Bringardner</A>
@@ -293,8 +297,23 @@ public class FileBasedAcl extends BaseObject implements IAccessControlList {
 		}
 	}
 
-	private Map<String , IPrincipal> users = new HashMap<>();
+	private volatile Map<String , IPrincipal> users = new HashMap<>();
+	/** The map parseLine fills while a file is read (then it replaces users) */
+	private Map<String , IPrincipal> loading;
 	private volatile boolean hasHashedPasswords = false;
+
+	/**
+	 * System property: how often (seconds) the user file is checked for changes, so users added or
+	 * changed while a server runs can log in without a restart; 0 never checks. Default 15.
+	 * @since 2.0.0
+	 */
+	public static final String PROP_RELOAD_SECONDS = "parley.net.acl.reloadSeconds";
+	public static final int DEFAULT_RELOAD_SECONDS = 15;
+	/** The user file when it was read from the file system (not a class path resource), else null */
+	private volatile File sourceFile;
+	private volatile long sourceModified;
+	private volatile long sourceLength;
+	private volatile long lastCheck;
 	private static volatile String dummyHash;
 
 	public FileBasedAcl() {
@@ -325,14 +344,24 @@ public class FileBasedAcl extends BaseObject implements IAccessControlList {
 			if(!file.exists() || !file.canRead()) {
 				throw new IOException(path+" is not a valid file");
 			}
+			long modified = file.lastModified();
+			long length = file.length();
 			in = new FileInputStream(file);
+			load(in);
+			sourceModified = modified;
+			sourceLength = length;
+			lastCheck = System.currentTimeMillis();
+			sourceFile = file;
+			return;
 		}
 
 
 		load(in);		
 	}
 
-	private void load(InputStream in) throws IOException {
+	private synchronized void load(InputStream in) throws IOException {
+		Map<String, IPrincipal> map = new HashMap<>();
+		loading = map;
 		try {
 			String text = new String(in.readAllBytes(), StandardCharsets.UTF_8);
 			for(String line : text.split("[\n]")) {
@@ -341,8 +370,65 @@ public class FileBasedAcl extends BaseObject implements IAccessControlList {
 					parseLine(line);					
 				}
 			}
+			users = map;
 		} finally {
+			loading = null;
 			IoUtils.closeQuietly(in);
+		}
+	}
+
+	/**
+	 * Read the user file again if it changed since it was read (checked at most every
+	 * {@value #PROP_RELOAD_SECONDS} seconds). If it can't be read, the users read before stay.
+	 *
+	 * @return true if the users were read again
+	 * @since 2.0.0
+	 */
+	public boolean reloadIfChanged() {
+		File f = sourceFile;
+		if( f == null ) {
+			return false;
+		}
+		long now = System.currentTimeMillis();
+		long interval = Long.getLong(PROP_RELOAD_SECONDS, DEFAULT_RELOAD_SECONDS) * 1000L;
+		if( interval <= 0 || now - lastCheck < interval ) {
+			return false;
+		}
+		return reload(f, now);
+	}
+
+	/**
+	 * Read the user file again now if it changed, whatever the interval (for an application that
+	 * just changed it).
+	 *
+	 * @return true if the users were read again
+	 * @since 2.0.0
+	 */
+	public boolean reloadNow() {
+		File f = sourceFile;
+		return f != null && reload(f, System.currentTimeMillis());
+	}
+
+	private synchronized boolean reload(File f, long now) {
+		lastCheck = now;
+		long modified = f.lastModified();
+		long length = f.length();
+		if( modified == sourceModified && length == sourceLength ) {
+			return false;
+		}
+		try {
+			try (FileInputStream in = new FileInputStream(f)) {
+				load(in);
+			}
+			logInfo("Read the user file "+f+" again");
+			return true;
+		} catch (IOException | RuntimeException e) {
+			logError("Can't read the user file "+f+" again; the users read before stay", e);
+			return false;
+		} finally {
+			// don't try again until it changes again
+			sourceModified = modified;
+			sourceLength = length;
 		}
 	}
 
@@ -379,7 +465,7 @@ public class FileBasedAcl extends BaseObject implements IAccessControlList {
 			}
 		}
 		p.setCredentials(password.getBytes(StandardCharsets.UTF_8));
-		users.put(p.getName(),p);
+		(loading != null ? loading : users).put(p.getName(),p);
 		if( parts.length> 2) {
 			if( !parts[2].isEmpty()) {
 				String perms [] = parts[2].split("[|]");
@@ -444,11 +530,13 @@ public class FileBasedAcl extends BaseObject implements IAccessControlList {
 	 */
 	@Override
 	public boolean supportsScram(String hash) {
+		reloadIfChanged();
 		ScramMechanism m = mechanism(hash);
-		if( m == null || users.isEmpty() ) {
+		Map<String, IPrincipal> u = users;
+		if( m == null || u.isEmpty() ) {
 			return false;
 		}
-		for (IPrincipal p : users.values()) {
+		for (IPrincipal p : u.values()) {
 			if( !(p instanceof FileBasedPrincipal) || !((FileBasedPrincipal)p).canUseScram(m.getHash())) {
 				return false;
 			}
@@ -458,6 +546,7 @@ public class FileBasedAcl extends BaseObject implements IAccessControlList {
 
 	@Override
 	public ScramCredentials getScramCredentials(String user, String hash) {
+		reloadIfChanged();
 		ScramMechanism m = mechanism(hash);
 		IPrincipal p = user == null || m == null ? null : users.get(user);
 		return p instanceof FileBasedPrincipal ? ((FileBasedPrincipal)p).getScramCredentials(m.getHash()) : null;
@@ -488,6 +577,7 @@ public class FileBasedAcl extends BaseObject implements IAccessControlList {
 
 	@Override
 	public IPrincipal getPrincipal(String user) {
+		reloadIfChanged();
 		IPrincipal ret = users.get(user);
 
 		return ret;

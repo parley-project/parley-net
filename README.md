@@ -166,6 +166,10 @@ the old password would still let it in). A plain text password serves SCRAM as i
 (`supportsScram`) only when every user in the file can use it, because a client that picks SCRAM
 can't fall back to a password for a user who has no SCRAM credentials.
 
+`FileBasedAcl` notices when its file changes (checked at most every 15 seconds, set by
+`parley.net.acl.reloadSeconds`; 0 turns it off) and reads it again, so users added or
+removed take effect without a restart. A file that can't be read keeps the users it had.
+
 To keep users in a database instead, see parley-net-acl-jdbc.
 
 A login command calls `processor.getServer().authenticate(user, password)` and
@@ -341,6 +345,40 @@ try (NamedLock l = mail.lock("tony/INBOX", Mode.EXCLUSIVE, Duration.ofSeconds(5)
   while a file's lock is held. Servers elsewhere reach the same locks when they serve the same root. The lock
   directory is in the root, so servers keep clients out of it (`isLockFile(file)`).
   `NamedLock.closeFromAnyThread()` lets go of a lock whose work ended on another thread (an FTP data transfer).
+
+## Running servers: as a service, alone or together
+
+A server can run in its own process, share a process with other servers, or be run by an
+application; nothing assumes the user or group it runs as (the service manager, or whoever starts
+it, decides that).
+
+- **Providers.** A server is offered by a `ServerProvider` (found with `ServiceLoader`, on the class
+  path or in a plugin folder): an id (`pop3`), the settings files it reads, and `create(context)`
+  that makes it from the system properties. `ServerContext` holds what the servers in one process
+  share (`shared(key, type, make)`: a user list, the SMTP queue).
+- **One launcher.** `ServerMain.main` runs the servers `parley.servers` lists
+  (`parley.servers=smtp,submission,imap,pop3`), set on the command line, with `java -D`, or in
+  `CONF/parley-servers.properties` (or the file `parley.servers.configFile` names). A server's own
+  `main` calls `ServerMain.launch("Pop3Server", args, "pop3")`. An unknown id is an error that lists
+  the ids there are.
+- **Settings**, a later one winning: the launcher's file, each server's shared files (the mail
+  servers' `parley-mail.properties`), its own file (`parley-pop3.properties`, or the file its
+  `configFile` property names), the JVM's `-D` options, then the command line (`-Dname=value` or
+  `name value`). CONF is `ServerMain.confDir()`: `/etc/parley` (Windows `%ProgramData%\Parley`), or
+  the folder of the file `PARLEY_CONF` names.
+- **JMX.** Each server is a `us.bringardner.parley:type=Server,name=<id>` bean
+  (`ParleyServerMBean`: state, port, connections, start, stop, restart) and the process a
+  `us.bringardner.parley:type=Launcher,name=<name>` bean (`ParleyLauncherMBean`: servers, settings
+  files, startAll, stopAll, reloadSettings, shutdown), on the platform MBean server. A restart reads
+  the settings files again. Remote access is the JVM's own `-Dcom.sun.management.jmxremote.*`
+  settings.
+- **The process.** It exits with 1 when the settings can't be read or a server can't start, and
+  when the last running server stops by itself, so a service manager can restart it. A server
+  stopped with JMX doesn't end it; the launcher's `shutdown` does (exit 0), as does SIGTERM.
+
+`ServerLauncher` is the same thing without the process policy, for an application that runs servers
+in its own JVM. `ServerMain.run(name, args, configProperty, defaultFile, factory)` still runs a fixed
+list of servers without providers.
 
 ## Configuration
 

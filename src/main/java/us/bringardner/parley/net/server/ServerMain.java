@@ -80,6 +80,11 @@ public final class ServerMain {
 
 		/** wait until it has stopped */
 		void awaitStop() throws InterruptedException;
+
+		/** the connections open now (0 if it doesn't say) */
+		default int connections() {
+			return 0;
+		}
 	}
 
 	/** Makes the servers, set up from the system properties {@link #run} has set */
@@ -117,6 +122,18 @@ public final class ServerMain {
 			@Override
 			public void awaitStop() throws InterruptedException {
 				server.join(0);
+			}
+
+			@Override
+			public int connections() {
+				if (server instanceof IServer) {
+					java.util.Map<?, ?> m = ((IServer) server).getActiveClients();
+					return m == null ? 0 : m.size();
+				}
+				if (server instanceof us.bringardner.parley.net.nio.NioServer) {
+					return ((us.bringardner.parley.net.nio.NioServer) server).getConnectionCount();
+				}
+				return 0;
 			}
 		};
 	}
@@ -165,6 +182,118 @@ public final class ServerMain {
 			System.err.println(serverName+" stopped: no server is running");
 			System.exit(1);
 		}
+	}
+
+	/** The launcher's own settings file in CONF: parley.servers and any other settings */
+	public static final String LAUNCHER_FILE = "parley-servers.properties";
+	/** names the launcher's settings file instead of CONF/parley-servers.properties */
+	public static final String LAUNCHER_CONFIG_PROPERTY = "parley.servers.configFile";
+
+	/**
+	 * The generic launcher: runs the servers {@code parley.servers} lists (comma separated ids, e.g.
+	 * {@code smtp,submission,imap,pop3}), set on the command line, with java -D, or in
+	 * CONF/parley-servers.properties. See {@link #launch(String, String[], String...)}.
+	 */
+	public static void main(String[] args) throws InterruptedException {
+		launch("Parley", args);
+	}
+
+	/**
+	 * Run servers in this process until it is stopped, as a service or from a shell.
+	 * <ol>
+	 * <li>The servers are the {@link ServerProvider}s with these ids (none: those
+	 * {@code parley.servers} lists); an unknown id is an error that lists the ids there are.</li>
+	 * <li>Settings, a later one winning: the launcher's file when ids aren't given
+	 * (CONF/parley-servers.properties, or the file {@code parley.servers.configFile} names), each
+	 * server's shared files and its own file in CONF (or the file its configFile property names),
+	 * the JVM's {@code -D} options, and the command line ({@code -Dname=value} or
+	 * {@code name value}).</li>
+	 * <li>Each server and the launcher can be managed with JMX ({@link ServerLauncher}). A server
+	 * stopped with JMX doesn't end the process; the launcher's shutdown does (exit 0), as does
+	 * stopping the process (SIGTERM, a service stop). When the last running server stops by itself
+	 * the process exits with 1, so a service manager can restart it.</li>
+	 * <li>The process exits with 1 if the settings can't be read or a server can't start.</li>
+	 * </ol>
+	 *
+	 * @param processName for the messages and the launcher's JMX name, e.g. Pop3Server
+	 */
+	public static void launch(String processName, String[] args, String... ids) throws InterruptedException {
+		ServerLauncher launcher;
+		try {
+			launcher = launcher(processName, args, confDir(), ids);
+			launcher.getSettings().print(processName);
+			launcher.init();
+		} catch (Exception e) {
+			failed(processName, e);
+			return;
+		}
+		java.util.concurrent.CountDownLatch done = new java.util.concurrent.CountDownLatch(1);
+		launcher.setOnFailure(id -> {
+			if (!launcher.isAnyRunning()) {
+				System.err.println(processName + " stopped: no server is running");
+				exitLater(1);
+			}
+		});
+		launcher.setOnShutdown(() -> exitLater(0));
+		try {
+			launcher.startAll();
+		} catch (Exception e) {
+			failed(processName, e);
+			return;
+		}
+		for (String id : launcher.getServers()) {
+			ParleyServerMBean s = launcher.getServer(id);
+			System.out.println(s.getDescription() + " (" + id + ") started on port " + s.getPort());
+		}
+		Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+			launcher.close();
+			done.countDown();
+		}, processName + "-shutdown"));
+		// (the servers' threads may be daemons: the process lives as long as this waits)
+		done.await();
+	}
+
+	/**
+	 * A launcher for these servers, or (no ids) those parley.servers lists, with its settings
+	 * files; not started.
+	 */
+	static ServerLauncher launcher(String processName, String[] args, File confDir, String... ids) throws IOException {
+		LaunchSettings settings = new LaunchSettings(LaunchSettings.parse(args));
+		List<String> list = new ArrayList<String>();
+		for (String id : ids) {
+			list.add(id);
+		}
+		if (list.isEmpty()) {
+			String named = settings.early(LAUNCHER_CONFIG_PROPERTY);
+			File file = named != null ? new File(named) : confDir == null ? null : new File(confDir, LAUNCHER_FILE);
+			String servers = settings.early(ServerLauncher.SERVERS_PROPERTY);
+			if (file != null) {
+				settings.addFile(file, named != null);
+				if (servers == null && file.isFile()) {
+					servers = load(file).getProperty(ServerLauncher.SERVERS_PROPERTY);
+				} else if (named != null && !file.isFile()) {
+					throw new IOException("Can't read the settings file " + file);
+				}
+			}
+			if (servers != null) {
+				for (String id : servers.split("[,\\s]+")) {
+					if (!id.isEmpty()) {
+						list.add(id);
+					}
+				}
+			}
+			if (list.isEmpty()) {
+				throw new IOException("No servers to run: set " + ServerLauncher.SERVERS_PROPERTY + " (one or more of "
+						+ ServerLauncher.providers().keySet() + ")");
+			}
+		}
+		return new ServerLauncher(processName, settings, list, confDir, new ServerContext());
+	}
+
+	/** exit from another thread, so a JMX call or a server's thread isn't held by the shutdown hook */
+	private static void exitLater(int status) {
+		Thread t = new Thread(() -> System.exit(status), "parley-exit");
+		t.start();
 	}
 
 	private static void failed(String name, Exception e) {
