@@ -10,7 +10,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Properties;
 
-import us.bringardner.parley.net.nio.NioServer;
 import us.bringardner.parley.plugin.PluginFolders;
 
 /**
@@ -26,7 +25,7 @@ import us.bringardner.parley.plugin.PluginFolders;
  * }
  * </pre>
  *
- * {@link #run} does what every server needs:
+ * {@link #run} does what every server needs ({@link #service} adapts any {@link IBaseServer}):
  * <ol>
  * <li>Settings: the command line ({@code -Dname=value} or {@code name value}), and the settings
  * file named by the server's configFile property, else {@code CONF/parley-NAME.properties} when it
@@ -90,38 +89,8 @@ public final class ServerMain {
 	private ServerMain() {
 	}
 
-	/** A thread-per-connection server (POP3, IMAP, SMTP, FTP ...) */
-	public static Service service(Server server, String name) {
-		return new Service() {
-			@Override
-			public String name() {
-				return name;
-			}
-
-			@Override
-			public void startAndWait(long timeoutMillis) throws IOException {
-				server.startAndWait(timeoutMillis);
-			}
-
-			@Override
-			public int port() {
-				return server.getLocalPort();
-			}
-
-			@Override
-			public void stop(long timeoutMillis) throws InterruptedException {
-				server.stop(timeoutMillis, false);
-			}
-
-			@Override
-			public void awaitStop() throws InterruptedException {
-				server.join(0);
-			}
-		};
-	}
-
-	/** A non-blocking server (SSH ...) */
-	public static Service service(NioServer server, String name) {
+	/** Any Parley server: thread-per-connection (POP3, IMAP, SMTP, FTP ...) or non-blocking (SSH ...) */
+	public static Service service(IBaseServer server, String name) {
 		return new Service() {
 			@Override
 			public String name() {

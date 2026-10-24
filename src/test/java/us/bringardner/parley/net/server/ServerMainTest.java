@@ -22,10 +22,12 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import us.bringardner.parley.net.nio.NioServer;
+
 /**
  * ServerMain: the settings (the file, the command line winning), and a process run by
  * {@link ServerMain#run} ({@link #main(String[])}): it stays up, stops on SIGTERM, and exits with 1
- * when a server can't start.
+ * when a server can't start. Its two servers are a Server and a NioServer, both an {@link IBaseServer}.
  */
 public class ServerMainTest {
 
@@ -125,11 +127,21 @@ public class ServerMainTest {
 		return s;
 	}
 
-	/** Two servers, on the ports test.sm.port1 and test.sm.port2 */
+	/** A non-blocking server that accepts connections (and does nothing with them) */
+	private static NioServer nioServer(int port, String name) {
+		NioServer s = new NioServer(port, name);
+		s.setHandlerFactory(() -> (connection, frame) -> { });
+		return s;
+	}
+
+	/**
+	 * Two servers, on the ports test.sm.port1 and test.sm.port2: a thread-per-connection Server and
+	 * a NioServer, both run through {@link ServerMain#service(IBaseServer, String)}
+	 */
 	public static void main(String[] args) throws Exception {
 		ServerMain.run("TestServer", args, "test.sm.configFile", "parley-test.properties", () -> Arrays.asList(
 				ServerMain.service(server(Integer.getInteger("test.sm.port1", 0), "one"), "TestServer one"),
-				ServerMain.service(server(Integer.getInteger("test.sm.port2", 0), "two"), "TestServer two")));
+				ServerMain.service(nioServer(Integer.getInteger("test.sm.port2", 0), "two"), "TestServer two")));
 	}
 
 	private Process process(String... args) throws Exception {

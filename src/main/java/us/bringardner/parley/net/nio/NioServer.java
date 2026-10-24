@@ -51,17 +51,16 @@ import javax.net.ssl.SSLEngine;
 
 import us.bringardner.parley.core.util.AbstractCoreServer;
 import us.bringardner.parley.io.IoUtils;
-import us.bringardner.parley.net.IManagedThread;
 import us.bringardner.parley.net.server.AccessControlUnavailableException;
 import us.bringardner.parley.net.server.IAccessControlList;
-import us.bringardner.parley.net.server.IPermission;
+import us.bringardner.parley.net.server.IBaseServer;
 import us.bringardner.parley.net.server.IPrincipal;
-import us.bringardner.parley.net.server.IServer;
-import us.bringardner.parley.net.server.ImmutablePrincipal;
 import us.bringardner.parley.net.server.Server;
 
 /**
- * A non-blocking server, the NIO counterpart of the framework's Server.
+ * A non-blocking server, the NIO counterpart of the framework's Server. Both are an
+ * {@link IBaseServer}; the thread-per-connection parts of {@link us.bringardner.parley.net.server.IServer}
+ * (processors, connection factories, accept timeout) have no meaning here.
  * <p>
  * The server thread accepts connections on a non-blocking ServerSocketChannel and hands
  * each one to one of a few {@link NioReactor}s (round robin). A reactor thread serves all
@@ -90,12 +89,10 @@ import us.bringardner.parley.net.server.Server;
  *
  * @author Tony Bringardner
  */
-public class NioServer extends AbstractCoreServer implements IManagedThread {
+public class NioServer extends AbstractCoreServer implements IBaseServer {
 
 	/** Close connections idle for 24 hours, as the framework's Server does */
 	public static final long DEFAULT_MAX_IDLE_TIME = 1000L*60*60*24;
-	/** Property naming the IAccessControlList class, the same property as the framework's Server */
-	public static final String AUTHENTICATION_PROVIDER_PROPERTY = IServer.AUTHENTICATION_PROVIDER_PROPERTY;
 	public static final int DEFAULT_REACTOR_COUNT = Math.max(1, Math.min(4, Runtime.getRuntime().availableProcessors()));
 
 	private boolean reuseAddress = true;
@@ -654,63 +651,6 @@ public class NioServer extends AbstractCoreServer implements IManagedThread {
 			logError("Can't check the login of "+user+": "+e.getMessage());
 			return null;
 		}
-	}
-
-	/**
-	 * Check a login, telling a failed login (null) from an access control list that can't answer
-	 * now (the exception), as {@link us.bringardner.parley.net.server.IServer#checkLogin(String, byte[])}.
-	 *
-	 * @since 1.1.0
-	 */
-	public IPrincipal checkLogin(String user, byte[] credentials) throws AccessControlUnavailableException {
-		IAccessControlList acl = getAccessControl();
-		if( acl == null || user == null ) {
-			return null;
-		}
-		IPrincipal tmp = acl.findPrincipal(user);
-		if( tmp == null ) {
-			// Same work as a real check so timing doesn't reveal valid user names
-			acl.authenticateUnknownUser(credentials);
-			return null;
-		}
-		if( !tmp.authenticate(credentials) ) {
-			return null;
-		}
-		IPrincipal ret = new ImmutablePrincipal(tmp);
-		ret.setState(IPrincipal.State.Authenticated);
-		return ret;
-	}
-
-	/**
-	 * The principal of a user whose identity a SASL mechanism (SCRAM) has already proven,
-	 * as {@link us.bringardner.parley.net.server.IServer#getVerifiedPrincipal(String)}.
-	 * 
-	 * @return a read only authenticated principal, or null if there is no access control or no such user
-	 * @since 1.1.0
-	 */
-	public IPrincipal getVerifiedPrincipal(String user) throws AccessControlUnavailableException {
-		IAccessControlList acl = getAccessControl();
-		if( acl == null || user == null ) {
-			return null;
-		}
-		IPrincipal p = acl.findPrincipal(user);
-		if( p == null ) {
-			return null;
-		}
-		IPrincipal ret = new ImmutablePrincipal(p);
-		ret.setState(IPrincipal.State.Authenticated);
-		return ret;
-	}
-
-	/**
-	 * @return true if the user is logged in and the access control allows the action
-	 */
-	public boolean isAuthorized(IPrincipal user, IPermission action) {
-		if( user == null ) {
-			return false;
-		}
-		IAccessControlList acl = getAccessControl();
-		return acl != null && acl.checkPermission(user, action);
 	}
 
 	/**

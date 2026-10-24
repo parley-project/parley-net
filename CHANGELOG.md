@@ -9,8 +9,17 @@
   property names, else `parley-NAME.properties` in Parley's administrator folder: `/etc/parley`,
   `%ProgramData%\Parley`, or `$PARLEY_CONF`'s folder; `ServerMain.confDir()`); each server started and
   waited for, the process exiting with 1 when one can't start; the servers stopped when the process is
-  stopped (SIGTERM). `ServerMain.service(Server|NioServer, name)` adapts a server; `ServerMain.Service` is
+  stopped (SIGTERM). `ServerMain.service(IBaseServer, name)` adapts any Parley server; `ServerMain.Service` is
   for anything else.
+- **`IBaseServer`: what every Parley server is**, thread-per-connection (`Server`, `IServer`) or
+  non-blocking (`NioServer`): property prefix, port and secure, the life cycle (`startAndWait`,
+  `getStartupError`, `getLocalPort`, `stop(timeout, interrupt)`, `join`) and access control
+  (`authenticate`, `checkLogin`, `getVerifiedPrincipal`, `isAuthorized`, `get/setAccessControl`).
+  `IServer` extends it and `NioServer` implements it, so code can take either server as an
+  `IBaseServer`. `AUTHENTICATION_PROVIDER_PROPERTY` is declared there (still reachable as
+  `IServer.` and `NioServer.AUTHENTICATION_PROVIDER_PROPERTY`), and `checkLogin`,
+  `getVerifiedPrincipal` and `isAuthorized` are its defaults, no longer copied in `NioServer`
+  and `Server`.
 
 ### Changed (needs a configuration change)
 

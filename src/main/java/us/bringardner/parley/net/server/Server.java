@@ -1259,21 +1259,6 @@ public class Server extends AbstractCoreServer implements IServer {
 		}
 	}
 
-	/* (non-Javadoc)
-	 * @see us.bringardner.parley.net.IServer#isAuthorized(java.security.Principal, IPermission)
-	 */
-	public boolean isAuthorized(IPrincipal user, IPermission action) {
-		boolean ret = false;
-		if( user == null ) {
-			// Not logged in
-			return false;
-		}
-		IAccessControlList acl = getAccessControl();
-		if( acl != null ) {
-			ret = acl.checkPermission(user, action);
-		}
-		return ret;
-	}
 
 	/* (non-Javadoc)
 	 * @see us.bringardner.parley.net.IServer#getAcl()

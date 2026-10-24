@@ -33,28 +33,17 @@ import javax.net.SocketFactory;
 import javax.net.ssl.SSLContext;
 
 import us.bringardner.parley.net.IConnectionFactory;
-import us.bringardner.parley.net.IManagedThread;
 import us.bringardner.parley.net.IProcessor;
 import us.bringardner.parley.net.IProcessorFactory;
 
 /**
- * 
- * @author Tony Bringardner
+ * A thread-per-connection server: each connection is served by an {@link IProcessor} on its own
+ * thread. What it shares with every Parley server (property prefix, port, life cycle and access
+ * control) is in {@link IBaseServer}.
  *
+ * @author Tony Bringardner
  */
-
-
-public interface IServer extends IManagedThread {
-	public static final String AUTHENTICATION_PROVIDER_PROPERTY = "authenticationProvider";
-	
-	/**
-	 * The prefix of this server's properties (for example parley.mail.pop3): its own settings, such as
-	 * port, and those of its access control list, such as userFile, are read as prefix.name.
-	 */
-	public String getPropertyPrefix();
-
-	public int getPort();
-	public void setPort(int p);
+public interface IServer extends IBaseServer {
 
 	public IProcessorFactory getProcessorFactory();
 	public void setProcessorFactory(IProcessorFactory processorFactory);
@@ -76,8 +65,6 @@ public interface IServer extends IManagedThread {
 	public Map<String,Object> getRuntimeValues();
 	public void removeClient(IProcessor processor);
 	public Map<Socket, IProcessor> getActiveClients();
-	public boolean isSecure();
-	public void setSecure(boolean b);
 	
 	/**
 	 * @param channelSecure
@@ -105,100 +92,6 @@ public interface IServer extends IManagedThread {
 	public void setDebug(boolean debug);
 	
 	public boolean isDebug();
-	
-	
-	
-	/**
-	 * Authenticate a user with the given credentials (probably a password).
-	 * If the user can not be authenticated, null is returned.
-	 * 
-	 * If the ACL is undefined, all actions are allowed.
-	 * 
-	 * @param user
-	 * @param credentials (password)
-	 * @return The an authenticated AbstractPrincipal or null
-	 */
-	public IPrincipal authenticate(String user, byte[] credentials ) ;
-		
-	
-	/**
-	 * The principal of a user whose identity a SASL mechanism has already proven without 
-	 * {@link #authenticate(String, byte[])} (SCRAM checks a proof against the credentials 
-	 * from {@link IAccessControlList#getScramCredentials(String, String)}). Call it only 
-	 * after such a mechanism succeeded for this user.
-	 * <p>
-	 * The default looks the user up in {@link #getAccessControl()}.
-	 * 
-	 * @param user the user the mechanism proved
-	 * @return a read only authenticated principal, or null if there is no access control or 
-	 * no such user
-	 * @throws AccessControlUnavailableException if the access control list can't answer now
-	 * @since 1.1.0
-	 */
-	/**
-	 * Check a login like {@link #authenticate(String, byte[])}, but tell a failed login (null)
-	 * from an access control list that can't answer now (the exception), so the server can answer
-	 * "try again later" instead of "wrong password".
-	 * <p>
-	 * The default looks the user up in {@link #getAccessControl()} with
-	 * {@link IAccessControlList#findPrincipal(String)}.
-	 *
-	 * @return a read only authenticated principal, or null if the login failed or there is no 
-	 * access control
-	 * @throws AccessControlUnavailableException if the access control list can't answer now
-	 * @since 1.1.0
-	 */
-	default IPrincipal checkLogin(String user, byte[] credentials) throws AccessControlUnavailableException {
-		IAccessControlList acl = getAccessControl();
-		if( acl == null || user == null ) {
-			return null;
-		}
-		IPrincipal tmp = acl.findPrincipal(user);
-		if( tmp == null ) {
-			// same work as a real check so timing doesn't reveal valid user names
-			acl.authenticateUnknownUser(credentials);
-			return null;
-		}
-		if( !tmp.authenticate(credentials) ) {
-			return null;
-		}
-		IPrincipal ret = new ImmutablePrincipal(tmp);
-		ret.setState(IPrincipal.State.Authenticated);
-		return ret;
-	}
-
-	default IPrincipal getVerifiedPrincipal(String user) throws AccessControlUnavailableException {
-		IAccessControlList acl = getAccessControl();
-		if( acl == null || user == null ) {
-			return null;
-		}
-		IPrincipal p = acl.findPrincipal(user);
-		if( p == null ) {
-			return null;
-		}
-		IPrincipal ret = new ImmutablePrincipal(p);
-		ret.setState(IPrincipal.State.Authenticated);
-		return ret;
-	}
-
-	/**
-	 * @param user
-	 * @param action
-	 * @return true if the given user is authorized for the given action 
-	 */
-	boolean isAuthorized(IPrincipal user, IPermission action);
-	
-	/**
-	 * 
-	 * @return
-	 */
-	IAccessControlList getAccessControl();
-	
-	/**
-	 * 
-	 * @param acl
-	 */
-	void setAccessControl(IAccessControlList acl);
 	
 
 	/**
