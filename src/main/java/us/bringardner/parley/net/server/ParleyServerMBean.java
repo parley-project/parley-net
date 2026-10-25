@@ -2,6 +2,11 @@ package us.bringardner.parley.net.server;
 
 /**
  * A server run by a {@link ServerLauncher}, as JMX sees it ({@code us.bringardner.parley:type=Server,name=ID}).
+ * <p>
+ * It is registered as an MXBean, so every attribute is a JMX open type: a generic client
+ * (JConsole) reads {@link #getConnectionList()} as CompositeData with remote, user and secure; a
+ * Java client with parley-net gets ParleyConnection objects from
+ * {@code JMX.newMXBeanProxy(connection, name, ParleyServerMBean.class)}.
  *
  * @since 2.0.0
  */

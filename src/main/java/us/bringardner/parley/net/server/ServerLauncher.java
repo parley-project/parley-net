@@ -213,7 +213,9 @@ public final class ServerLauncher implements ParleyLauncherMBean, AutoCloseable 
 		}
 		launcherName = context.register("Launcher", name, this);
 		for (Entry e : entries.values()) {
-			e.name = context.register("Server", e.provider.id(), e);
+			// an MXBean: every attribute is an open type (the connection list is CompositeData), so
+			// JConsole or a client without Parley's classes can read it
+			e.name = context.register("Server", e.provider.id(), new javax.management.StandardMBean(e, ParleyServerMBean.class, true));
 		}
 	}
 

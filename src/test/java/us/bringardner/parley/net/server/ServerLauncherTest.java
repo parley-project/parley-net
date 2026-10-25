@@ -203,7 +203,13 @@ public class ServerLauncherTest {
 		assertEquals("RUNNING", mbs.getAttribute(server, "State"));
 		assertEquals(4242, mbs.getAttribute(server, "Port"));
 		assertEquals(3, mbs.getAttribute(server, "Connections"));
-		ParleyConnection[] conns = (ParleyConnection[]) mbs.getAttribute(server, "ConnectionList");
+		// an MXBean: open types for a generic client, ParleyConnection through an MXBean proxy
+		javax.management.openmbean.CompositeData[] raw = (javax.management.openmbean.CompositeData[]) mbs.getAttribute(server, "ConnectionList");
+		assertEquals(raw.length, launcher.getServer("fake").getConnectionList().length);
+		if (raw.length > 0) {
+			assertTrue(raw[0].containsKey("remote") && raw[0].containsKey("user") && raw[0].containsKey("secure"));
+		}
+		ParleyConnection[] conns = javax.management.JMX.newMXBeanProxy(mbs, server, ParleyServerMBean.class).getConnectionList();
 		assertEquals(2, conns.length);
 		assertEquals("127.0.0.1:50000", conns[0].getRemote());
 		assertEquals("tony", conns[0].getUser());
@@ -220,7 +226,7 @@ public class ServerLauncherTest {
 
 		mbs.invoke(server, "stop", null, null);
 		assertEquals("STOPPED", mbs.getAttribute(server, "State"));
-		assertEquals(0, ((ParleyConnection[]) mbs.getAttribute(server, "ConnectionList")).length);
+		assertEquals(0, ((javax.management.openmbean.CompositeData[]) mbs.getAttribute(server, "ConnectionList")).length);
 		assertNull(mbs.getAttribute(server, "Error"));
 
 		String[] servers = (String[]) mbs.getAttribute(proc, "Servers");

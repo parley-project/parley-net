@@ -7,7 +7,8 @@
 - **Servers alone or together, managed with JMX.** `ServerProvider` (found at run time with `ServiceLoader`,
   plugins included) offers a server by id; `ServerLauncher` runs any set of them in one JVM with a shared
   `ServerContext`, and registers a `ParleyServerMBean` per server (state, port, connections and who they are
-  (`getConnectionList()`, `ParleyConnection`: client, user, TLS), start, stop, restart) and a `ParleyLauncherMBean` (startAll, stopAll, reloadSettings, shutdown) under
+  (`getConnectionList()`, `ParleyConnection`: client, user, TLS), start, stop, restart; registered as an
+  MXBean, so JConsole and clients without parley-net read every attribute) and a `ParleyLauncherMBean` (startAll, stopAll, reloadSettings, shutdown) under
   `us.bringardner.parley`. `ServerMain.main` runs the servers `parley.servers` lists (command line, `-D`, or
   `CONF/parley-servers.properties`); `ServerMain.launch(name, args, ids...)` is a server's own `main`.
   `LaunchSettings` reads each server's shared settings files (such as `parley-mail.properties`), then its own;

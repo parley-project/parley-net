@@ -21,6 +21,7 @@ public final class ParleyConnection implements Serializable {
 	 * @param user   the user it logged in as, or null
 	 * @param secure true when the connection is TLS (implicit or after STARTTLS)
 	 */
+	@javax.management.ConstructorParameters({ "remote", "user", "secure" })
 	public ParleyConnection(String remote, String user, boolean secure) {
 		this.remote = remote == null ? "" : remote;
 		this.user = user;
