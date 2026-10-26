@@ -183,6 +183,9 @@ public final class LockDomain {
 			throw new IllegalArgumentException("A server id is letters, digits, '.', '_' and '-': " + serverId);
 		}
 		locks.checkOpen();
+		if( closed ) {
+			throw new IOException("The lock domain " + name + " is closed");
+		}
 		Sharing sharing = options.sharing();
 		long wait = service.claimWaitMillis() * 1_000_000;
 		if( claimCount > 0 && sharing == Sharing.OFF ) {

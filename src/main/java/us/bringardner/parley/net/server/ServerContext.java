@@ -65,6 +65,11 @@ public final class ServerContext {
 		return shared.get(key);
 	}
 
+	/** The keys of the objects shared now */
+	public java.util.Set<String> sharedKeys() {
+		return Collections.unmodifiableSet(new java.util.TreeSet<>(shared.keySet()));
+	}
+
 	/** Closed when the launcher closes (after its servers stopped) */
 	public void onClose(AutoCloseable closer) {
 		closers.add(closer);
