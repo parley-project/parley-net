@@ -17,7 +17,7 @@ public enum Sharing {
 	CLUSTER;
 
 	/**
-	 * Parse a setting such as {@code parley.mail.sharedStore}: {@code off}, {@code host} or
+	 * Parse a setting such as a mail store's {@code sharing}: {@code off}, {@code host} or
 	 * {@code cluster}, in any case; {@code false} and {@code true} are read as {@code off} and
 	 * {@code cluster}.
 	 * @param value the setting; null or blank is {@code off}

@@ -306,7 +306,9 @@ try (NamedLock l = mail.lock("tony/INBOX", Mode.EXCLUSIVE, Duration.ofSeconds(5)
   so servers that mount a store at different paths still agree. A resource on another store (a mounted archive,
   say) is a name in that store's domain.
 - **Among servers:** `Sharing` says how many servers use a store: `OFF` (one; its claim keeps a second out),
-  `HOST` (several on one machine) or `CLUSTER` (several anywhere). A *provider* keeps the locks between them:
+  `HOST` (several on one machine) or `CLUSTER` (several anywhere). A server in this JVM gets the answer a server
+  in another process would: with `OFF` a second one is refused, and sharing servers each claim with an id of
+  their own. A *provider* keeps the locks between them:
   - `region`, the liberal one: the store's own locks (FileSource region locks on one file, a one-byte region per
     name). Fast, and a dead server's locks go with it, but only where the store's lock scope reaches every server.
   - `lease`, the conservative one: lease directories, which need only an atomic `mkdir`. Renewed every 10 s and
@@ -352,20 +354,29 @@ A server can run in its own process, share a process with other servers, or be r
 application; nothing assumes the user or group it runs as (the service manager, or whoever starts
 it, decides that).
 
+- **Each server is written as if it were alone.** It is made from a configuration of its own and
+  reads only that (and its classes' defaults), never the system properties or another server's
+  settings, so nothing changes when it shares a process with other servers: two servers can have
+  different values for the same name. parley-core's `BaseObject.setConfiguration` / `makeWith` give
+  an object its settings (a server's processors and access control list read the same ones); an
+  object with no configuration reads the system properties, as when it is alone in its JVM.
 - **Providers.** A server is offered by a `ServerProvider` (found with `ServiceLoader`, on the class
-  path or in a plugin folder): an id (`pop3`), the settings files it reads, and `create(context)`
-  that makes it from the system properties, and `enabled()`: a server its settings turn off (port 0,
-  say) is skipped and shown as OFF. `ServerContext` holds what the servers in one process
-  share (`shared(key, type, make)`: a user list, the SMTP queue).
+  path or in a plugin folder): an id (`pop3`), the settings files it reads,
+  `create(context, configuration)` that makes it from its own configuration, and
+  `enabled(configuration)`: a server its settings turn off (port 0, say) is skipped and shown as
+  OFF. A provider written before 2.0.0's configurations (`usesConfiguration()` false) still works:
+  for it the launcher sets the system properties from the files, as before. `ServerContext` holds
+  what the servers of one launcher share (`shared(key, type, make)`: a user list).
 - **One launcher.** `ServerMain.main` runs the servers `parley.servers` lists
   (`parley.servers=smtp,submission,imap,pop3`), set on the command line, with `java -D`, or in
   `CONF/parley-servers.properties` (or the file `parley.servers.configFile` names). A server's own
   `main` calls `ServerMain.launch("Pop3Server", args, "pop3")`. An unknown id is an error that lists
   the ids there are.
-- **Settings**, a later one winning: the launcher's file, each server's shared files (the mail
-  servers' `parley-mail.properties`), its own file (`parley-pop3.properties`, or the file its
-  `configFile` property names), the JVM's `-D` options, then the command line (`-Dname=value` or
-  `name value`). CONF is `ServerMain.confDir()`: `/etc/parley` (Windows `%ProgramData%\Parley`), or
+- **Settings**: each server's configuration (`LaunchSettings.configuration(id)`), a later one
+  winning: the launcher's file, the server's shared files (the mail servers'
+  `parley-mail.properties`), its own file (`parley-pop3.properties`, or the file its `configFile`
+  property names), the JVM's `-D` options, then the command line (`-Dname=value` or `name value`).
+  A server never sees another server's own file. CONF is `ServerMain.confDir()`: `/etc/parley` (Windows `%ProgramData%\Parley`), or
   the folder of the file `PARLEY_CONF` names.
 - **JMX.** Each server is a `us.bringardner.parley:type=Server,name=<id>` bean
   (`ParleyServerMBean`: state, port, connections, start, stop, restart) and the process a
