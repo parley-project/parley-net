@@ -2,6 +2,7 @@ package us.bringardner.parley.net.server;
 
 import java.util.Collections;
 import java.util.List;
+import java.util.Properties;
 
 /**
  * A server {@link ServerLauncher} can run: found at run time (Java's ServiceLoader, through
@@ -10,9 +11,11 @@ import java.util.List;
  * modules. Each listener is one provider: SMTP's MX and submission servers are two, POP3 and POP3
  * with implicit TLS are two.
  * <p>
- * A provider makes its server from the system properties (the settings files and the command line,
- * see {@link ServerLauncher}); what the servers of one JVM share (a user list, a queue) comes from
- * the {@link ServerContext}.
+ * A provider makes its server from that server's own configuration (its settings files, the JVM's
+ * settings and the command line, see {@link LaunchSettings#configuration(String)}): the server is
+ * written as if it were alone, and two servers in one JVM can have different values for one name.
+ * A provider written before configurations ({@link #usesConfiguration()} false) reads the system
+ * properties instead, which the launcher then sets from the files.
  *
  * @since 2.0.0
  */
@@ -46,13 +49,44 @@ public interface ServerProvider {
 	}
 
 	/**
-	 * Whether its settings (as the system properties are now) turn it on; a server that is off (its
-	 * port is 0, say) isn't started with the others, and can't be started until its settings change.
+	 * True if this provider makes its server from the configuration it is given
+	 * ({@link #enabled(Properties)}, {@link #create(ServerContext, Properties)}); false (the
+	 * default, for providers written before 2.0.0's configurations) if it reads the system
+	 * properties ({@link #enabled()}, {@link #create(ServerContext)}).
+	 *
+	 * @since 2.0.0
 	 */
+	default boolean usesConfiguration() {
+		return false;
+	}
+
+	/**
+	 * Whether the server's configuration turns it on; a server that is off (its port is 0, say)
+	 * isn't started with the others, and can't be started until its settings change.
+	 *
+	 * @param configuration the server's own settings
+	 */
+	default boolean enabled(Properties configuration) {
+		return enabled();
+	}
+
+	/** {@link #enabled(Properties)} from the system properties, for a provider that reads them */
 	default boolean enabled() {
 		return true;
 	}
 
-	/** Make the server, from the system properties; it is started by the launcher. */
-	ServerMain.Service create(ServerContext context) throws Exception;
+	/**
+	 * Make the server from its own configuration; it is started by the launcher. The server reads
+	 * only this configuration (and its classes' defaults), never the system properties.
+	 *
+	 * @param configuration the server's own settings (a copy: the server may keep it)
+	 */
+	default ServerMain.Service create(ServerContext context, Properties configuration) throws Exception {
+		return create(context);
+	}
+
+	/** Make the server from the system properties, for a provider that reads them */
+	default ServerMain.Service create(ServerContext context) throws Exception {
+		throw new UnsupportedOperationException(id() + " is made from its configuration");
+	}
 }

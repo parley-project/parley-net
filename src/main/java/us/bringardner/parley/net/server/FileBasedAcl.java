@@ -322,6 +322,9 @@ public class FileBasedAcl extends BaseObject implements IAccessControlList {
 
 	@Override
 	public void initialize(IServer server) throws IOException {
+		if (server instanceof BaseObject) {
+			useConfigurationOf((BaseObject) server);
+		}
 		initialize(server.getPropertyPrefix());
 	}
 
@@ -405,7 +408,7 @@ public class FileBasedAcl extends BaseObject implements IAccessControlList {
 			return false;
 		}
 		long now = System.currentTimeMillis();
-		long interval = Long.getLong(PROP_RELOAD_SECONDS, DEFAULT_RELOAD_SECONDS) * 1000L;
+		long interval = getIntProperty(PROP_RELOAD_SECONDS, (int) DEFAULT_RELOAD_SECONDS) * 1000L;
 		if( interval <= 0 || now - lastCheck < interval ) {
 			return false;
 		}

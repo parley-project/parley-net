@@ -1273,6 +1273,9 @@ public class Server extends AbstractCoreServer implements IServer {
 						try {
 							Class<?> authClass = Class.forName(tmp);
 							IAccessControlList auth = (IAccessControlList)authClass.getDeclaredConstructor().newInstance();
+							if (auth instanceof us.bringardner.parley.core.BaseObject) {
+								((us.bringardner.parley.core.BaseObject) auth).useConfigurationOf(this);
+							}
 							auth.initialize(this);
 							setAccessControl(auth);
 						} catch (Exception e) {

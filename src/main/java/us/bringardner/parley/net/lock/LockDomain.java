@@ -31,7 +31,8 @@ public final class LockDomain {
 	private final String prefix;
 	/** The store claim, shared by every StoreClaim this domain gave out; guarded by this. */
 	private NamedLock claim;
-	private NamedLock serverId;
+	/** The ids of the servers of this JVM that claim the store, and their locks (null: sharing off); guarded by this. */
+	private final java.util.Map<String, NamedLock> serverIds = new java.util.HashMap<>();
 	private int claimCount;
 	private volatile boolean closed;
 
@@ -166,8 +167,9 @@ public final class LockDomain {
 	 * Claim the store for this server, for as long as it runs: {@link Sharing#OFF} claims it alone,
 	 * so a second server (another JVM) is refused; {@link Sharing#HOST} and {@link Sharing#CLUSTER}
 	 * share it with servers that share it too, and refuse one that claims it alone (in both
-	 * orders). Every server in this JVM claims through this domain: the store is claimed once, when
-	 * the first asks, and given up when the last claim is closed. Where a dead server's claim
+	 * orders). A server of this JVM gets the answer a server in another process would: with
+	 * sharing off a second one is refused, and sharing servers need different ids. The store's
+	 * lock is taken once, when the first asks, and given up when the last claim is closed. Where a dead server's claim
 	 * expires rather than going with it (leases), finding out takes up to a lease.
 	 * @param serverId this server's name among those that share the store (letters, digits,
 	 *        {@code . _ -}); two running sharing servers can't have the same one
@@ -181,38 +183,48 @@ public final class LockDomain {
 			throw new IllegalArgumentException("A server id is letters, digits, '.', '_' and '-': " + serverId);
 		}
 		locks.checkOpen();
+		Sharing sharing = options.sharing();
+		long wait = service.claimWaitMillis() * 1_000_000;
+		if( claimCount > 0 && sharing == Sharing.OFF ) {
+			// a server of this JVM has the store alone: the answer another process would get
+			throw new StoreClaimException("The store " + root.getAbsolutePath() + " is in use by another server");
+		}
+		if( serverIds.containsKey(serverId) ) {
+			throw new StoreClaimException("Another running server of " + root.getAbsolutePath() + " has the id " + serverId);
+		}
+		NamedLock c = claim;
+		boolean madeClaim = false;
 		if( claimCount == 0 ) {
-			Sharing sharing = options.sharing();
 			Mode mode = sharing == Sharing.OFF ? Mode.EXCLUSIVE : Mode.SHARED;
-			long wait = service.claimWaitMillis() * 1_000_000;
-			NamedLock c = claimLock(Locks.STORE, mode, wait);
+			c = claimLock(Locks.STORE, mode, wait);
 			if( c == null ) {
 				throw new StoreClaimException(sharing == Sharing.OFF
 						? "The store " + root.getAbsolutePath() + " is in use by another server"
 						: "The store " + root.getAbsolutePath() + " is claimed by a server that doesn't share it");
 			}
-			if( sharing != Sharing.OFF ) {
-				NamedLock id;
-				try {
-					id = claimLock(Locks.SERVER + serverId, Mode.EXCLUSIVE, wait);
-				} catch (IOException | RuntimeException | Error e) {
-					c.closeFromAnyThread(); // interrupted, or the store failed: don't keep the store's lock
-					throw e;
-				}
-				if( id == null ) {
-					c.closeFromAnyThread();
-					throw new StoreClaimException("Another running server of " + root.getAbsolutePath() + " has the id " + serverId);
-				}
-				serverId(id);
-			}
-			claim = c;
+			madeClaim = true;
 		}
+		NamedLock id = null;
+		if( sharing != Sharing.OFF ) {
+			try {
+				id = claimLock(Locks.SERVER + serverId, Mode.EXCLUSIVE, wait);
+			} catch (IOException | RuntimeException | Error e) {
+				if( madeClaim ) {
+					c.closeFromAnyThread(); // interrupted, or the store failed: don't keep the store's lock
+				}
+				throw e;
+			}
+			if( id == null ) {
+				if( madeClaim ) {
+					c.closeFromAnyThread();
+				}
+				throw new StoreClaimException("Another running server of " + root.getAbsolutePath() + " has the id " + serverId);
+			}
+		}
+		claim = c;
+		serverIds.put(serverId, id);
 		claimCount++;
-		return new StoreClaim(serverId, options.sharing(), this::releaseClaim, this::claimValid);
-	}
-
-	private void serverId(NamedLock id) {
-		this.serverId = id;
+		return new StoreClaim(serverId, sharing, () -> releaseClaim(serverId), () -> claimValid(serverId));
 	}
 
 	/** @return the holding, or null if it stayed busy for the wait */
@@ -224,21 +236,32 @@ public final class LockDomain {
 		}
 	}
 
-	private synchronized boolean claimValid() {
-		return claimCount > 0 && claim.isValid() && (serverId == null || serverId.isValid());
+	private synchronized boolean claimValid(String serverId) {
+		if( claimCount <= 0 || !serverIds.containsKey(serverId) || !claim.isValid() ) {
+			return false;
+		}
+		NamedLock id = serverIds.get(serverId);
+		return id == null || id.isValid();
 	}
 
-	private synchronized void releaseClaim() {
-		if( claimCount <= 0 ) {
+	private synchronized void releaseClaim(String serverId) {
+		if( claimCount <= 0 || !serverIds.containsKey(serverId) ) {
 			return; // given up already (the domain was closed)
 		}
+		NamedLock id = serverIds.remove(serverId);
+		if( id != null ) {
+			id.closeFromAnyThread();
+		}
 		if( --claimCount == 0 ) {
-			if( serverId != null ) {
-				serverId.closeFromAnyThread();
-				serverId = null;
-			}
 			claim.closeFromAnyThread();
 			claim = null;
+		}
+	}
+
+	/** Give up every claim (the domain is closed). */
+	private synchronized void releaseAllClaims() {
+		for( String id : new java.util.ArrayList<>(serverIds.keySet()) ) {
+			releaseClaim(id);
 		}
 	}
 
@@ -254,10 +277,7 @@ public final class LockDomain {
 				return;
 			}
 			closed = true;
-			if( claimCount > 0 ) {
-				claimCount = 1;
-				releaseClaim();
-			}
+			releaseAllClaims();
 		}
 		locks.releaseAll(this);
 		locks.remove(this);

@@ -14,19 +14,31 @@ import java.util.Set;
 /**
  * The settings of a {@link ServerLauncher}: settings files read in order (a later file wins),
  * the JVM's own system properties ({@code java -Dname=value}), which win over the files, and the
- * command line, which wins over both. Every setting becomes a system property, where the servers
- * read their settings when they are made. {@link #apply()} can be called again (after a file
- * changed): settings a file no longer has are removed, unless the JVM or command line set them.
+ * command line, which wins over both.
+ * <p>
+ * Each server gets a configuration of its own ({@link #configuration(String)}): the launcher's
+ * files, then that server's files ({@link #addFile(String, File, boolean)}), then the JVM's and the
+ * command line's settings. Two servers can then have different values for the same name, and no
+ * server sees another server's files. The system properties aren't changed, except for a server
+ * whose provider still reads them ({@link #applyToSystem()}). {@link #apply()} reads the files
+ * again (after a file changed).
  *
  * @since 2.0.0
  */
 public final class LaunchSettings {
 
 	private final Set<String> jvm;
+	/** The JVM's own settings when the launcher was made (java -D, and Java's own) */
+	private final Properties jvmValues = new Properties();
 	private final Properties commandLine;
+	/** The launcher's files, read for every server */
 	private final List<File> files = new ArrayList<>();
+	/** Each server's own files, by its id */
+	private final Map<String, List<File>> serverFiles = new LinkedHashMap<>();
 	private final Set<File> required = new HashSet<>();
-	/** The settings the files set, and their values */
+	/** Each file's settings, as {@link #apply()} last read them (a missing file has none) */
+	private final Map<File, Properties> read = new LinkedHashMap<>();
+	/** The settings {@link #applyToSystem()} set, and their values */
 	private final Map<String, String> fromFiles = new LinkedHashMap<>();
 
 	/**
@@ -36,6 +48,12 @@ public final class LaunchSettings {
 		this.commandLine = commandLine;
 		this.jvm = new HashSet<>(System.getProperties().stringPropertyNames());
 		this.jvm.removeAll(commandLine.stringPropertyNames());
+		for (String name : jvm) {
+			String v = System.getProperty(name);
+			if (v != null) {
+				jvmValues.setProperty(name, v);
+			}
+		}
 	}
 
 	/** Parse a command line: {@code -Dname=value} or {@code name value} pairs. */
@@ -63,7 +81,7 @@ public final class LaunchSettings {
 	 */
 	public String early(String name) {
 		String v = commandLine.getProperty(name);
-		return v != null ? v : (jvm.contains(name) ? System.getProperty(name) : null);
+		return v != null ? v : jvmValues.getProperty(name);
 	}
 
 	/**
@@ -82,28 +100,112 @@ public final class LaunchSettings {
 		}
 	}
 
-	/** The files, in order, whether they exist or not */
+	/**
+	 * Read this file for one server only (after the launcher's files and the server's files added
+	 * before, so it wins over them).
+	 *
+	 * @param serverId  the server's id (its provider's)
+	 * @param mustExist true for a file someone named; false for a default file, skipped when missing
+	 */
+	public synchronized void addFile(String serverId, File f, boolean mustExist) {
+		File a = f.getAbsoluteFile();
+		List<File> list = serverFiles.computeIfAbsent(serverId, k -> new ArrayList<>());
+		if (!list.contains(a)) {
+			list.add(a);
+		}
+		if (mustExist) {
+			required.add(a);
+		}
+	}
+
+	/** Every file, the launcher's then each server's, in order, whether they exist or not */
 	public synchronized List<File> getFiles() {
-		return Collections.unmodifiableList(new ArrayList<>(files));
+		List<File> ret = new ArrayList<>(files);
+		for (List<File> l : serverFiles.values()) {
+			for (File f : l) {
+				if (!ret.contains(f)) {
+					ret.add(f);
+				}
+			}
+		}
+		return Collections.unmodifiableList(ret);
+	}
+
+	/** The files one server reads, in order: the launcher's, then its own */
+	public synchronized List<File> getFiles(String serverId) {
+		List<File> ret = new ArrayList<>(files);
+		List<File> own = serverFiles.get(serverId);
+		if (own != null) {
+			for (File f : own) {
+				if (!ret.contains(f)) {
+					ret.add(f);
+				}
+			}
+		}
+		return Collections.unmodifiableList(ret);
 	}
 
 	/**
-	 * Read the files and set the system properties.
+	 * One server's configuration, from the files as {@link #apply()} last read them: the
+	 * launcher's files, then the server's own, then the JVM's settings, then the command line's.
+	 * A new copy each time: changing it changes nothing else.
+	 */
+	public synchronized Properties configuration(String serverId) {
+		Properties ret = new Properties();
+		for (File f : getFiles(serverId)) {
+			Properties p = read.get(f);
+			if (p != null) {
+				for (String name : p.stringPropertyNames()) {
+					ret.setProperty(name, p.getProperty(name));
+				}
+			}
+		}
+		for (String name : jvmValues.stringPropertyNames()) {
+			ret.setProperty(name, jvmValues.getProperty(name));
+		}
+		for (String name : commandLine.stringPropertyNames()) {
+			ret.setProperty(name, commandLine.getProperty(name));
+		}
+		return ret;
+	}
+
+	/**
+	 * Read the files (again). Nothing is changed if a named file can't be read.
 	 *
-	 * @throws IOException if a named file can't be read (nothing is changed then)
+	 * @throws IOException if a named file can't be read
 	 */
 	public synchronized void apply() throws IOException {
-		Map<String, String> merged = new LinkedHashMap<>();
-		for (File f : files) {
+		Map<File, Properties> now = new LinkedHashMap<>();
+		for (File f : getFiles()) {
 			if (!f.isFile()) {
 				if (required.contains(f)) {
 					throw new IOException("Can't read the settings file " + f);
 				}
 				continue;
 			}
-			Properties p = ServerMain.load(f);
-			for (String name : p.stringPropertyNames()) {
-				merged.put(name, p.getProperty(name));
+			now.put(f, ServerMain.load(f));
+		}
+		read.clear();
+		read.putAll(now);
+	}
+
+	/**
+	 * For a server whose provider reads the system properties (not its configuration): read the
+	 * files and set the system properties from every file (a later one wins), the JVM's settings
+	 * and the command line, as before servers had configurations of their own. Settings a file no
+	 * longer has are removed, unless the JVM or command line set them.
+	 *
+	 * @throws IOException if a named file can't be read (nothing is changed then)
+	 */
+	public synchronized void applyToSystem() throws IOException {
+		apply();
+		Map<String, String> merged = new LinkedHashMap<>();
+		for (File f : getFiles()) {
+			Properties p = read.get(f);
+			if (p != null) {
+				for (String name : p.stringPropertyNames()) {
+					merged.put(name, p.getProperty(name));
+				}
 			}
 		}
 		for (String name : fromFiles.keySet()) {
@@ -129,7 +231,7 @@ public final class LaunchSettings {
 		for (String name : commandLine.stringPropertyNames()) {
 			System.out.println("\t" + name + "=" + ServerMain.printable(name, commandLine.getProperty(name)));
 		}
-		for (File f : files) {
+		for (File f : getFiles()) {
 			if (f.isFile()) {
 				System.out.println("Loaded properties from " + f);
 			}

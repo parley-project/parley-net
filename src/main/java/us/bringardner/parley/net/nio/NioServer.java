@@ -668,6 +668,9 @@ public class NioServer extends AbstractCoreServer implements IBaseServer {
 						try {
 							Class<?> authClass = Class.forName(tmp.trim());
 							IAccessControlList auth = (IAccessControlList) authClass.getDeclaredConstructor().newInstance();
+							if (auth instanceof us.bringardner.parley.core.BaseObject) {
+								((us.bringardner.parley.core.BaseObject) auth).useConfigurationOf(this);
+							}
 							auth.initialize(getPropertyPrefix());
 							accessControl = auth;
 						} catch (Exception e) {
