@@ -8,6 +8,12 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.concurrent.Callable;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Future;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 
 import javax.management.ObjectName;
@@ -107,17 +113,26 @@ public final class ServerLauncher implements ParleyLauncherMBean, AutoCloseable 
 
 		@Override
 		public void start() throws Exception {
-			ServerLauncher.this.start(provider.id());
+			control(() -> {
+				ServerLauncher.this.start(provider.id());
+				return null;
+			});
 		}
 
 		@Override
 		public void stop() throws Exception {
-			ServerLauncher.this.stop(provider.id());
+			control(() -> {
+				ServerLauncher.this.stop(provider.id());
+				return null;
+			});
 		}
 
 		@Override
 		public void restart() throws Exception {
-			ServerLauncher.this.restart(provider.id());
+			control(() -> {
+				ServerLauncher.this.restart(provider.id());
+				return null;
+			});
 		}
 	}
 
@@ -131,6 +146,14 @@ public final class ServerLauncher implements ParleyLauncherMBean, AutoCloseable 
 	private volatile Runnable onShutdown = () -> {
 	};
 	private ObjectName launcherName;
+	/**
+	 * Where the beans' operations run: a thread of the launcher's own, made with it. A server
+	 * started in a JMX call would otherwise make its threads in the caller's security context (an
+	 * authenticated JMX client's Subject), which on JDK 21 can fail as the threads are made
+	 * (Subject's ResourcesMgr: "Recursive update").
+	 */
+	private final ThreadPoolExecutor control;
+	private volatile Thread controlThread;
 
 	/**
 	 * A launcher for these servers.
@@ -145,6 +168,13 @@ public final class ServerLauncher implements ParleyLauncherMBean, AutoCloseable 
 		this.name = name;
 		this.settings = settings;
 		this.context = context;
+		this.control = new ThreadPoolExecutor(1, 1, 0, TimeUnit.MILLISECONDS, new LinkedBlockingQueue<>(), r -> {
+			Thread t = new Thread(r, name + "-control");
+			t.setDaemon(true);
+			controlThread = t;
+			return t;
+		});
+		control.prestartAllCoreThreads(); // now, in the context of the code making the launcher
 		Map<String, ServerProvider> known = providers();
 		List<String> unknown = new ArrayList<>();
 		for (String id : ids) {
@@ -170,6 +200,31 @@ public final class ServerLauncher implements ParleyLauncherMBean, AutoCloseable 
 			} else if (confDir != null && e.provider.settingsFile() != null) {
 				settings.addFile(new File(confDir, e.provider.settingsFile()), false);
 			}
+		}
+	}
+
+	/** Run on the launcher's control thread (at once when already on it, or after close) */
+	private <T> T control(Callable<T> task) throws Exception {
+		if (Thread.currentThread() == controlThread || control.isShutdown()) {
+			return task.call();
+		}
+		Future<T> f;
+		try {
+			f = control.submit(task);
+		} catch (java.util.concurrent.RejectedExecutionException e) {
+			return task.call(); // closed meanwhile
+		}
+		try {
+			return f.get();
+		} catch (ExecutionException e) {
+			Throwable t = e.getCause();
+			if (t instanceof Exception) {
+				throw (Exception) t;
+			}
+			if (t instanceof Error) {
+				throw (Error) t;
+			}
+			throw e;
 		}
 	}
 
@@ -316,6 +371,13 @@ public final class ServerLauncher implements ParleyLauncherMBean, AutoCloseable 
 	 * those started are stopped and the error thrown.
 	 */
 	public void startAll() throws Exception {
+		control(() -> {
+			startAllNow();
+			return null;
+		});
+	}
+
+	private void startAllNow() throws Exception {
 		List<String> started = new ArrayList<>();
 		for (Entry e : entries.values()) {
 			if (!e.provider.enabled()) {
@@ -343,6 +405,19 @@ public final class ServerLauncher implements ParleyLauncherMBean, AutoCloseable 
 	/** Stop the servers, the last started first. */
 	@Override
 	public void stopAll() throws InterruptedException {
+		try {
+			control(() -> {
+				stopAllNow();
+				return null;
+			});
+		} catch (InterruptedException | RuntimeException e) {
+			throw e;
+		} catch (Exception e) {
+			throw new IllegalStateException(e);
+		}
+	}
+
+	private void stopAllNow() throws InterruptedException {
 		List<Entry> list = new ArrayList<>(entries.values());
 		Collections.reverse(list);
 		for (Entry e : list) {
@@ -356,17 +431,33 @@ public final class ServerLauncher implements ParleyLauncherMBean, AutoCloseable 
 
 	@Override
 	public void reloadSettings() throws IOException {
-		settings.apply();
+		try {
+			control(() -> {
+				settings.apply();
+				return null;
+			});
+		} catch (IOException | RuntimeException e) {
+			throw e;
+		} catch (Exception e) {
+			throw new IOException(e);
+		}
 	}
 
 	@Override
 	public void shutdown() {
 		try {
-			stopAll();
-		} catch (InterruptedException e) {
-			Thread.currentThread().interrupt();
+			control(() -> {
+				try {
+					stopAllNow();
+				} catch (InterruptedException e) {
+					Thread.currentThread().interrupt();
+				}
+				onShutdown.run();
+				return null;
+			});
+		} catch (Exception e) {
+			System.err.println("Can't shut down " + name + ": " + e);
 		}
-		onShutdown.run();
 	}
 
 	/** True while one of the servers runs */
@@ -398,6 +489,7 @@ public final class ServerLauncher implements ParleyLauncherMBean, AutoCloseable 
 		}
 		context.close();
 		launcherName = null;
+		control.shutdown();
 	}
 
 	// ------------------------------------------------------------------ the launcher's bean

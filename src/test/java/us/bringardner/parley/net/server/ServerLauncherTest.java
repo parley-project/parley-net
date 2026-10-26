@@ -38,6 +38,9 @@ public class ServerLauncherTest {
 		final CountDownLatch stopped = new CountDownLatch(1);
 		final Object shared;
 
+		/** the thread that started it */
+		volatile String startedOn;
+
 		FakeService(String value, Object shared) {
 			this.value = value;
 			this.shared = shared;
@@ -50,6 +53,7 @@ public class ServerLauncherTest {
 
 		@Override
 		public void startAndWait(long timeoutMillis) throws IOException {
+			startedOn = Thread.currentThread().getName();
 			if ("fail".equals(value)) {
 				throw new IOException("can't listen");
 			}
@@ -201,6 +205,7 @@ public class ServerLauncherTest {
 
 		mbs.invoke(server, "start", null, null);
 		assertEquals("RUNNING", mbs.getAttribute(server, "State"));
+		assertEquals("FakeProcess-control", last.get().startedOn, "started on the launcher's thread, not the JMX caller's");
 		assertEquals(4242, mbs.getAttribute(server, "Port"));
 		assertEquals(3, mbs.getAttribute(server, "Connections"));
 		// an MXBean: open types for a generic client, ParleyConnection through an MXBean proxy
@@ -355,6 +360,47 @@ public class ServerLauncherTest {
 			assertTrue(out.contains("Unknown server [nope]") && out.contains("known: [fake"), out);
 		} finally {
 			p.destroyForcibly();
+		}
+	}
+
+	/**
+	 * A server started by an authenticated JMX client (a remote admin, as the packages' mail service
+	 * has it) starts: its threads aren't made in the client's security context.
+	 */
+	@Test
+	public void startedByAnAuthenticatedJmxClient() throws Exception {
+		write("parley-fake.properties", "parley.fake.value=one\n");
+		javax.management.MBeanServer mbs = javax.management.MBeanServerFactory.newMBeanServer();
+		launcher = new ServerLauncher("AuthProcess", new LaunchSettings(new java.util.Properties()), List.of("fake"), dir, new ServerContext(mbs));
+		launcher.init();
+		int port;
+		try (java.net.ServerSocket ss = new java.net.ServerSocket(0)) {
+			port = ss.getLocalPort();
+		}
+		java.rmi.registry.Registry registry = java.rmi.registry.LocateRegistry.createRegistry(port);
+		javax.management.remote.JMXServiceURL url = new javax.management.remote.JMXServiceURL("service:jmx:rmi:///jndi/rmi://localhost:" + port + "/jmxrmi");
+		java.util.Map<String, Object> env = new java.util.HashMap<>();
+		env.put(javax.management.remote.JMXConnectorServer.AUTHENTICATOR, (javax.management.remote.JMXAuthenticator) c -> {
+			javax.security.auth.Subject s = new javax.security.auth.Subject();
+			s.getPrincipals().add(new javax.management.remote.JMXPrincipal("admin"));
+			return s;
+		});
+		javax.management.remote.JMXConnectorServer cs = javax.management.remote.JMXConnectorServerFactory.newJMXConnectorServer(url, env, mbs);
+		cs.start();
+		try (javax.management.remote.JMXConnector c = javax.management.remote.JMXConnectorFactory.connect(url,
+				java.util.Map.of(javax.management.remote.JMXConnector.CREDENTIALS, new String[] { "admin", "pw" }))) {
+			ParleyServerMBean bean = javax.management.JMX.newMXBeanProxy(c.getMBeanServerConnection(),
+					new ObjectName("us.bringardner.parley:type=Server,name=fake"), ParleyServerMBean.class);
+			bean.start();
+			assertEquals("RUNNING", bean.getState());
+			assertEquals("AuthProcess-control", last.get().startedOn);
+			bean.restart();
+			assertEquals("RUNNING", bean.getState());
+			bean.stop();
+			assertEquals("STOPPED", bean.getState());
+		} finally {
+			cs.stop();
+			java.rmi.server.UnicastRemoteObject.unexportObject(registry, true);
 		}
 	}
 }

@@ -13,7 +13,7 @@
   `CONF/parley-servers.properties`); `ServerMain.launch(name, args, ids...)` is a server's own `main`.
   `LaunchSettings` reads each server's shared settings files (such as `parley-mail.properties`), then its own;
   the JVM's `-D` wins over the files and the command line over both. A server stopped with JMX doesn't end the
-  process; the last one stopping by itself exits with 1. `ServerMain.Service.connections()` (default 0) and `connectionList()` (default empty; `ServerMain.service` gives both for thread-per-connection and NIO servers). `ServerProvider.enabled()`: a server its settings turn off is skipped (state OFF); with every one
+  process; the last one stopping by itself exits with 1. The beans' operations (start, stop, restart, startAll, stopAll, reloadSettings, shutdown) run on a thread of the launcher's own, so a server started by an authenticated JMX client doesn't make its threads in the client's security context (which on JDK 21 failed as they were made: "Recursive update" in Subject's ResourcesMgr). `ServerMain.Service.connections()` (default 0) and `connectionList()` (default empty; `ServerMain.service` gives both for thread-per-connection and NIO servers). `ServerProvider.enabled()`: a server its settings turn off is skipped (state OFF); with every one
   off the process says there is nothing to run and exits with 1.
 - **`FileBasedAcl` reads its file again when it changes** (checked at most every `parley.net.acl.reloadSeconds`,
   default 15); a file that can't be read keeps the users it had. `FileBasedAcl.initialize(File)` reads a file
