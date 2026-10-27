@@ -42,6 +42,17 @@ import us.bringardner.parley.net.IManagedThread;
  */
 public interface IBaseServer extends IManagedThread {
 
+	/**
+	 * The server's own settings, given when it was made (see parley-core's
+	 * {@code BaseObject.setConfiguration}), or null when it reads the system properties; the
+	 * objects it makes (processors, its access control list) read the same settings.
+	 *
+	 * @since 2.0.0
+	 */
+	default java.util.Properties getConfiguration() {
+		return null;
+	}
+
 	/** Property (prefix.authenticationProvider) naming the {@link IAccessControlList} class */
 	public static final String AUTHENTICATION_PROVIDER_PROPERTY = "authenticationProvider";
 

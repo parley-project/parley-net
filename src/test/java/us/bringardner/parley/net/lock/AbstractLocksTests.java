@@ -411,20 +411,43 @@ public abstract class AbstractLocksTests {
 		}
 	}
 
-	/** Every server in a JVM claims through one space: the store is claimed once, for all of them. */
+	/**
+	 * A server of this JVM gets the answer a server in another process would: with sharing off, a
+	 * second server of the same JVM is refused too.
+	 */
 	@Test
-	public void serversInOneJvmShareTheSpacesClaim() throws Exception {
+	public void aSecondServerInTheSameJvmIsRefusedWhenSharingIsOff() throws Exception {
 		LockDomain a = open(withSharing(Sharing.OFF).withOwnerId("a"));
 		LockDomain b = open(withSharing(Sharing.OFF).withOwnerId("b"));
 		StoreClaim imap = a.claimStore("imap");
+		assertTrue(imap.isValid());
+		assertThrows(StoreClaimException.class, () -> a.claimStore("pop3"), "same JVM, as another process would be");
+		assertThrows(StoreClaimException.class, () -> b.claimStore("b"));
+		imap.close();
+		assertFalse(imap.isValid());
+		try (StoreClaim pop3 = a.claimStore("pop3")) {
+			assertTrue(pop3.isValid(), "free once the first lets go");
+		}
+	}
+
+	/** Sharing servers of one JVM claim the store together, each with its own id. */
+	@Test
+	public void sharingServersInOneJvmNeedTheirOwnIds() throws Exception {
+		LockDomain a = open(withSharing(Sharing.CLUSTER).withOwnerId("a"));
+		LockDomain alone = open(withSharing(Sharing.OFF).withOwnerId("alone"));
+		StoreClaim imap = a.claimStore("imap");
 		StoreClaim pop3 = a.claimStore("pop3");
 		assertTrue(imap.isValid() && pop3.isValid());
+		assertThrows(StoreClaimException.class, () -> a.claimStore("imap"), "two running servers with one id");
 		imap.close();
+		assertFalse(imap.isValid());
 		assertTrue(pop3.isValid(), "still claimed while one server runs");
-		assertThrows(StoreClaimException.class, () -> b.claimStore("b"), "and still keeps another space out");
+		assertThrows(StoreClaimException.class, () -> alone.claimStore("alone"), "and still keeps a lone server out");
+		try (StoreClaim again = a.claimStore("imap")) {
+			assertTrue(again.isValid(), "its id is free again");
+		}
 		pop3.close();
-		assertFalse(pop3.isValid());
-		try (StoreClaim c = b.claimStore("b")) {
+		try (StoreClaim c = alone.claimStore("alone")) {
 			assertTrue(c.isValid(), "free once the last closes");
 		}
 	}

@@ -224,7 +224,18 @@ public final class StoreLocks {
 	 * host, the server's name and its port (or this process's id where there is no port).
 	 */
 	public static String serverId(String property, String serverName, int port) {
-		String id = property == null ? null : System.getProperty(property);
+		return serverIdOf(property == null ? null : System.getProperty(property), serverName, port);
+	}
+
+	/**
+	 * This server's id among those that share its store: the id it was given (from its own
+	 * configuration), or, when none, the host, the server's name and its port (or this process's
+	 * id where there is no port).
+	 * @param configured the id from the server's settings, or null
+	 * @since 2.0.0
+	 */
+	public static String serverIdOf(String configured, String serverName, int port) {
+		String id = configured;
 		if( id == null || id.isBlank() ) {
 			String host;
 			try {

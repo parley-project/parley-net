@@ -8,6 +8,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Properties;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
@@ -22,10 +23,10 @@ import us.bringardner.parley.plugin.Plugins;
 
 /**
  * Runs a set of servers in this JVM, any set: one server alone, or several (the mail suite, say)
- * together. The servers are {@link ServerProvider}s found at run time, chosen by id; their settings
- * are read from the settings folder ({@link ServerMain#confDir()}) by {@link LaunchSettings}: each
- * provider's shared files ({@code parley-mail.properties}), then its own
- * ({@code parley-pop3.properties}).
+ * together. The servers are {@link ServerProvider}s found at run time, chosen by id; each is made
+ * from a configuration of its own ({@link LaunchSettings#configuration(String)}), read from the
+ * settings folder ({@link ServerMain#confDir()}): the launcher's file, the provider's shared files
+ * ({@code parley-mail.properties}), then its own ({@code parley-pop3.properties}).
  * <p>
  * Each server can be started, stopped and restarted on its own, from code or with JMX (a
  * {@link ParleyServerMBean} for each server and a {@link ParleyLauncherMBean} for the launcher, on
@@ -146,6 +147,8 @@ public final class ServerLauncher implements ParleyLauncherMBean, AutoCloseable 
 	private volatile Runnable onShutdown = () -> {
 	};
 	private ObjectName launcherName;
+	/** true if a provider reads the system properties, not its configuration */
+	private boolean legacy;
 	/**
 	 * Where the beans' operations run: a thread of the launcher's own, made with it. A server
 	 * started in a JMX call would otherwise make its threads in the caller's security context (an
@@ -189,18 +192,45 @@ public final class ServerLauncher implements ParleyLauncherMBean, AutoCloseable 
 			throw new IllegalArgumentException("Unknown server" + (unknown.size() > 1 ? "s " : " ") + unknown + "; known: " + known.keySet());
 		}
 		for (Entry e : entries.values()) {
+			String id = e.provider.id();
 			if (confDir != null) {
 				for (String f : e.provider.sharedSettingsFiles()) {
-					settings.addFile(new File(confDir, f), false);
+					settings.addFile(id, new File(confDir, f), false);
 				}
 			}
 			String named = e.provider.configProperty() == null ? null : settings.early(e.provider.configProperty());
 			if (named != null) {
-				settings.addFile(new File(named), true);
+				settings.addFile(id, new File(named), true);
 			} else if (confDir != null && e.provider.settingsFile() != null) {
-				settings.addFile(new File(confDir, e.provider.settingsFile()), false);
+				settings.addFile(id, new File(confDir, e.provider.settingsFile()), false);
+			}
+			if (!e.provider.usesConfiguration()) {
+				legacy = true;
 			}
 		}
+	}
+
+	/** Read the settings files again (and, for a provider that reads them, set the system properties) */
+	private void readSettings() throws IOException {
+		if (legacy) {
+			settings.applyToSystem();
+		} else {
+			settings.apply();
+		}
+	}
+
+	/** The server's configuration, as the files were last read */
+	public Properties getConfiguration(String id) {
+		return settings.configuration(entry(id).provider.id());
+	}
+
+	/** Whether its settings turn the server on */
+	private boolean enabled(Entry e) {
+		return e.provider.usesConfiguration() ? e.provider.enabled(settings.configuration(e.provider.id())) : e.provider.enabled();
+	}
+
+	private ServerMain.Service create(Entry e) throws Exception {
+		return e.provider.usesConfiguration() ? e.provider.create(context, settings.configuration(e.provider.id())) : e.provider.create(context);
 	}
 
 	/** Run on the launcher's control thread (at once when already on it, or after close) */
@@ -260,9 +290,9 @@ public final class ServerLauncher implements ParleyLauncherMBean, AutoCloseable 
 		if (launcherName != null) {
 			return;
 		}
-		settings.apply();
+		readSettings();
 		for (Entry e : entries.values()) {
-			if (!e.provider.enabled()) {
+			if (!enabled(e)) {
 				e.state = State.OFF;
 			}
 		}
@@ -291,14 +321,14 @@ public final class ServerLauncher implements ParleyLauncherMBean, AutoCloseable 
 			if (e.state == State.RUNNING) {
 				return;
 			}
-			if (!e.provider.enabled()) {
+			if (!enabled(e)) {
 				e.state = State.OFF;
 				e.error = null;
 				throw new IOException(e.provider.description() + " is turned off by its settings");
 			}
 			ServerMain.Service s;
 			try {
-				s = e.provider.create(context);
+				s = create(e);
 				s.startAndWait(ServerMain.START_TIMEOUT);
 			} catch (Exception ex) {
 				e.state = State.FAILED;
@@ -352,7 +382,7 @@ public final class ServerLauncher implements ParleyLauncherMBean, AutoCloseable 
 			if (s != null && e.state == State.RUNNING) {
 				s.stop(ServerMain.STOP_TIMEOUT);
 			}
-			e.state = e.provider.enabled() ? State.STOPPED : State.OFF;
+			e.state = enabled(e) ? State.STOPPED : State.OFF;
 		}
 	}
 
@@ -360,7 +390,7 @@ public final class ServerLauncher implements ParleyLauncherMBean, AutoCloseable 
 	public void restart(String id) throws Exception {
 		Entry e = entry(id);
 		synchronized (e) {
-			settings.apply();
+			readSettings();
 			stop(id);
 			start(id);
 		}
@@ -380,7 +410,7 @@ public final class ServerLauncher implements ParleyLauncherMBean, AutoCloseable 
 	private void startAllNow() throws Exception {
 		List<String> started = new ArrayList<>();
 		for (Entry e : entries.values()) {
-			if (!e.provider.enabled()) {
+			if (!enabled(e)) {
 				synchronized (e) {
 					if (e.state != State.RUNNING) {
 						e.state = State.OFF;
@@ -433,7 +463,7 @@ public final class ServerLauncher implements ParleyLauncherMBean, AutoCloseable 
 	public void reloadSettings() throws IOException {
 		try {
 			control(() -> {
-				settings.apply();
+				readSettings();
 				return null;
 			});
 		} catch (IOException | RuntimeException e) {

@@ -2,6 +2,18 @@
 
 ## parley-net 2.0.0 (unreleased)
 
+### Changed (2026-10-26: each server alone, shared assets carry their own settings)
+
+- **Each server is made from a configuration of its own** (needs a configuration change for code that read a
+  server's settings from the system properties after a launcher started it). `LaunchSettings.configuration(id)`
+  builds it from the launcher's file, the server's shared and own files, the JVM's `-D` and the command line; the
+  launcher no longer sets the system properties (except for a provider written before configurations).
+  `ServerProvider.usesConfiguration()`, `enabled(Properties)` and `create(context, Properties)`; a server's
+  processors and access control list read its configuration. `ServerLauncher.getConfiguration(id)`.
+- **A store claim gets the answer another process would**: with sharing off, a second server of the same JVM is
+  refused too (it used to share the first one's claim), and sharing servers of one JVM each need their own id.
+  `StoreLocks.serverIdOf(configured, name, port)`.
+
 ### Added
 
 - **Servers alone or together, managed with JMX.** `ServerProvider` (found at run time with `ServiceLoader`,
