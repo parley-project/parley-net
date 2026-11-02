@@ -92,6 +92,52 @@ public interface IAccessControlList {
 	}
 
 	/**
+	 * Check a password (or other secret a server was sent as is) for a user this list
+	 * returned from {@link #findPrincipal(String)} or {@link #getPrincipal(String)}. The
+	 * stored secret never leaves the list.
+	 *
+	 * @param user a principal from this list (a read only view of one is fine: the list
+	 * may look it up again by name)
+	 * @param credentials what the client sent (UTF-8 for a password)
+	 * @return true if the credentials are the user's
+	 * @throws AccessControlUnavailableException if the list can't answer right now
+	 * @since 2.0.0
+	 */
+	boolean verifyPassword(IPrincipal user, byte[] credentials) throws AccessControlUnavailableException;
+
+	/**
+	 * True if this list can check APOP logins (RFC 1939 section 7) for at least some users,
+	 * so a POP3 server may put a timestamp in its greeting. APOP needs the shared secret, so
+	 * only users whose password is kept in plain text can use it.
+	 * <p>
+	 * The default says no.
+	 *
+	 * @since 2.0.0
+	 */
+	default boolean supportsApop() {
+		return false;
+	}
+
+	/**
+	 * Check an APOP login (RFC 1939 section 7): the digest is the MD5, in lower case hex, of
+	 * the greeting's timestamp followed by the user's secret (prepared with SASLprep, RFC 6856).
+	 * The secret never leaves the list; {@link ApopDigest#matches(String, String, String)} does
+	 * the check for a list that keeps plain text passwords.
+	 * <p>
+	 * The default says no.
+	 *
+	 * @param user a principal from this list, as for {@link #verifyPassword(IPrincipal, byte[])}
+	 * @param timestamp the timestamp the server sent, with its angle brackets
+	 * @param digest what the client sent
+	 * @return true if the digest matches the user's secret
+	 * @throws AccessControlUnavailableException if the list can't answer right now
+	 * @since 2.0.0
+	 */
+	default boolean verifyApop(IPrincipal user, String timestamp, String digest) throws AccessControlUnavailableException {
+		return false;
+	}
+
+	/**
 	 * Called when a login names a user that doesn't exist. Implementations that 
 	 * hash passwords should do equivalent work here so the response time doesn't
 	 * reveal which user names are valid. 

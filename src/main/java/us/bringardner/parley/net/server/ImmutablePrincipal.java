@@ -31,7 +31,7 @@ import java.util.Map;
 /**
  * A read only view of an authenticated principal, given to sessions by 
  * {@link Server#authenticate(String, byte[])} so a session can't change the access control 
- * list's user (its permissions, parameters or password). Only the state can be set.
+ * list's user (its permissions, groups or parameters). Only the state can be set.
  */
 public class ImmutablePrincipal implements IPrincipal {
 
@@ -47,11 +47,6 @@ public class ImmutablePrincipal implements IPrincipal {
 
 
 	@Override
-	public boolean authenticate(byte[] credentials) {
-		throw new UnsupportedOperationException("This is an imutable principal");
-	}
-
-	@Override
 	public State getState() {
 		return state;
 	}
@@ -59,16 +54,6 @@ public class ImmutablePrincipal implements IPrincipal {
 	@Override
 	public void setState(State state) {
 		this.state= state;	
-	}
-
-	@Override
-	public byte[] getCredentials() {
-		throw new UnsupportedOperationException("Credentials are not visible here");			
-	}
-
-	@Override
-	public void setCredentials(byte[] credentials) {
-		throw new UnsupportedOperationException("This is an imutable principal");			
 	}
 
 	@Override
@@ -94,6 +79,11 @@ public class ImmutablePrincipal implements IPrincipal {
 	@Override
 	public void setPermissions(List<IPermission> permissions) {
 		throw new UnsupportedOperationException("This is an imutable principal");			
+	}
+
+	@Override
+	public List<String> getGroups() {
+		return Collections.unmodifiableList(target.getGroups());
 	}
 
 	@Override

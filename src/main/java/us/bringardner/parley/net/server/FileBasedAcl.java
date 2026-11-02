@@ -32,6 +32,8 @@ import us.bringardner.parley.io.IoUtils;
  * <pre>
  * name , password , perm1|perm2 , key=val|key=val
  * </pre>
+ * The parameter {@code groups} lists the user's groups, separated by {@code ;}
+ * ({@code groups=sales@bringardner.us;support@bringardner.us}); see {@link IPrincipal#getGroups()}.
  * The password may be plain text (not recommended) or a hash created with
  * {@link #hashPassword(char[])}, e.g. 
  * <pre>
@@ -245,12 +247,29 @@ public class FileBasedAcl extends BaseObject implements IAccessControlList {
 		}
 	}
 
+	/**
+	 * A user read from the file. Its password stays in the list: only
+	 * {@link FileBasedAcl#verifyPassword(IPrincipal, byte[])} and
+	 * {@link FileBasedAcl#verifyApop(IPrincipal, String, String)} look at it.
+	 */
 	public static class FileBasedPrincipal extends AbstractPrincipal {
 
 		private final Map<String, ScramCredentials> scram = new HashMap<>();
+		/** The password field: a {@value FileBasedAcl#HASH_PREFIX} hash or plain text; null for none */
+		private volatile String secret;
 
 		public FileBasedPrincipal(String name) {
 			super(name);			
+		}
+
+		void setSecret(String secret) {
+			this.secret = secret;
+		}
+
+		/** @return true if the password is kept in plain text (so APOP can work) */
+		boolean hasPlainSecret() {
+			String s = secret;
+			return s != null && !s.startsWith(HASH_PREFIX);
 		}
 
 		/**
@@ -262,16 +281,12 @@ public class FileBasedAcl extends BaseObject implements IAccessControlList {
 		public synchronized ScramCredentials getScramCredentials(String hash) {
 			ScramCredentials ret = scram.get(hash);
 			if( ret == null ) {
-				byte mine [] = getCredentials();
 				ScramMechanism m = mechanism(hash);
-				if( mine != null && m != null ) {
-					String stored = new String(mine, StandardCharsets.UTF_8);
-					if( !stored.startsWith(HASH_PREFIX)) {
-						// a salt that is the same at every load, so it doesn't tell a real user from
-						// an unknown one (whose made up salt never changes)
-						ret = m.deriveCredentials(stored, stableSalt(getName(), m.getHash()), ScramMechanism.DEFAULT_ITERATIONS);
-						scram.put(hash, ret);
-					}
+				if( m != null && hasPlainSecret() ) {
+					// a salt that is the same at every load, so it doesn't tell a real user from
+					// an unknown one (whose made up salt never changes)
+					ret = m.deriveCredentials(secret, stableSalt(getName(), m.getHash()), ScramMechanism.DEFAULT_ITERATIONS);
+					scram.put(hash, ret);
 				}
 			}
 			return ret;
@@ -291,25 +306,28 @@ public class FileBasedAcl extends BaseObject implements IAccessControlList {
 			if( scram.containsKey(hash) ) {
 				return true;
 			}
-			byte mine [] = getCredentials();
-			return mine != null && mechanism(hash) != null 
-					&& !new String(mine, StandardCharsets.UTF_8).startsWith(HASH_PREFIX);
+			return mechanism(hash) != null && hasPlainSecret();
 		}
 
-		@Override
-		public boolean authenticate(byte[] credentials) {
-			byte mine [] = getCredentials();
-			if( mine == null || credentials == null ) {
+		boolean checkPassword(byte[] credentials) {
+			String stored = secret;
+			if( stored == null || credentials == null ) {
 				return false;
 			}
-			String stored = new String(mine, StandardCharsets.UTF_8);
 			if( stored.startsWith(HASH_PREFIX)) {
 				return verifyPassword(new String(credentials, StandardCharsets.UTF_8).toCharArray(), stored);
 			}
 			// Plain text password. Constant time compare so response time doesn't leak how much matched.
-			return MessageDigest.isEqual(mine, credentials);
+			return MessageDigest.isEqual(stored.getBytes(StandardCharsets.UTF_8), credentials);
+		}
+
+		boolean checkApop(String timestamp, String digest) {
+			return hasPlainSecret() && ApopDigest.matches(timestamp, secret, digest);
 		}
 	}
+
+	/** Groups in the parameters field: {@code groups=sales@bringardner.us;support@bringardner.us}. @since 2.0.0 */
+	public static final String PARAMETER_GROUPS = "groups";
 
 	private volatile Map<String , IPrincipal> users = new HashMap<>();
 	/** The map parseLine fills while a file is read (then it replaces users) */
@@ -496,7 +514,7 @@ public class FileBasedAcl extends BaseObject implements IAccessControlList {
 				}
 			}
 		}
-		p.setCredentials(password.getBytes(StandardCharsets.UTF_8));
+		p.setSecret(password);
 		(loading != null ? loading : users).put(p.getName(),p);
 		if( parts.length> 2) {
 			if( !parts[2].isEmpty()) {
@@ -514,7 +532,14 @@ public class FileBasedAcl extends BaseObject implements IAccessControlList {
 					for(String a1 : args) {
 						String a2[] = a1.split("[=]");
 						if( a2.length == 2) {
-							p.setParameter(a2[0].trim(), a2[1].trim());
+							String key = a2[0].trim();
+							if( key.equals(PARAMETER_GROUPS)) {
+								for (String g : a2[1].split(";")) {
+									p.addGroup(g);
+								}
+							} else {
+								p.setParameter(key, a2[1].trim());
+							}
 						}
 					}	
 				}
@@ -593,6 +618,43 @@ public class FileBasedAcl extends BaseObject implements IAccessControlList {
 		return ret;
 	}
 
+
+	/** The list's own principal for this one (it may be a read only view of it), or null */
+	private FileBasedPrincipal own(IPrincipal user) {
+		if( user == null ) {
+			return null;
+		}
+		IPrincipal p = users.get(user.getName());
+		return p instanceof FileBasedPrincipal ? (FileBasedPrincipal) p : null;
+	}
+
+	@Override
+	public boolean verifyPassword(IPrincipal user, byte[] credentials) {
+		FileBasedPrincipal p = own(user);
+		if( p == null ) {
+			authenticateUnknownUser(credentials);
+			return false;
+		}
+		return p.checkPassword(credentials);
+	}
+
+	/** True when at least one user has a plain text password. */
+	@Override
+	public boolean supportsApop() {
+		reloadIfChanged();
+		for (IPrincipal p : users.values()) {
+			if( p instanceof FileBasedPrincipal && ((FileBasedPrincipal)p).hasPlainSecret()) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	@Override
+	public boolean verifyApop(IPrincipal user, String timestamp, String digest) {
+		FileBasedPrincipal p = own(user);
+		return p != null && p.checkApop(timestamp, digest);
+	}
 
 	@Override
 	public void authenticateUnknownUser(byte[] credentials) {

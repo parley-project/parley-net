@@ -24,27 +24,31 @@
  */
 package us.bringardner.parley.net.server;
 
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 
 /**
- * An interface to represent a Principle (a.k.a. a User)
- * All principles are maintained by an AccessControlList. 
+ * The identity of a user (a principal): its name, the permissions and groups the access
+ * control list gives it, and its parameters. It holds no credentials: checking a password,
+ * an APOP digest or SCRAM credentials is the job of the {@link IAccessControlList} that
+ * made the principal, so a secret never leaves the list.
+ * <p>
+ * The state is the session's view: a principal a server hands to a session after a login
+ * is {@link State#Authenticated}.
  */
 public interface IPrincipal {
 
 	enum State {Unvalidated,Authenticated,Declined};
 	
-	boolean authenticate(byte [] credentials);
-	
 	State getState();
 	void setState(State state);
 	
-	// credentials 
-	byte [] getCredentials ();
-	void setCredentials(byte [] credentials);
-	
 	void add(IPermission permission) ;
+	/**
+	 * True if the principal has the permission. Permission names are compared exactly
+	 * (case-sensitively): ADMIN is not admin.
+	 */
 	boolean hasPermission(IPermission permision) ;
 	boolean remove(IPermission permission) ;
 	/**
@@ -53,6 +57,19 @@ public interface IPrincipal {
 	List<IPermission> getPermissions();
 	void setPermissions(List<IPermission> permissions) ;
 
+	/**
+	 * The groups the user is in, as the access control list names them. A group used in
+	 * mailbox ACLs is named with its domain (sales@bringardner.us) and written
+	 * {@code $sales@bringardner.us} in a mailbox's ACL.
+	 * <p>
+	 * The default has none.
+	 *
+	 * @return a copy of the group names, never null
+	 * @since 2.0.0
+	 */
+	default List<String> getGroups() {
+		return Collections.emptyList();
+	}
 	
 	Object getParameter(Object key) ;
 	Object removeParameter(Object key);

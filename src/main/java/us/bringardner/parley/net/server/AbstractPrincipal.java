@@ -35,7 +35,8 @@ public abstract class AbstractPrincipal implements IPrincipal {
 	Map<String,IPermission> permissions = new LinkedHashMap<>();
 	Map<Object,Object> parameters = new HashMap<>();
 	State state= State.Unvalidated;
-	byte [] credentials;
+	// LinkedHashSet: no duplicates, insertion order kept
+	java.util.Set<String> groups = new java.util.LinkedHashSet<>();
 	
 	
 	public AbstractPrincipal(String name) {
@@ -121,13 +122,31 @@ public abstract class AbstractPrincipal implements IPrincipal {
 	}
 
 	@Override
-	public byte[] getCredentials() {
-		return credentials;
+	public synchronized List<String> getGroups() {
+		return new ArrayList<>(groups);
 	}
 
-	@Override
-	public void setCredentials(byte [] credentials) {
-		this.credentials = credentials;		
+	/**
+	 * Put the principal in a group (nothing changes if it is there).
+	 * @since 2.0.0
+	 */
+	public synchronized void addGroup(String group) {
+		if( group != null && !group.trim().isEmpty() ) {
+			groups.add(group.trim());
+		}
+	}
+
+	/**
+	 * Replace the principal's groups.
+	 * @since 2.0.0
+	 */
+	public synchronized void setGroups(java.util.Collection<String> groups) {
+		this.groups.clear();
+		if( groups != null ) {
+			for (String g : groups) {
+				addGroup(g);
+			}
+		}
 	}
 
 }

@@ -45,7 +45,7 @@ public class FileBasedAclReloadTest {
 		write(f, "tony , secret , READ\njose , other , READ|WRITE\n", t + 2000);
 		assertTrue(acl.reloadNow());
 		assertNotNull(acl.getPrincipal("jose"));
-		assertTrue(acl.getPrincipal("jose").authenticate("other".getBytes(StandardCharsets.UTF_8)));
+		assertTrue(acl.verifyPassword(acl.getPrincipal("jose"), "other".getBytes(StandardCharsets.UTF_8)));
 		assertFalse(acl.reloadNow(), "unchanged");
 
 		// checked by the lookups themselves, at most every reloadInterval

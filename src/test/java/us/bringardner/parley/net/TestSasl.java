@@ -507,8 +507,15 @@ public class TestSasl {
 			public IPrincipal getPrincipal(String user) {
 				return null;
 			}
+
+			@Override
+			public boolean verifyPassword(IPrincipal user, byte[] credentials) {
+				return false;
+			}
 		};
 		assertFalse(none.supportsScram("SHA-256"));
+		assertFalse(none.supportsApop());
+		assertFalse(none.verifyApop(null, "<1@x>", "00"));
 		assertNull(none.getScramCredentials("bob", "SHA-256"));
 	}
 
@@ -524,9 +531,9 @@ public class TestSasl {
 
 		// the password still works on its own: the SCRAM part isn't part of it
 		IPrincipal p = acl.getPrincipal("carol");
-		assertTrue(p.authenticate("s3cret".getBytes(StandardCharsets.UTF_8)));
-		assertFalse(p.authenticate("wrong".getBytes(StandardCharsets.UTF_8)));
-		assertTrue(new String(p.getCredentials(), StandardCharsets.UTF_8).indexOf(';') < 0);
+		assertTrue(acl.verifyPassword(p, "s3cret".getBytes(StandardCharsets.UTF_8)));
+		assertFalse(acl.verifyPassword(p, "wrong".getBytes(StandardCharsets.UTF_8)));
+		assertFalse(acl.supportsApop(), "a hashed password can't serve APOP");
 
 		Server svr = ServerTestSupport.create("SaslScram", ServerTestSupport.standardCommands(), null);
 		svr.setAccessControl(acl);
@@ -542,7 +549,7 @@ public class TestSasl {
 			assertEquals(IPrincipal.State.Authenticated, v.getState());
 			assertEquals("c", v.getParameter("maildrop"));
 			assertTrue(svr.isAuthorized(v, new us.bringardner.parley.net.server.Permission("READ")));
-			assertThrows(UnsupportedOperationException.class, () -> v.setCredentials(new byte[0]));
+			assertThrows(UnsupportedOperationException.class, () -> v.setParameter("k", "v"));
 
 			assertEquals(Status.FAILED, run(m, m.client("carol", "wrong"), new ServerSaslAuthenticator(svr), true).getStatus());
 			assertEquals(Status.FAILED, run(m, m.client("nobody", "s3cret"), new ServerSaslAuthenticator(svr), true).getStatus());
@@ -573,7 +580,7 @@ public class TestSasl {
 		// malformed SCRAM credentials are ignored, the password still works
 		FileBasedAcl bad = (FileBasedAcl) ServerTestSupport.acl("fred, " + hashed + ";" + FileBasedAcl.SCRAM_SHA_256_PREFIX + "junk, READ");
 		assertFalse(bad.supportsScram("SHA-256"));
-		assertTrue(bad.getPrincipal("fred").authenticate("pw".getBytes(StandardCharsets.UTF_8)));
+		assertTrue(bad.verifyPassword(bad.getPrincipal("fred"), "pw".getBytes(StandardCharsets.UTF_8)));
 
 		assertFalse(((FileBasedAcl) ServerTestSupport.acl()).supportsScram("SHA-256"), "no users");
 	}
@@ -588,7 +595,7 @@ public class TestSasl {
 				"the same salt each time, so it doesn't tell a real user from an unknown one");
 		FileBasedAcl reloaded = (FileBasedAcl) ServerTestSupport.acl("bob, pass;word, READ");
 		assertArrayEquals(first.getSalt(), reloaded.getScramCredentials("bob", "SHA-256").getSalt(), "and after the file is read again");
-		assertTrue(acl.getPrincipal("bob").authenticate("pass;word".getBytes(StandardCharsets.UTF_8)),
+		assertTrue(acl.verifyPassword(acl.getPrincipal("bob"), "pass;word".getBytes(StandardCharsets.UTF_8)),
 				"a ; in a plain text password is part of it");
 		Server svr = ServerTestSupport.create("SaslPlainText", ServerTestSupport.standardCommands(), null);
 		svr.setAccessControl(acl);
@@ -615,6 +622,11 @@ public class TestSasl {
 
 			@Override
 			public IPrincipal findPrincipal(String user) throws AccessControlUnavailableException {
+				throw new AccessControlUnavailableException("the database is down");
+			}
+
+			@Override
+			public boolean verifyPassword(IPrincipal user, byte[] credentials) throws AccessControlUnavailableException {
 				throw new AccessControlUnavailableException("the database is down");
 			}
 

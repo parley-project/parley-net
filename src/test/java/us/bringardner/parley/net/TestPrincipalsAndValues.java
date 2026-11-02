@@ -169,7 +169,7 @@ public class TestPrincipalsAndValues {
 
 		// The server hands out a read only view
 		assertThrows(UnsupportedOperationException.class, () -> hashed.add(B));
-		assertThrows(UnsupportedOperationException.class, () -> hashed.getCredentials());
+		assertThrows(UnsupportedOperationException.class, () -> hashed.setParameter("k", "v"));
 		assertThrows(UnsupportedOperationException.class, () -> hashed.getPermissions().add(B));
 	}
 

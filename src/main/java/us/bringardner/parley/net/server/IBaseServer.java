@@ -149,7 +149,34 @@ public interface IBaseServer extends IManagedThread {
 			acl.authenticateUnknownUser(credentials);
 			return null;
 		}
-		if( !tmp.authenticate(credentials) ) {
+		if( !acl.verifyPassword(tmp, credentials) ) {
+			return null;
+		}
+		IPrincipal ret = new ImmutablePrincipal(tmp);
+		ret.setState(IPrincipal.State.Authenticated);
+		return ret;
+	}
+
+	/**
+	 * Check an APOP login (RFC 1939 section 7) with
+	 * {@link IAccessControlList#verifyApop(IPrincipal, String, String)}, so the user's secret
+	 * stays in the access control list.
+	 *
+	 * @param user the user name
+	 * @param timestamp the timestamp the server sent in its greeting
+	 * @param digest the digest the client sent
+	 * @return a read only authenticated principal, or null if the login failed or there is no
+	 * access control
+	 * @throws AccessControlUnavailableException if the access control list can't answer now
+	 * @since 2.0.0
+	 */
+	default IPrincipal checkApopLogin(String user, String timestamp, String digest) throws AccessControlUnavailableException {
+		IAccessControlList acl = getAccessControl();
+		if( acl == null || user == null ) {
+			return null;
+		}
+		IPrincipal tmp = acl.findPrincipal(user);
+		if( tmp == null || !acl.verifyApop(tmp, timestamp, digest) ) {
 			return null;
 		}
 		IPrincipal ret = new ImmutablePrincipal(tmp);

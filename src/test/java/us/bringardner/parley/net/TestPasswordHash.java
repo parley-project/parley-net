@@ -20,6 +20,7 @@ import org.junit.jupiter.api.Test;
 
 import us.bringardner.parley.net.server.FileBasedAcl;
 import us.bringardner.parley.net.server.FileBasedAcl.FileBasedPrincipal;
+import us.bringardner.parley.net.server.IPrincipal;
 
 /**
  * <PRE>
@@ -52,17 +53,20 @@ public class TestPasswordHash {
 	}
 
 	@Test
-	public void testPrincipalHashedAndPlain() {
-		FileBasedPrincipal p = new FileBasedPrincipal("user");
+	public void testPrincipalHashedAndPlain() throws Exception {
+		FileBasedAcl acl = (FileBasedAcl) ServerTestSupport.acl(
+				"hashed, " + FileBasedAcl.hashPassword("pw".toCharArray()) + ", READ",
+				"plain, plain, READ");
+		IPrincipal h = acl.getPrincipal("hashed");
+		assertTrue(acl.verifyPassword(h, "pw".getBytes(StandardCharsets.UTF_8)));
+		assertFalse(acl.verifyPassword(h, "px".getBytes(StandardCharsets.UTF_8)));
 
-		p.setCredentials(FileBasedAcl.hashPassword("pw".toCharArray()).getBytes(StandardCharsets.UTF_8));
-		assertTrue(p.authenticate("pw".getBytes(StandardCharsets.UTF_8)));
-		assertFalse(p.authenticate("px".getBytes(StandardCharsets.UTF_8)));
-
-		p.setCredentials("plain".getBytes(StandardCharsets.UTF_8));
-		assertTrue(p.authenticate("plain".getBytes(StandardCharsets.UTF_8)));
-		assertFalse(p.authenticate("plaiN".getBytes(StandardCharsets.UTF_8)));
-		assertFalse(p.authenticate(null));
+		IPrincipal p = acl.getPrincipal("plain");
+		assertTrue(acl.verifyPassword(p, "plain".getBytes(StandardCharsets.UTF_8)));
+		assertFalse(acl.verifyPassword(p, "plaiN".getBytes(StandardCharsets.UTF_8)));
+		assertFalse(acl.verifyPassword(p, null));
+		// a principal the list didn't make has no password here
+		assertFalse(acl.verifyPassword(new FileBasedPrincipal("plain2"), "plain".getBytes(StandardCharsets.UTF_8)));
 	}
 
 	/** Only a limited number of password hashes run at once. */

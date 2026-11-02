@@ -3,6 +3,7 @@ package us.bringardner.parley.net;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -16,6 +17,7 @@ import us.bringardner.parley.net.server.IAccessControlList;
 import us.bringardner.parley.net.server.IPermission;
 import us.bringardner.parley.net.server.IPrincipal;
 import us.bringardner.parley.net.server.ImmutablePrincipal;
+import us.bringardner.parley.net.server.Permission;
 import us.bringardner.parley.net.server.IServer;
 import us.bringardner.parley.net.server.PropertyAuthenticator;
 import us.bringardner.parley.net.server.Server;
@@ -50,7 +52,7 @@ public class TestFileBasedAcl {
 	}
 
 	@Test
-	public void testPropertyAcl() {
+	public void testPropertyAcl() throws Exception {
 		String serverName = "TestSetver";
 
 		System.setProperty(serverName+"."+IServer.AUTHENTICATION_PROVIDER_PROPERTY, PropertyAuthenticator.class.getCanonicalName());
@@ -61,7 +63,7 @@ public class TestFileBasedAcl {
 	
 	
 	@Test
-	public void testFileBasedAcl () {
+	public void testFileBasedAcl () throws Exception {
 		String serverName = "TestSetver";
 
 		System.setProperty(serverName+"."+IServer.AUTHENTICATION_PROVIDER_PROPERTY, FileBasedAcl.class.getCanonicalName());
@@ -80,7 +82,7 @@ public class TestFileBasedAcl {
 		acl.initialize(serverName);
 		IPrincipal p = acl.getPrincipal("user1");
 		assertNotNull(p, "user1 not found");
-		assertTrue(p.authenticate("password".getBytes()), "user1 was not authenticated");
+		assertTrue(acl.verifyPassword(p, "password".getBytes()), "user1 was not authenticated");
 
 		System.setProperty(serverName+".userFile","FileBasedAcl.txt");
 		FileBasedAcl file = new FileBasedAcl();
@@ -90,11 +92,12 @@ public class TestFileBasedAcl {
 		// The principal sessions get can't be changed
 		IPrincipal ro = new ImmutablePrincipal(p);
 		assertEquals("user1", ro.getName());
-		assertThrows(UnsupportedOperationException.class, () -> ro.setCredentials(new byte[0]));
+		assertThrows(UnsupportedOperationException.class, () -> ro.add(new Permission("x")));
+		assertTrue(acl.verifyPassword(ro, "password".getBytes()), "a read only view is checked by name");
 		assertThrows(UnsupportedOperationException.class, () -> ro.getPermissions().clear());
 	}
 
-	private void validateAcl(String serverName) {
+	private void validateAcl(String serverName) throws Exception {
 		Server svr = new Server(1000, serverName);
 		svr.getLogger().setLevel(Level.WARN);
 		IAccessControlList acl = svr.getAccessControl();
@@ -111,7 +114,8 @@ public class TestFileBasedAcl {
 
 		IPrincipal p = acl.getPrincipal("user1");
 		
-		assertTrue(p.authenticate(password), "user1 was not authenticated");
+		assertTrue(acl.verifyPassword(p, password), "user1 was not authenticated");
+		assertFalse(acl.verifyPassword(p, "wrong".getBytes()));
 
 		List<IPermission> perms = p.getPermissions();
 		assertNotNull(perms, "permissionlist is null");
@@ -126,7 +130,7 @@ public class TestFileBasedAcl {
 
 
 		p = acl.getPrincipal("echoUser");
-		assertTrue(p.authenticate(password), "echoUser was not authenticated");
+		assertTrue(acl.verifyPassword(p, password), "echoUser was not authenticated");
 
 		perms = p.getPermissions();
 		assertNotNull(perms, "permissionlist is null");
