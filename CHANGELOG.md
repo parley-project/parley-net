@@ -29,6 +29,15 @@
 
 ### Added
 
+- **A warning for each setting nothing will read** (To-Do 2.16), when the launcher reads its settings
+  (at start-up and on every reload) and in `ServerMain.configure` (a server's own `main`): a `parley.*`
+  name no module on the class path lists (a typo: every name is looked up exactly, so it silently gives
+  the default), or a 1.x name (`JPop3.*`, `Pop3Server.*`, `FileSource.*`), with its new name when a list
+  knows it. One line on System.err per name, naming the file, `-D` or command line it came from; the
+  servers start as they would. `KnownSettings` reads every module's `META-INF/parley/settings.list`
+  (names, `{a,b}`, `*`, `**`, `prefix`, `<server>.NAME` under every server's prefix, `renamed OLD NEW`);
+  `KnownSettings.settingConstants` and `RecordingProperties` let each module's test check its list is
+  complete; `LaunchSettings.sources()`.
 - **Servers alone or together, managed with JMX.** `ServerProvider` (found at run time with `ServiceLoader`,
   plugins included) offers a server by id; `ServerLauncher` runs any set of them in one JVM with a shared
   `ServerContext`, and registers a `ParleyServerMBean` per server (state, port, connections and who they are

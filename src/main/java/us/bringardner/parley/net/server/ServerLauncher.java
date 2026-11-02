@@ -289,6 +289,14 @@ public final class ServerLauncher implements ParleyLauncherMBean, AutoCloseable 
 		return context.register("Server", e.provider.id(), new javax.management.StandardMBean(e, ParleyServerMBean.class, true));
 	}
 
+	/**
+	 * Warn about each setting nothing will read (To-Do 2.16): a parley.* name no module on the
+	 * class path lists, or a 1.x name. Only a warning: the servers start as they would.
+	 */
+	private void warnUnreadSettings() {
+		KnownSettings.warn(name, settings.sources());
+	}
+
 	/** Read the settings files again (and, for a provider that reads them, set the system properties) */
 	private void readSettings() throws Exception {
 		refreshList();
@@ -297,6 +305,7 @@ public final class ServerLauncher implements ParleyLauncherMBean, AutoCloseable 
 		} else {
 			settings.apply();
 		}
+		warnUnreadSettings();
 		if (launcherName != null) {
 			// a server that isn't running is off, or can be started, as its settings are now
 			for (Entry e : entries.values()) {

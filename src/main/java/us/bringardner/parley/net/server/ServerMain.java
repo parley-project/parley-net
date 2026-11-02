@@ -438,6 +438,8 @@ public final class ServerMain {
 		for (String name : commandLine.stringPropertyNames()) {
 			System.out.println("\t" + name + "=" + printable(name, commandLine.getProperty(name)));
 		}
+		// the names set, by where, for the check of settings nothing reads (To-Do 2.16)
+		Map<String, java.util.Set<String>> sources = new java.util.LinkedHashMap<String, java.util.Set<String>>();
 		String file = commandLine.getProperty(configProperty, System.getProperty(configProperty));
 		if (file == null && defaultFileName != null && confDir != null) {
 			File f = new File(confDir, defaultFileName);
@@ -458,7 +460,15 @@ public final class ServerMain {
 				}
 			}
 			System.out.println("Loaded properties from " + file);
+			sources.put(file, new java.util.TreeSet<String>(fromFile.stringPropertyNames()));
 		}
+		java.util.Set<String> jvm = new java.util.TreeSet<String>(System.getProperties().stringPropertyNames());
+		if (sources.containsKey(file)) {
+			jvm.removeAll(sources.get(file)); // (those the file set)
+		}
+		sources.put("a -D setting", jvm);
+		sources.put("the command line", new java.util.TreeSet<String>(commandLine.stringPropertyNames()));
+		KnownSettings.warn(serverName, sources);
 		// (the command line wins over the file and the JVM's -D)
 		System.getProperties().putAll(commandLine);
 	}

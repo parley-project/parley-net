@@ -225,6 +225,23 @@ public final class LaunchSettings {
 		}
 	}
 
+	/**
+	 * The names set, by where they were set: each file as {@link #apply()} last read it (the
+	 * launcher's, then each server's), then the JVM's {@code -D} settings, then the command line's.
+	 */
+	public synchronized Map<String, Set<String>> sources() {
+		Map<String, Set<String>> ret = new LinkedHashMap<>();
+		for (File f : getFiles()) {
+			Properties p = read.get(f);
+			if (p != null) {
+				ret.put(f.getPath(), new java.util.TreeSet<>(p.stringPropertyNames()));
+			}
+		}
+		ret.put("a -D setting", new java.util.TreeSet<>(jvmValues.stringPropertyNames()));
+		ret.put("the command line", new java.util.TreeSet<>(commandLine.stringPropertyNames()));
+		return ret;
+	}
+
 	/** Print the command line's settings, and which files were read (no secret values). */
 	public synchronized void print(String serverName) {
 		System.out.println("\nStarting " + serverName);

@@ -1,0 +1,19 @@
+# The settings parley-net reads, for its servers' start-up check (KnownSettings: the format is
+# described there). Add a name here when code here starts reading it.
+
+# the launcher
+parley.servers
+parley.servers.configFile
+
+# access control lists and locks
+parley.net.acl.hashWaitMs
+parley.net.acl.maxConcurrentHashes
+parley.net.acl.reloadSeconds
+parley.net.lock.allowUnsafe
+parley.net.lock.provider
+
+# Every server's, under its prefix (Server, NioServer, IBaseServer, FileBasedAcl)
+<server>.frameTimeout
+<server>.virtualThreads
+<server>.authenticationProvider
+<server>.userFile
