@@ -357,7 +357,9 @@ public final class ServerLauncher implements ParleyLauncherMBean, AutoCloseable 
 	}
 
 	private ServerMain.Service create(Entry e) throws Exception {
-		return e.provider.usesConfiguration() ? e.provider.create(context, settings.configuration(e.provider.id())) : e.provider.create(context);
+		// the server is made knowing its id (ServerContext.getServerIdBeingMade)
+		return context.making(e.provider.id(), () -> e.provider.usesConfiguration()
+				? e.provider.create(context, settings.configuration(e.provider.id())) : e.provider.create(context));
 	}
 
 	/** Run on the launcher's control thread (at once when already on it, or after close) */

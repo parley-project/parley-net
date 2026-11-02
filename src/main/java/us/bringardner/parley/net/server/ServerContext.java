@@ -31,6 +31,8 @@ public final class ServerContext {
 	private final List<ObjectName> registered = new CopyOnWriteArrayList<>();
 	private final List<AutoCloseable> closers = new CopyOnWriteArrayList<>();
 	private final MBeanServer mbeans;
+	/** The id of the server being made on this thread (see {@link #making(String, Callable)}) */
+	private final ThreadLocal<String> making = new ThreadLocal<>();
 
 	public ServerContext() {
 		this(ManagementFactory.getPlatformMBeanServer());
@@ -38,6 +40,36 @@ public final class ServerContext {
 
 	public ServerContext(MBeanServer mbeans) {
 		this.mbeans = mbeans;
+	}
+
+	/**
+	 * Make a server known by its id (its provider's, e.g. {@code imaps}): code that runs while it is
+	 * made, the server's constructor included, gets the id from {@link #getServerIdBeingMade()}
+	 * (a mail server names its management bean with it).
+	 *
+	 * @since 2.0.0
+	 */
+	public <T> T making(String serverId, Callable<T> make) throws Exception {
+		String before = making.get();
+		making.set(serverId);
+		try {
+			return make.call();
+		} finally {
+			if (before == null) {
+				making.remove();
+			} else {
+				making.set(before);
+			}
+		}
+	}
+
+	/**
+	 * @return the id of the server {@link #making(String, Callable)} is making on this thread, or
+	 * null
+	 * @since 2.0.0
+	 */
+	public String getServerIdBeingMade() {
+		return making.get();
 	}
 
 	/**

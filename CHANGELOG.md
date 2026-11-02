@@ -2,6 +2,11 @@
 
 ## parley-net 2.0.0 (unreleased)
 
+### Added (2026-11-02: To-Do 3.6)
+
+- **`ServerContext.making(serverId, make)` and `getServerIdBeingMade()`**: the launcher makes each server knowing its
+  id, so a server can name its own beans with it (the mail servers' `MailStore` bean).
+
 ### Changed (2026-11-02: closing an access control list, To-Do 3.3)
 
 - **`IAccessControlList` is `Closeable`**: `close()` lets go of what a list holds (a database's connections, say);
