@@ -363,8 +363,11 @@ it, decides that).
 - **Providers.** A server is offered by a `ServerProvider` (found with `ServiceLoader`, on the class
   path or in a plugin folder): an id (`pop3`), the settings files it reads,
   `create(context, configuration)` that makes it from its own configuration, and
-  `enabled(configuration)`: a server its settings turn off (port 0, say) is skipped and shown as
-  OFF. A provider written before 2.0.0's configurations (`usesConfiguration()` false) still works:
+  `unavailable(configuration)`: why a listed server can't run with its settings (a server with
+  implicit TLS and no key store, say), so it is skipped with a warning and shown as OFF with that
+  reason while the others start; `warnings(configuration)` (a setting that is no longer read) are
+  printed when it starts. `enabled(configuration)` is for a provider with a setting of its own that
+  turns it off; which servers run is what `parley.servers` lists. A provider written before 2.0.0's configurations (`usesConfiguration()` false) still works:
   for it the launcher sets the system properties from the files, as before. `ServerContext` holds
   what the servers of one launcher share (`shared(key, type, make)`: a user list).
 - **One launcher.** `ServerMain.main` runs the servers `parley.servers` lists

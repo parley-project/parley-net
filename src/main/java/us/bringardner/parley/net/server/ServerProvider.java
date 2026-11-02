@@ -61,8 +61,10 @@ public interface ServerProvider {
 	}
 
 	/**
-	 * Whether the server's configuration turns it on; a server that is off (its port is 0, say)
-	 * isn't started with the others, and can't be started until its settings change.
+	 * Whether the server's configuration turns it on; a server that is off isn't started with the
+	 * others, and can't be started until its settings change. Which servers run is what
+	 * {@code parley.servers} lists; this is only for a provider with a setting of its own that turns
+	 * it off (the mail servers have none: their port is only a port).
 	 *
 	 * @param configuration the server's own settings
 	 */
@@ -73,6 +75,30 @@ public interface ServerProvider {
 	/** {@link #enabled(Properties)} from the system properties, for a provider that reads them */
 	default boolean enabled() {
 		return true;
+	}
+
+	/**
+	 * Why this server can't run with these settings (a server with implicit TLS and no key store,
+	 * say), or null when it can. A listed server that can't run is skipped with this as a warning:
+	 * the launcher starts the others, and the server shows as off with this message, until its
+	 * settings change.
+	 *
+	 * @param configuration the server's own settings
+	 * @since 2.0.0
+	 */
+	default String unavailable(Properties configuration) {
+		return null;
+	}
+
+	/**
+	 * Warnings about these settings for people (a setting that is no longer read, say), printed when
+	 * the server starts; they don't stop it.
+	 *
+	 * @param configuration the server's own settings
+	 * @since 2.0.0
+	 */
+	default List<String> warnings(Properties configuration) {
+		return Collections.emptyList();
 	}
 
 	/**

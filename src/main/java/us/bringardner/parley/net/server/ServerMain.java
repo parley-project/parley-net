@@ -285,12 +285,13 @@ public final class ServerMain {
 				any = true;
 				System.out.println(s.getDescription() + " (" + id + ") started on port " + s.getPort());
 			} else {
-				System.out.println(s.getDescription() + " (" + id + ") is turned off by its settings");
+				String why = s.getError();
+				System.out.println(s.getDescription() + " (" + id + ") is off" + (why == null ? "" : ": " + why));
 			}
 		}
 		if (!any) {
 			launcher.close();
-			failed(processName, new IOException("Every server is turned off by its settings: nothing to run"));
+			failed(processName, new IOException("No server can run with its settings: nothing to run"));
 			return;
 		}
 		Runtime.getRuntime().addShutdownHook(new Thread(() -> {
@@ -311,6 +312,8 @@ public final class ServerMain {
 		for (String id : ids) {
 			list.add(id);
 		}
+		// the launcher's file, when parley.servers comes from it: read again with each reload
+		File listFile = null;
 		if (list.isEmpty()) {
 			String named = settings.early(LAUNCHER_CONFIG_PROPERTY);
 			File file = named != null ? new File(named) : confDir == null ? null : new File(confDir, LAUNCHER_FILE);
@@ -319,23 +322,41 @@ public final class ServerMain {
 				settings.addFile(file, named != null);
 				if (servers == null && file.isFile()) {
 					servers = load(file).getProperty(ServerLauncher.SERVERS_PROPERTY);
+					listFile = file;
 				} else if (named != null && !file.isFile()) {
 					throw new IOException("Can't read the settings file " + file);
 				}
 			}
-			if (servers != null) {
-				for (String id : servers.split("[,\\s]+")) {
-					if (!id.isEmpty()) {
-						list.add(id);
-					}
-				}
-			}
+			list.addAll(ids(servers));
 			if (list.isEmpty()) {
 				throw new IOException("No servers to run: set " + ServerLauncher.SERVERS_PROPERTY + " (one or more of "
 						+ ServerLauncher.providers().keySet() + ")");
 			}
 		}
-		return new ServerLauncher(processName, settings, list, confDir, new ServerContext());
+		ServerLauncher ret = new ServerLauncher(processName, settings, list, confDir, new ServerContext());
+		if (listFile != null) {
+			File f = listFile;
+			ret.setServerList(() -> {
+				if (!f.isFile()) {
+					throw new IOException("Can't read the settings file " + f);
+				}
+				return ids(load(f).getProperty(ServerLauncher.SERVERS_PROPERTY));
+			});
+		}
+		return ret;
+	}
+
+	/** The ids a parley.servers value lists */
+	static List<String> ids(String servers) {
+		List<String> ret = new ArrayList<String>();
+		if (servers != null) {
+			for (String id : servers.split("[,\\s]+")) {
+				if (!id.isEmpty()) {
+					ret.add(id);
+				}
+			}
+		}
+		return ret;
 	}
 
 	/** exit from another thread, so a JMX call or a server's thread isn't held by the shutdown hook */

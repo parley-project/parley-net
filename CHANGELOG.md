@@ -2,6 +2,19 @@
 
 ## parley-net 2.0.0 (unreleased)
 
+### Changed (2026-11-01: parley.servers says which servers run, To-Do 2.12)
+
+- **A listed server that can't run with its settings is skipped with a warning**: `ServerProvider.unavailable(configuration)`
+  says why (a server with implicit TLS and no key store, say); the launcher starts the others and shows the server as
+  OFF with that reason (its bean's `error`), and `start` refuses it with the reason. It was a failure that stopped every
+  server, unless the provider turned the server off. `ServerProvider.warnings(configuration)`: messages printed when a
+  server starts (a setting that is no longer read).
+- **`parley.servers` is read again on a reload** when it comes from the launcher's settings file
+  (`ServerLauncher.setServerList`, set by `ServerMain`): a server added to the list is known (its bean registered) and
+  can be started; one taken out of it keeps running until it is stopped, then is OFF ("Not listed in parley.servers").
+  A list given with `-D` or on the command line stays as it is. A reload also turns a stopped server OFF, or back to
+  STOPPED, as its settings are now.
+
 ### Changed (2026-10-26: each server alone, shared assets carry their own settings)
 
 - **Each server is made from a configuration of its own** (needs a configuration change for code that read a

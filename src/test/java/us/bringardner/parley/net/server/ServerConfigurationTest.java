@@ -51,6 +51,19 @@ public class ServerConfigurationTest {
 		}
 
 		@Override
+		public String unavailable(Properties configuration) {
+			return "true".equals(configuration.getProperty("parley.cfg.needsKey")) && configuration.getProperty("parley.cfg.key") == null
+					? "it has no key (parley.cfg.key)"
+					: null;
+		}
+
+		@Override
+		public List<String> warnings(Properties configuration) {
+			return configuration.getProperty("parley.cfg.old") == null ? Collections.emptyList()
+					: Collections.singletonList("parley.cfg.old is no longer read");
+		}
+
+		@Override
 		public ServerMain.Service create(ServerContext context, Properties configuration) {
 			made.put(id(), configuration);
 			return new ServerLauncherTest.FakeService(configuration.getProperty("parley.cfg.root"), null);
@@ -145,5 +158,71 @@ public class ServerConfigurationTest {
 		assertEquals("/two", made.get("cfga").getProperty("parley.cfg.root"));
 		assertEquals("/two", launcher.getConfiguration("cfga").getProperty("parley.cfg.root"));
 		assertTrue(Arrays.asList(launcher.getSettingsFiles()).contains(new File(dir, "parley-cfgb.properties").getAbsolutePath()));
+	}
+
+	@Test
+	public void aServerThatCantRunIsSkippedWithAWarning() throws Exception {
+		write("parley-cfgb.properties", "parley.cfg.needsKey=true\n");
+		launcher();
+		launcher.startAll(); // doesn't fail: the others start
+		assertEquals(ServerLauncher.State.RUNNING, launcher.getState("cfga"));
+		assertEquals(ServerLauncher.State.OFF, launcher.getState("cfgb"));
+		assertEquals("it has no key (parley.cfg.key)", launcher.getServer("cfgb").getError());
+		IOException e = org.junit.jupiter.api.Assertions.assertThrows(IOException.class, () -> launcher.start("cfgb"));
+		assertTrue(e.getMessage().contains("it has no key"), e.getMessage());
+
+		write("parley-cfgb.properties", "parley.cfg.needsKey=true\nparley.cfg.key=k\n");
+		launcher.reloadSettings();
+		assertEquals(ServerLauncher.State.STOPPED, launcher.getState("cfgb"), "it can run now: start it");
+		assertNull(launcher.getServer("cfgb").getError());
+		launcher.start("cfgb");
+		assertEquals(ServerLauncher.State.RUNNING, launcher.getState("cfgb"));
+	}
+
+	@Test
+	public void warningsDontStopAServer() throws Exception {
+		write("parley-cfga.properties", "parley.cfg.old=1\n");
+		launcher();
+		launcher.startAll();
+		assertEquals(ServerLauncher.State.RUNNING, launcher.getState("cfga"));
+	}
+
+	@Test
+	public void parleyServersIsReadAgainOnAReload() throws Exception {
+		write(ServerMain.LAUNCHER_FILE, "parley.servers=cfga\n");
+		launcher = ServerMain.launcher("CfgProcess", new String[0], dir);
+		launcher.init();
+		launcher.startAll();
+		assertEquals(Arrays.asList("cfga"), Arrays.asList(launcher.getServers()));
+
+		write(ServerMain.LAUNCHER_FILE, "parley.servers=cfga,cfgb\n");
+		launcher.reloadSettings();
+		assertEquals(Arrays.asList("cfga", "cfgb"), Arrays.asList(launcher.getServers()));
+		assertEquals(ServerLauncher.State.STOPPED, launcher.getState("cfgb"), "listed now, not started by the reload");
+		assertTrue(java.lang.management.ManagementFactory.getPlatformMBeanServer()
+				.isRegistered(new javax.management.ObjectName("us.bringardner.parley:type=Server,name=cfgb")), "its bean");
+		launcher.start("cfgb");
+		assertEquals(ServerLauncher.State.RUNNING, launcher.getState("cfgb"));
+
+		write(ServerMain.LAUNCHER_FILE, "parley.servers=cfga\n");
+		launcher.reloadSettings();
+		assertEquals(ServerLauncher.State.RUNNING, launcher.getState("cfgb"), "taken out of the list: it runs until it is stopped");
+		launcher.stop("cfgb");
+		assertEquals(ServerLauncher.State.OFF, launcher.getState("cfgb"));
+		assertEquals("Not listed in parley.servers", launcher.getServer("cfgb").getError());
+		org.junit.jupiter.api.Assertions.assertThrows(IOException.class, () -> launcher.start("cfgb"));
+
+		write(ServerMain.LAUNCHER_FILE, "parley.servers=cfga,nosuchserver\n");
+		IOException e = org.junit.jupiter.api.Assertions.assertThrows(IOException.class, () -> launcher.reloadSettings());
+		assertTrue(e.getMessage().contains("nosuchserver"), e.getMessage());
+	}
+
+	@Test
+	public void aListGivenOnTheCommandLineIsKept() throws Exception {
+		write(ServerMain.LAUNCHER_FILE, "parley.servers=cfga,cfgb\n");
+		launcher = ServerMain.launcher("CfgProcess", new String[] { "-Dparley.servers=cfga" }, dir);
+		launcher.init();
+		launcher.reloadSettings();
+		assertEquals(Arrays.asList("cfga"), Arrays.asList(launcher.getServers()));
 	}
 }

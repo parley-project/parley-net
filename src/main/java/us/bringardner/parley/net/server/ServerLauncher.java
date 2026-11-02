@@ -46,7 +46,11 @@ public final class ServerLauncher implements ParleyLauncherMBean, AutoCloseable 
 
 	public enum State {
 		STOPPED, RUNNING, FAILED,
-		/** turned off by its settings ({@link ServerProvider#enabled()}) */
+		/**
+		 * not run: not listed in {@code parley.servers} (any more), turned off by its settings
+		 * ({@link ServerProvider#enabled()}), or skipped because it can't run with them
+		 * ({@link ServerProvider#unavailable(Properties)}); its error says which
+		 */
 		OFF
 	}
 
@@ -59,6 +63,8 @@ public final class ServerLauncher implements ParleyLauncherMBean, AutoCloseable 
 		volatile String error;
 		/** stopped on request: not a failure */
 		volatile boolean stopRequested;
+		/** listed in parley.servers (always, when the launcher was given its ids) */
+		volatile boolean listed = true;
 		ObjectName name;
 
 		Entry(ServerProvider provider) {
@@ -140,7 +146,11 @@ public final class ServerLauncher implements ParleyLauncherMBean, AutoCloseable 
 	private final String name;
 	private final LaunchSettings settings;
 	private final ServerContext context;
-	private final Map<String, Entry> entries = new LinkedHashMap<>();
+	/** the servers, in the order they start (copied on write: a reload can add servers) */
+	private volatile Map<String, Entry> entries = new LinkedHashMap<>();
+	private final File confDir;
+	/** reads parley.servers again on a reload, or null when the ids were given */
+	private volatile Callable<List<String>> serverList;
 	private final long createdAt = System.currentTimeMillis();
 	private volatile Consumer<String> onFailure = id -> {
 	};
@@ -171,6 +181,7 @@ public final class ServerLauncher implements ParleyLauncherMBean, AutoCloseable 
 		this.name = name;
 		this.settings = settings;
 		this.context = context;
+		this.confDir = confDir;
 		this.control = new ThreadPoolExecutor(1, 1, 0, TimeUnit.MILLISECONDS, new LinkedBlockingQueue<>(), r -> {
 			Thread t = new Thread(r, name + "-control");
 			t.setDaemon(true);
@@ -178,44 +189,131 @@ public final class ServerLauncher implements ParleyLauncherMBean, AutoCloseable 
 			return t;
 		});
 		control.prestartAllCoreThreads(); // now, in the context of the code making the launcher
+		Map<String, Entry> map = new LinkedHashMap<>();
+		for (ServerProvider p : known(ids)) {
+			if (!map.containsKey(p.id())) {
+				Entry e = new Entry(p);
+				map.put(p.id(), e);
+				addFiles(e);
+			}
+		}
+		entries = map;
+	}
+
+	/** The providers of these ids, in order; an unknown id is an error that lists the known ones */
+	private static List<ServerProvider> known(List<String> ids) {
 		Map<String, ServerProvider> known = providers();
 		List<String> unknown = new ArrayList<>();
+		List<ServerProvider> ret = new ArrayList<>();
 		for (String id : ids) {
 			ServerProvider p = known.get(id.trim().toLowerCase(Locale.ROOT));
 			if (p == null) {
 				unknown.add(id);
-			} else if (!entries.containsKey(p.id())) {
-				entries.put(p.id(), new Entry(p));
+			} else {
+				ret.add(p);
 			}
 		}
 		if (!unknown.isEmpty()) {
 			throw new IllegalArgumentException("Unknown server" + (unknown.size() > 1 ? "s " : " ") + unknown + "; known: " + known.keySet());
 		}
-		for (Entry e : entries.values()) {
-			String id = e.provider.id();
-			if (confDir != null) {
-				for (String f : e.provider.sharedSettingsFiles()) {
-					settings.addFile(id, new File(confDir, f), false);
-				}
+		return ret;
+	}
+
+	/** The server's settings files: the shared ones, then its own */
+	private void addFiles(Entry e) {
+		String id = e.provider.id();
+		if (confDir != null) {
+			for (String f : e.provider.sharedSettingsFiles()) {
+				settings.addFile(id, new File(confDir, f), false);
 			}
-			String named = e.provider.configProperty() == null ? null : settings.early(e.provider.configProperty());
-			if (named != null) {
-				settings.addFile(id, new File(named), true);
-			} else if (confDir != null && e.provider.settingsFile() != null) {
-				settings.addFile(id, new File(confDir, e.provider.settingsFile()), false);
-			}
-			if (!e.provider.usesConfiguration()) {
-				legacy = true;
-			}
+		}
+		String named = e.provider.configProperty() == null ? null : settings.early(e.provider.configProperty());
+		if (named != null) {
+			settings.addFile(id, new File(named), true);
+		} else if (confDir != null && e.provider.settingsFile() != null) {
+			settings.addFile(id, new File(confDir, e.provider.settingsFile()), false);
+		}
+		if (!e.provider.usesConfiguration()) {
+			legacy = true;
 		}
 	}
 
+	/**
+	 * Read the list of servers to run ({@code parley.servers}) again with each reload of the
+	 * settings ({@link #reloadSettings()}, a restart): a server added to it can then be started
+	 * (it isn't started by the reload), and one taken out of it is off once it stops. Without this,
+	 * the launcher runs the servers it was made with. {@link ServerMain} sets it when the list comes
+	 * from the launcher's settings file.
+	 *
+	 * @param serverList the ids parley.servers lists now
+	 * @since 2.0.0
+	 */
+	public void setServerList(Callable<List<String>> serverList) {
+		this.serverList = serverList;
+	}
+
+	/** Read parley.servers again (before the settings files are read: a new server's files are added) */
+	private void refreshList() throws Exception {
+		Callable<List<String>> list = serverList;
+		if (list == null) {
+			return;
+		}
+		List<ServerProvider> now;
+		try {
+			now = known(list.call());
+		} catch (IllegalArgumentException e) {
+			throw new IOException(SERVERS_PROPERTY + ": " + e.getMessage(), e);
+		}
+		Map<String, Entry> map = new LinkedHashMap<>(entries);
+		List<String> ids = new ArrayList<>();
+		for (ServerProvider p : now) {
+			ids.add(p.id());
+			if (!map.containsKey(p.id())) {
+				Entry e = new Entry(p);
+				addFiles(e);
+				if (launcherName != null) {
+					e.name = register(e);
+				}
+				map.put(p.id(), e);
+			}
+		}
+		for (Entry e : map.values()) {
+			e.listed = ids.contains(e.provider.id());
+		}
+		entries = map;
+	}
+
+	private ObjectName register(Entry e) throws javax.management.JMException {
+		// an MXBean: every attribute is an open type (the connection list is CompositeData), so
+		// JConsole or a client without Parley's classes can read it
+		return context.register("Server", e.provider.id(), new javax.management.StandardMBean(e, ParleyServerMBean.class, true));
+	}
+
 	/** Read the settings files again (and, for a provider that reads them, set the system properties) */
-	private void readSettings() throws IOException {
+	private void readSettings() throws Exception {
+		refreshList();
 		if (legacy) {
 			settings.applyToSystem();
 		} else {
 			settings.apply();
+		}
+		if (launcherName != null) {
+			// a server that isn't running is off, or can be started, as its settings are now
+			for (Entry e : entries.values()) {
+				synchronized (e) {
+					if (e.state == State.RUNNING) {
+						continue;
+					}
+					String reason = offReason(e);
+					if (reason != null) {
+						e.state = State.OFF;
+						e.error = reason;
+					} else if (e.state == State.OFF) {
+						e.state = State.STOPPED;
+						e.error = null;
+					}
+				}
+			}
 		}
 	}
 
@@ -224,9 +322,29 @@ public final class ServerLauncher implements ParleyLauncherMBean, AutoCloseable 
 		return settings.configuration(entry(id).provider.id());
 	}
 
-	/** Whether its settings turn the server on */
-	private boolean enabled(Entry e) {
-		return e.provider.usesConfiguration() ? e.provider.enabled(settings.configuration(e.provider.id())) : e.provider.enabled();
+	/** Why the server can't be run now, or null: not listed, turned off, or can't run with its settings */
+	private String offReason(Entry e) {
+		if (!e.listed) {
+			return "Not listed in " + SERVERS_PROPERTY;
+		}
+		if (!e.provider.usesConfiguration()) {
+			return e.provider.enabled() ? null : "Turned off by its settings";
+		}
+		Properties c = settings.configuration(e.provider.id());
+		if (!e.provider.enabled(c)) {
+			return "Turned off by its settings";
+		}
+		return e.provider.unavailable(c);
+	}
+
+	/** Mark a server that isn't running off, with the reason */
+	private void off(Entry e, String reason) {
+		synchronized (e) {
+			if (e.state != State.RUNNING) {
+				e.state = State.OFF;
+				e.error = reason;
+			}
+		}
 	}
 
 	private ServerMain.Service create(Entry e) throws Exception {
@@ -292,15 +410,14 @@ public final class ServerLauncher implements ParleyLauncherMBean, AutoCloseable 
 		}
 		readSettings();
 		for (Entry e : entries.values()) {
-			if (!enabled(e)) {
-				e.state = State.OFF;
+			String reason = offReason(e);
+			if (reason != null) {
+				off(e, reason);
 			}
 		}
 		launcherName = context.register("Launcher", name, this);
 		for (Entry e : entries.values()) {
-			// an MXBean: every attribute is an open type (the connection list is CompositeData), so
-			// JConsole or a client without Parley's classes can read it
-			e.name = context.register("Server", e.provider.id(), new javax.management.StandardMBean(e, ParleyServerMBean.class, true));
+			e.name = register(e);
 		}
 	}
 
@@ -321,10 +438,16 @@ public final class ServerLauncher implements ParleyLauncherMBean, AutoCloseable 
 			if (e.state == State.RUNNING) {
 				return;
 			}
-			if (!enabled(e)) {
+			String reason = offReason(e);
+			if (reason != null) {
 				e.state = State.OFF;
-				e.error = null;
-				throw new IOException(e.provider.description() + " is turned off by its settings");
+				e.error = reason;
+				throw new IOException(e.provider.description() + " (" + e.provider.id() + ") can't be started: " + reason);
+			}
+			if (e.provider.usesConfiguration()) {
+				for (String w : e.provider.warnings(settings.configuration(e.provider.id()))) {
+					System.err.println(e.provider.id() + ": " + w);
+				}
 			}
 			ServerMain.Service s;
 			try {
@@ -359,9 +482,11 @@ public final class ServerLauncher implements ParleyLauncherMBean, AutoCloseable 
 					return; // replaced (restarted)
 				}
 				failed = !e.stopRequested;
-				e.state = failed ? State.FAILED : State.STOPPED;
 				if (failed) {
+					e.state = State.FAILED;
 					e.error = "Stopped by itself";
+				} else if (e.state != State.OFF) {
+					e.state = State.STOPPED; // (stop has set OFF, with the reason, for one that is off now)
 				}
 			}
 			if (failed) {
@@ -382,7 +507,9 @@ public final class ServerLauncher implements ParleyLauncherMBean, AutoCloseable 
 			if (s != null && e.state == State.RUNNING) {
 				s.stop(ServerMain.STOP_TIMEOUT);
 			}
-			e.state = enabled(e) ? State.STOPPED : State.OFF;
+			String reason = offReason(e);
+			e.state = reason == null ? State.STOPPED : State.OFF;
+			e.error = reason;
 		}
 	}
 
@@ -397,8 +524,9 @@ public final class ServerLauncher implements ParleyLauncherMBean, AutoCloseable 
 	}
 
 	/**
-	 * Start the servers in order, except those turned off by their settings; if one can't start,
-	 * those started are stopped and the error thrown.
+	 * Start the servers in order, except those that are off: those that can't run with their
+	 * settings (a server with implicit TLS and no key store, say) are skipped with a warning. If one
+	 * can't start, those started are stopped and the error thrown.
 	 */
 	public void startAll() throws Exception {
 		control(() -> {
@@ -410,12 +538,11 @@ public final class ServerLauncher implements ParleyLauncherMBean, AutoCloseable 
 	private void startAllNow() throws Exception {
 		List<String> started = new ArrayList<>();
 		for (Entry e : entries.values()) {
-			if (!enabled(e)) {
-				synchronized (e) {
-					if (e.state != State.RUNNING) {
-						e.state = State.OFF;
-						e.error = null;
-					}
+			String reason = offReason(e);
+			if (reason != null) {
+				if (e.state != State.RUNNING) {
+					off(e, reason);
+					System.err.println("Warning: " + e.provider.description() + " (" + e.provider.id() + ") is skipped: " + reason);
 				}
 				continue;
 			}
@@ -461,6 +588,7 @@ public final class ServerLauncher implements ParleyLauncherMBean, AutoCloseable 
 
 	@Override
 	public void reloadSettings() throws IOException {
+		// (a server added to parley.servers is known from here on, stopped: start it to run it)
 		try {
 			control(() -> {
 				readSettings();
