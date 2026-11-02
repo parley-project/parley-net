@@ -95,6 +95,8 @@ public class TestFileBasedAcl {
 		assertThrows(UnsupportedOperationException.class, () -> ro.add(new Permission("x")));
 		assertTrue(acl.verifyPassword(ro, "password".getBytes()), "a read only view is checked by name");
 		assertThrows(UnsupportedOperationException.class, () -> ro.getPermissions().clear());
+		file.close();
+		acl.close();
 	}
 
 	private void validateAcl(String serverName) throws Exception {

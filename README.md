@@ -178,6 +178,10 @@ A user's groups are a `groups=` parameter, separated by `;`
 A principal holds no secrets: the list checks them (`verifyPassword`, and `verifyApop` for POP3's APOP,
 which works only for users whose password is kept in plain text).
 
+A list is closed by whoever made it (`IAccessControlList` is `Closeable`; the default `close()` does nothing): a
+server closes the list it made from `authenticationProvider` when it stops, and makes a new one if it starts again; a
+list given with `setAccessControl` is yours to close once the server is done with it.
+
 To keep users in a database instead, see parley-net-acl-jdbc.
 
 A login command calls `processor.getServer().authenticate(user, password)` and

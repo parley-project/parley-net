@@ -68,5 +68,6 @@ public class FileBasedAclReloadTest {
 		assertTrue(f.delete());
 		assertFalse(acl.reloadNow());
 		assertNotNull(acl.getPrincipal("tony"), "the users read before stay");
+		acl.close();
 	}
 }

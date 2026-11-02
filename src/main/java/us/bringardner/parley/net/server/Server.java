@@ -126,6 +126,8 @@ public class Server extends AbstractCoreServer implements IServer {
 	 * "No access control defined". Cleared by setAccessControl.
 	 */
 	private volatile boolean noAccessControl;
+	/** True when accessControl was made here from the provider property: it is closed when the server stops */
+	private volatile boolean ownsAccessControl;
 	private String serverGreating;
 
 	/**
@@ -495,6 +497,7 @@ public class Server extends AbstractCoreServer implements IServer {
 			svr = null;
 		}
 
+		closeOwnAccessControl();
 		running = false;
 		logInfo("Server "+getName()+" has stopped.");
 	}
@@ -1276,7 +1279,8 @@ public class Server extends AbstractCoreServer implements IServer {
 								((us.bringardner.parley.core.BaseObject) auth).useConfigurationOf(this);
 							}
 							auth.initialize(this);
-							setAccessControl(auth);
+							accessControl = auth;
+							ownsAccessControl = true;
 						} catch (Exception e) {
 							logError("Fatal Error! Can't configure access control class='"+tmp+"'",e);
 							// Just in case logging is turned off
@@ -1295,11 +1299,48 @@ public class Server extends AbstractCoreServer implements IServer {
 		return accessControl;
 	}
 
+	/**
+	 * The list is the caller's: the server doesn't close it. A list the server made itself from
+	 * the provider property is closed here when it is replaced.
+	 */
 	@Override
 	public void setAccessControl(IAccessControlList acl) {
-		this.accessControl = acl;
-		// null: look at the provider property again on the next use
-		this.noAccessControl = false;
+		IAccessControlList old;
+		synchronized (this) {
+			old = ownsAccessControl && accessControl != acl ? accessControl : null;
+			// the list the server made, given back: still the server's
+			this.ownsAccessControl = ownsAccessControl && accessControl == acl && acl != null;
+			this.accessControl = acl;
+			// null: look at the provider property again on the next use
+			this.noAccessControl = false;
+		}
+		close(old);
+	}
+
+	/**
+	 * Close the list made from the provider property, if one was made, and forget it, so a
+	 * restart makes a new one. A list given with setAccessControl is left alone.
+	 */
+	private void closeOwnAccessControl() {
+		IAccessControlList acl;
+		synchronized (this) {
+			acl = ownsAccessControl ? accessControl : null;
+			if (acl != null) {
+				accessControl = null;
+				ownsAccessControl = false;
+			}
+		}
+		close(acl);
+	}
+
+	private void close(IAccessControlList acl) {
+		if (acl != null) {
+			try {
+				acl.close();
+			} catch (IOException | RuntimeException e) {
+				logError("Can't close the access control of "+getName(), e);
+			}
+		}
 	}
 
 

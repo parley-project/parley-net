@@ -24,6 +24,7 @@
  */
 package us.bringardner.parley.net.server;
 
+import java.io.Closeable;
 import java.io.IOException;
 
 import us.bringardner.parley.net.sasl.ScramCredentials;
@@ -31,11 +32,13 @@ import us.bringardner.parley.net.sasl.ScramCredentials;
 /**
  * Access Control list maintains or produces a list of principles (a.k..a. users) at runtime 
  * and is responsible for authentication and authorization.
- * 
- * initialize 
- * 
+ * <p>
+ * A list is closed by whoever made it: a server closes the list it made from its
+ * {@link IBaseServer#AUTHENTICATION_PROVIDER_PROPERTY} setting when it stops (and makes a new one if it starts again), and a list
+ * given to a server with {@code setAccessControl} is left for the caller to close. A list the
+ * launcher's servers share is closed with the launcher's {@link ServerContext}.
  */
-public interface IAccessControlList {
+public interface IAccessControlList extends Closeable {
 
 	/**
 	 * Do any work that needs to be done to initialize this controller
@@ -177,6 +180,19 @@ public interface IAccessControlList {
 	 */
 	default ScramCredentials getScramCredentials(String user, String hash) throws AccessControlUnavailableException {
 		return null;
+	}
+
+	/**
+	 * Let go of what the list holds (a database's connections, say). A closed list isn't used
+	 * again; closing it twice does nothing. See the class comment for who closes a list.
+	 * <p>
+	 * The default does nothing, for lists that hold nothing.
+	 *
+	 * @throws IOException if something couldn't be released (the list is closed anyway)
+	 * @since 2.0.0
+	 */
+	@Override
+	default void close() throws IOException {
 	}
 
 }

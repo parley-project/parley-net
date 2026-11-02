@@ -556,6 +556,7 @@ public class TestSasl {
 		}
 		assertNull(svr.getVerifiedPrincipal("nobody"));
 		assertNull(svr.getVerifiedPrincipal(null));
+		acl.close(); // the test made it: the server leaves a list it was given alone
 	}
 
 	@Test

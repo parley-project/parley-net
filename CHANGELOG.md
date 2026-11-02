@@ -2,6 +2,14 @@
 
 ## parley-net 2.0.0 (unreleased)
 
+### Changed (2026-11-02: closing an access control list, To-Do 3.3)
+
+- **`IAccessControlList` is `Closeable`**: `close()` lets go of what a list holds (a database's connections, say);
+  the default does nothing. Whoever made a list closes it: `Server` and `NioServer` close the list they made from the
+  `authenticationProvider` setting when they stop (and make a new one at the next start), and when it is replaced
+  with `setAccessControl`; a list given with `setAccessControl` is the caller's and isn't closed. A list the
+  launcher's servers share (`ServerContext.shared`) is closed with the context.
+
 ### Changed (2026-11-02: IPrincipal split, To-Do 3.2, and groups for mailbox ACLs, To-Do 3.4)
 
 - **`IPrincipal` is the user's identity only** (name, permissions, parameters, state) and gains `getGroups()`.
