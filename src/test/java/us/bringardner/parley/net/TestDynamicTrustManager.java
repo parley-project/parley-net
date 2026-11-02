@@ -88,7 +88,7 @@ public class TestDynamicTrustManager {
 	@BeforeAll
 	public static void setup() throws Exception {
 		File home = ServerTestSupport.useTestHome();
-		trustFile = new File(home, ".bjlTructed");
+		trustFile = new File(new File(home, ".parley"), "trusted-certificates");
 		chain = new X509Certificate[] {ServerTestSupport.certificate()};
 	}
 

@@ -2,6 +2,14 @@
 
 ## parley-net 2.0.0 (unreleased)
 
+### Changed (2026-11-02: durations and the trusted-certificates file, To-Do 2.19)
+
+- **Times are durations** (parley-core's `30s`, `5m`; a bare number is ms): a server's `frameTimeout`, a client's
+  `readTimeout` and `connectTimeout`, and the access control list's `parley.net.acl.hashWait` (was `hashWaitMs`)
+  and `parley.net.acl.reloadInterval` (was `reloadSeconds`, in seconds).
+- **Approved server certificates are kept in `~/.parley/trusted-certificates`**, or the file the new system
+  property `parley.net.client.trustFile` names. 1.x's `~/.bjlTructed` is not read: servers are approved again.
+
 ### Changed (2026-11-01: parley.servers says which servers run, To-Do 2.12)
 
 - **A listed server that can't run with its settings is skipped with a warning**: `ServerProvider.unavailable(configuration)`

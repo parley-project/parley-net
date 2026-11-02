@@ -132,7 +132,8 @@ certificate must match the host name. For self-signed certificates either
 
 - set a `CertificateValidator` with `DynamicTrustManager.setDefaultValidator(...)`. It is asked
   about unknown certificates and can accept once or always. `VisualCertificateValidator` asks the
-  user in a dialog. Approvals are stored in `~/.bjlTructed` and apply only to that host;
+  user in a dialog. Approvals are stored in `~/.parley/trusted-certificates` (or the file the system property
+  `parley.net.client.trustFile` names) and apply only to that host;
 - or give the client your own trust managers with `client.setContext(...)`;
 - or, for testing only, `client.setTrustAllCertificates(true)`.
 
@@ -167,7 +168,7 @@ the old password would still let it in). A plain text password serves SCRAM as i
 can't fall back to a password for a user who has no SCRAM credentials.
 
 `FileBasedAcl` notices when its file changes (`initialize(File)` reads a file without a property naming it) (checked at most every 15 seconds, set by
-`parley.net.acl.reloadSeconds`; 0 turns it off) and reads it again, so users added or
+`parley.net.acl.reloadInterval`, a duration such as `15s`; 0 turns it off) and reads it again, so users added or
 removed take effect without a restart. A file that can't be read keeps the users it had.
 
 To keep users in a database instead, see parley-net-acl-jdbc.
@@ -404,10 +405,10 @@ list of servers without providers.
 | Maximum concurrent clients | unlimited | `Server.setMaxClients(n)`, `setServerBusyMessage("421 ...")` |
 | Connections per client address | unlimited | `setMaxConnectionsPerClient(n)` or the `maxConnectionsPerClient` property (`Server` and `NioServer`) |
 | Client addresses allowed | everyone | `setAllowedClients("127.0.0.1 10.0.0.0/8")` or the `allowedClients` property; others are closed at once |
-| NIO frame time limit | none | `NioServer.setFrameTimeout(ms)` or the `frameTimeout` property: a frame must arrive within this once it has started |
+| NIO frame time limit | none | `NioServer.setFrameTimeout(ms)` or the `frameTimeout` property (a duration, `30s`): a frame must arrive within this once it has started |
 | Longest line | 64 KiB | `Connection.setDefaultMaxLineLength(n)` or `setMaxLineLength(n)`, 0 = none |
-| Client read time-out | 5 min | `client.setTimeout(ms)`, `Client.setDefaultReadTimeout(ms)`, or the `readTimeout` property |
-| Client connect time-out | 30 s | `client.setConnectTimeout(ms)` or the `connectTimeout` property |
+| Client read time-out | 5 min | `client.setTimeout(ms)`, `Client.setDefaultReadTimeout(ms)`, or the `readTimeout` property (a duration, `5m`) |
+| Client connect time-out | 30 s | `client.setConnectTimeout(ms)` or the `connectTimeout` property (a duration, `30s`) |
 | TCP_NODELAY | on | `setTcpNoDelay(false)` on `Server` or `Client` |
 | SO_REUSEADDR | on | `Server.setReuseAddress(false)` |
 | Listen address | every address | `setBindAddr(address)` or the `bindAddress` property (`Server` and `NioServer`) |

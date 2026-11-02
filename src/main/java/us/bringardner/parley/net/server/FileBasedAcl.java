@@ -52,7 +52,7 @@ import us.bringardner.parley.io.IoUtils;
  * since a client that picks SCRAM can't fall back to a password for a user who can't.
  * <p>
  * A user file on the file system is read again when it changes (checked at most every
- * {@value #PROP_RELOAD_SECONDS} seconds, default 15), so users can be added, removed or given new
+ * {@value #PROP_RELOAD_INTERVAL}, default 15s), so users can be added, removed or given new
  * passwords while the server runs. If the new file can't be read, the users read before stay.
  *
  * <PRE>
@@ -93,15 +93,29 @@ public class FileBasedAcl extends BaseObject implements IAccessControlList {
 	 */
 	/** System property: how many password hashes may run at once (default: half the cores, at least 1) */
 	public static final String PROP_MAX_CONCURRENT_HASHES = "parley.net.acl.maxConcurrentHashes";
-	/** System property: ms a login waits for its turn before it fails (default 30000) */
-	public static final String PROP_HASH_WAIT_MS = "parley.net.acl.hashWaitMs";
+	/** System property: how long a login waits for its turn before it fails, a duration (default 30s) */
+	public static final String PROP_HASH_WAIT = "parley.net.acl.hashWait";
 	public static final int DEFAULT_HASH_WAIT_MS = 30000;
 
 	private static volatile int maxConcurrentHashes = Math.max(1, Integer.getInteger(PROP_MAX_CONCURRENT_HASHES,
 			Runtime.getRuntime().availableProcessors() / 2));
 	private static volatile Semaphore hashPermits = new Semaphore(maxConcurrentHashes, true);
-	private static volatile long hashWaitMs = Math.max(0, Long.getLong(PROP_HASH_WAIT_MS, DEFAULT_HASH_WAIT_MS));
+	private static volatile long hashWaitMs = systemDuration(PROP_HASH_WAIT, DEFAULT_HASH_WAIT_MS);
 	private static final AtomicInteger hashesInProgress = new AtomicInteger();
+
+	/** A duration system property (see parley-core's Durations), or the default when it isn't set or isn't one */
+	private static long systemDuration(String name, long defaultMillis) {
+		String v = System.getProperty(name);
+		if( v == null || v.trim().isEmpty() ) {
+			return defaultMillis;
+		}
+		try {
+			return us.bringardner.parley.core.util.Durations.parse(v);
+		} catch (IllegalArgumentException e) {
+			System.err.println("Invalid "+name+": "+e.getMessage()+". Using "+us.bringardner.parley.core.util.Durations.format(defaultMillis));
+			return defaultMillis;
+		}
+	}
 
 	/** @return how many password hashes may run at once */
 	public static int getMaxConcurrentHashes() {
@@ -303,12 +317,12 @@ public class FileBasedAcl extends BaseObject implements IAccessControlList {
 	private volatile boolean hasHashedPasswords = false;
 
 	/**
-	 * System property: how often (seconds) the user file is checked for changes, so users added or
-	 * changed while a server runs can log in without a restart; 0 never checks. Default 15.
+	 * System property: how often the user file is checked for changes, a duration, so users added or
+	 * changed while a server runs can log in without a restart; 0 never checks. Default 15s.
 	 * @since 2.0.0
 	 */
-	public static final String PROP_RELOAD_SECONDS = "parley.net.acl.reloadSeconds";
-	public static final int DEFAULT_RELOAD_SECONDS = 15;
+	public static final String PROP_RELOAD_INTERVAL = "parley.net.acl.reloadInterval";
+	public static final long DEFAULT_RELOAD_INTERVAL_MS = 15_000;
 	/** The user file when it was read from the file system (not a class path resource), else null */
 	private volatile File sourceFile;
 	private volatile long sourceModified;
@@ -352,7 +366,7 @@ public class FileBasedAcl extends BaseObject implements IAccessControlList {
 	}
 
 	/**
-	 * Read the users from this file (and again whenever it changes, see {@link #PROP_RELOAD_SECONDS}),
+	 * Read the users from this file (and again whenever it changes, see {@link #PROP_RELOAD_INTERVAL}),
 	 * without a property naming it.
 	 *
 	 * @throws IOException if the file can't be read
@@ -397,7 +411,7 @@ public class FileBasedAcl extends BaseObject implements IAccessControlList {
 
 	/**
 	 * Read the user file again if it changed since it was read (checked at most every
-	 * {@value #PROP_RELOAD_SECONDS} seconds). If it can't be read, the users read before stay.
+	 * {@value #PROP_RELOAD_INTERVAL}). If it can't be read, the users read before stay.
 	 *
 	 * @return true if the users were read again
 	 * @since 2.0.0
@@ -408,7 +422,7 @@ public class FileBasedAcl extends BaseObject implements IAccessControlList {
 			return false;
 		}
 		long now = System.currentTimeMillis();
-		long interval = getIntProperty(PROP_RELOAD_SECONDS, (int) DEFAULT_RELOAD_SECONDS) * 1000L;
+		long interval = getDuration(PROP_RELOAD_INTERVAL, DEFAULT_RELOAD_INTERVAL_MS);
 		if( interval <= 0 || now - lastCheck < interval ) {
 			return false;
 		}

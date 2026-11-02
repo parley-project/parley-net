@@ -551,7 +551,7 @@ public class NioServer extends AbstractCoreServer implements IBaseServer {
 	 */
 	public long getFrameTimeout() {
 		if( frameTimeout < 0 ) {
-			frameTimeout = Math.max(0, getIntProperty(propertyName(PROPERTY_FRAME_TIMEOUT), 0));
+			frameTimeout = Math.max(0, getDuration(propertyName(PROPERTY_FRAME_TIMEOUT), 0));
 		}
 		return frameTimeout;
 	}

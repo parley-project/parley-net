@@ -23,7 +23,7 @@ public class FileBasedAclReloadTest {
 	@AfterEach
 	public void clear() {
 		System.clearProperty("reloadTest." + FileBasedAcl.PROP_FILE_NAME);
-		System.clearProperty(FileBasedAcl.PROP_RELOAD_SECONDS);
+		System.clearProperty(FileBasedAcl.PROP_RELOAD_INTERVAL);
 	}
 
 	private static void write(File f, String text, long modified) throws Exception {
@@ -48,8 +48,8 @@ public class FileBasedAclReloadTest {
 		assertTrue(acl.getPrincipal("jose").authenticate("other".getBytes(StandardCharsets.UTF_8)));
 		assertFalse(acl.reloadNow(), "unchanged");
 
-		// checked by the lookups themselves, at most every reloadSeconds
-		System.setProperty(FileBasedAcl.PROP_RELOAD_SECONDS, "0");
+		// checked by the lookups themselves, at most every reloadInterval
+		System.setProperty(FileBasedAcl.PROP_RELOAD_INTERVAL, "0");
 		write(f, "jose , other , READ\n", t + 4000);
 		assertNotNull(acl.getPrincipal("tony"), "0: never checked");
 		assertTrue(acl.reloadNow());

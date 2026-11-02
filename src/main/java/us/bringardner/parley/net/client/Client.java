@@ -230,8 +230,8 @@ public class Client extends Connection implements IClient {
 		String value = getProperty(propertyName(name), null);
 		if( value != null ) {
 			try {
-				return Math.max(0, Integer.parseInt(value.trim()));
-			} catch (NumberFormatException e) {
+				return us.bringardner.parley.core.util.Durations.toIntMillis(us.bringardner.parley.core.util.Durations.parse(value));
+			} catch (IllegalArgumentException e) {
 				logError("Invalid "+name+" '"+value+"', using "+defaultValue);
 			}
 		}

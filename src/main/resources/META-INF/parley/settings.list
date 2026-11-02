@@ -6,11 +6,14 @@ parley.servers
 parley.servers.configFile
 
 # access control lists and locks
-parley.net.acl.hashWaitMs
+parley.net.acl.hashWait
 parley.net.acl.maxConcurrentHashes
-parley.net.acl.reloadSeconds
+parley.net.acl.reloadInterval
 parley.net.lock.allowUnsafe
 parley.net.lock.provider
+
+# clients: the file of approved server certificates (DynamicTrustManager)
+parley.net.client.trustFile
 
 # Every server's, under its prefix (Server, NioServer, IBaseServer, FileBasedAcl)
 <server>.frameTimeout

@@ -295,7 +295,7 @@ public class ServerTestSupport {
 	private static File testHome;
 
 	/**
-	 * DynamicTrustManager saves approvals in ${user.home}/.bjlTructed.
+	 * DynamicTrustManager saves approvals in ${user.home}/.parley/trusted-certificates.
 	 * Point user.home at a temporary directory so tests never touch the real file. The directory
 	 * is new for each test run (so approvals saved by an earlier run can't leak in), shared by all
 	 * the tests in this run, and left in place afterwards so it can be inspected; the OS clears its

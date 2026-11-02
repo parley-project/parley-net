@@ -67,7 +67,8 @@ import us.bringardner.parley.core.util.Hex;
  * <li>the {@link CertificateValidator} approves it now.</li>
  * </ol>
  * 
- * Approvals are stored as "host|sha256-fingerprint~subject" in ~/.bjlTructed. 
+ * Approvals are stored as "host|sha256-fingerprint~subject" in ~/.parley/trusted-certificates, or the
+ * file the system property {@value #PROPERTY_TRUST_FILE} names. 1.x's ~/.bjlTructed is not read.
  * Entries written by earlier versions (keyed by the certificate signature only) are 
  * still honored for any host so users are not asked again, new approvals are always host specific.
  * 
@@ -76,6 +77,13 @@ import us.bringardner.parley.core.util.Hex;
  * by the delegated JVM trust manager (step 1) or implied by the host specific approval (step 2).
  */
 public class DynamicTrustManager extends X509ExtendedTrustManager {
+
+	/**
+	 * System property: the file the approved server certificates are kept in (default
+	 * ~/.parley/trusted-certificates; ~ is the user's home).
+	 * @since 2.0.0
+	 */
+	public static final String PROPERTY_TRUST_FILE = "parley.net.client.trustFile";
 
 	private static final BaseObject log = new BaseObject();
 	private static final String ANY_HOST = "*";
@@ -105,7 +113,11 @@ public class DynamicTrustManager extends X509ExtendedTrustManager {
 	private static synchronized void saveTrusted() throws IOException {
 		// Write a temp file and move it into place so a crash can't leave a truncated file.
 		File target = getPersistenceFile();
-		File tmp = new File(target.getParentFile(), target.getName()+".tmp");
+		File dir = target.getAbsoluteFile().getParentFile();
+		if( dir != null && !dir.isDirectory() && !dir.mkdirs() && !dir.isDirectory() ) {
+			throw new IOException("Can't make "+dir+" for the approved certificates");
+		}
+		File tmp = new File(dir, target.getName()+".tmp");
 		try(PrintStream out = new PrintStream(tmp)) {
 			for (Map.Entry<String, String> e : trusted.entrySet()) {
 				out.println(e.getKey()+"~"+e.getValue());
@@ -121,9 +133,18 @@ public class DynamicTrustManager extends X509ExtendedTrustManager {
 		}
 	}
 
-	private static File getPersistenceFile() {
-		File ret = new File(System.getProperty("user.home"),".bjlTructed");
-		return ret;
+	/** The file approvals are kept in: {@value #PROPERTY_TRUST_FILE}, else ~/.parley/trusted-certificates */
+	static File getPersistenceFile() {
+		String home = System.getProperty("user.home");
+		String f = System.getProperty(PROPERTY_TRUST_FILE);
+		if( f != null && !f.trim().isEmpty() ) {
+			f = f.trim();
+			if( f.equals("~") || f.startsWith("~/") || f.startsWith("~\\") ) {
+				f = home + f.substring(1);
+			}
+			return new File(f);
+		}
+		return new File(new File(home, ".parley"), "trusted-certificates");
 	}
 
 	/**
