@@ -171,6 +171,13 @@ can't fall back to a password for a user who has no SCRAM credentials.
 `parley.net.acl.reloadInterval`, a duration such as `15s`; 0 turns it off) and reads it again, so users added or
 removed take effect without a restart. A file that can't be read keeps the users it had.
 
+A user's groups are a `groups=` parameter, separated by `;`
+(`tony@bringardner.us, {PBKDF2}..., READ|WRITE, groups=sales@bringardner.us;support@bringardner.us`);
+`IPrincipal.getGroups()` returns them (mail servers match them against mailbox ACLs).
+
+A principal holds no secrets: the list checks them (`verifyPassword`, and `verifyApop` for POP3's APOP,
+which works only for users whose password is kept in plain text).
+
 To keep users in a database instead, see parley-net-acl-jdbc.
 
 A login command calls `processor.getServer().authenticate(user, password)` and

@@ -2,6 +2,17 @@
 
 ## parley-net 2.0.0 (unreleased)
 
+### Changed (2026-11-02: IPrincipal split, To-Do 3.2, and groups for mailbox ACLs, To-Do 3.4)
+
+- **`IPrincipal` is the user's identity only** (name, permissions, parameters, state) and gains `getGroups()`.
+  `authenticate`, `getCredentials` and `setCredentials` are gone: the access control list checks secrets, so they
+  never leave it. `IAccessControlList.verifyPassword(user, credentials)` (every list implements it),
+  `supportsApop()` and `verifyApop(user, timestamp, digest)` (RFC 1939 APOP; lists with plain text passwords use
+  `ApopDigest.matches`). `IBaseServer.checkApopLogin(user, timestamp, digest)`. `AbstractPrincipal.addGroup`/`setGroups`.
+- **`FileBasedAcl` groups**: the parameter `groups=` lists a user's groups, separated by `;`
+  (`groups=sales@bringardner.us;support@bringardner.us`); it is not kept as a parameter.
+- **`SaslPrep` moved here** (`us.bringardner.parley.net.sasl.SaslPrep`) from parley-mail.
+
 ### Changed (2026-11-02: durations and the trusted-certificates file, To-Do 2.19)
 
 - **Times are durations** (parley-core's `30s`, `5m`; a bare number is ms): a server's `frameTimeout`, a client's
