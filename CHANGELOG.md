@@ -3,6 +3,11 @@
 ## parley-net 2.0.0 (unreleased)
 
 
+### Changed (2026-11-03: ServerContext leaves the framework, To-Do 15.3)
+
+- **`ServerContext` moved to parley-mail-admin** with the launcher (what servers share is the application's choice),
+  without `making` / `getServerIdBeingMade`. The JMX domain of Parley's beans is `IBaseServer.JMX_DOMAIN`.
+
 ### Changed (2026-11-03: the launcher moved to parley-mail-admin)
 
 - **The multi-server launcher is no longer in the framework**: `ServerLauncher`, `ServerProvider`, `LaunchSettings`,

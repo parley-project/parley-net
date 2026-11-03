@@ -380,14 +380,10 @@ it, decides that).
   `ServerMain.confDir()`: `/etc/parley` (Windows `%ProgramData%\Parley`), or the folder of the file
   `PARLEY_CONF` names. It exits with 1 when the settings can't be read or a server can't start, and
   when the last running server stops by itself, so a service manager can restart it.
-- **What servers share in one JVM.** `ServerContext` holds the objects servers made together share
-  (`shared(key, type, make)`: a user list) and registers their JMX beans; parley-mail's servers use
-  it when an application makes them in one.
-
-Running several servers of different protocols together, choosing which run, what they share and
-how a failure is handled, is an application's job, not the framework's: the mail suite's launcher
-(providers found at run time, `parley.servers`, JMX management, one server never stopping another)
-is part of parley-mail-admin.
+Running several servers of different protocols together, choosing which run, what they share (a
+user list given to each with `setAccessControl`) and how a failure is handled, is an application's
+job, not the framework's. For an example that does (providers found at run time, `parley.servers`,
+JMX management, one server never stopping another), see parley-mail-admin.
 
 ## Configuration
 

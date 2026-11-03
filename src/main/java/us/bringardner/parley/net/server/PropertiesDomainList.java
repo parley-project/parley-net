@@ -40,8 +40,8 @@ import java.util.regex.Pattern;
 
 /**
  * A domain list kept in a properties file, as one setting that lists the domains separated by
- * commas or spaces: by default the {@code domains} setting of the mail queue's
- * {@code queue.properties}, so mail and DNS share one list.
+ * commas or spaces (by default the {@code domains} setting), so several servers reading the same
+ * file (DNS and mail, say) share one list.
  * <p>
  * Settings: {@code file} (required), the properties file; {@code key} (default {@code domains}),
  * the setting in it. A name that isn't a domain name is left out and reported by
