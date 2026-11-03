@@ -2,6 +2,17 @@
 
 ## parley-net 2.0.0 (unreleased)
 
+
+### Changed (2026-11-03: the launcher moved to parley-mail-admin)
+
+- **The multi-server launcher is no longer in the framework**: `ServerLauncher`, `ServerProvider`, `LaunchSettings`,
+  `ParleyServerMBean`, `ParleyLauncherMBean`, `ServerMain.main` and `ServerMain.launch` moved to parley-mail-admin
+  (`us.bringardner.parley.mail.admin.server`, with the multi-server main as `LauncherMain`), the application that
+  decides which servers run together and how a failure is handled. `parley.servers` and `parley.servers.configFile`
+  are its settings now. parley-net keeps the one-process runner (`ServerMain.run`, `service`, `configure`,
+  `confDir`), `ServerContext` (what servers made together share, and their JMX beans), `ParleyConnection` and
+  `KnownSettings`.
+
 ### Added (2026-11-02: To-Do 3.6)
 
 - **`ServerContext.making(serverId, make)` and `getServerIdBeingMade()`**: the launcher makes each server knowing its

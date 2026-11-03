@@ -372,40 +372,22 @@ it, decides that).
   different values for the same name. parley-core's `BaseObject.setConfiguration` / `makeWith` give
   an object its settings (a server's processors and access control list read the same ones); an
   object with no configuration reads the system properties, as when it is alone in its JVM.
-- **Providers.** A server is offered by a `ServerProvider` (found with `ServiceLoader`, on the class
-  path or in a plugin folder): an id (`pop3`), the settings files it reads,
-  `create(context, configuration)` that makes it from its own configuration, and
-  `unavailable(configuration)`: why a listed server can't run with its settings (a server with
-  implicit TLS and no key store, say), so it is skipped with a warning and shown as OFF with that
-  reason while the others start; `warnings(configuration)` (a setting that is no longer read) are
-  printed when it starts. `enabled(configuration)` is for a provider with a setting of its own that
-  turns it off; which servers run is what `parley.servers` lists. A provider written before 2.0.0's configurations (`usesConfiguration()` false) still works:
-  for it the launcher sets the system properties from the files, as before. `ServerContext` holds
-  what the servers of one launcher share (`shared(key, type, make)`: a user list).
-- **One launcher.** `ServerMain.main` runs the servers `parley.servers` lists
-  (`parley.servers=smtp,submission,imap,pop3`), set on the command line, with `java -D`, or in
-  `CONF/parley-servers.properties` (or the file `parley.servers.configFile` names). A server's own
-  `main` calls `ServerMain.launch("Pop3Server", args, "pop3")`. An unknown id is an error that lists
-  the ids there are.
-- **Settings**: each server's configuration (`LaunchSettings.configuration(id)`), a later one
-  winning: the launcher's file, the server's shared files (the mail servers'
-  `parley-mail.properties`), its own file (`parley-pop3.properties`, or the file its `configFile`
-  property names), the JVM's `-D` options, then the command line (`-Dname=value` or `name value`).
-  A server never sees another server's own file. CONF is `ServerMain.confDir()`: `/etc/parley` (Windows `%ProgramData%\Parley`), or
-  the folder of the file `PARLEY_CONF` names.
-- **JMX.** Each server is a `us.bringardner.parley:type=Server,name=<id>` bean
-  (`ParleyServerMBean`: state, port, connections, start, stop, restart) and the process a
-  `us.bringardner.parley:type=Launcher,name=<name>` bean (`ParleyLauncherMBean`: servers, settings
-  files, startAll, stopAll, reloadSettings, shutdown), on the platform MBean server. A restart reads
-  the settings files again. Remote access is the JVM's own `-Dcom.sun.management.jmxremote.*`
-  settings.
-- **The process.** It exits with 1 when the settings can't be read or a server can't start, and
-  when the last running server stops by itself, so a service manager can restart it. A server
-  stopped with JMX doesn't end it; the launcher's `shutdown` does (exit 0), as does SIGTERM.
+- **One process for one protocol's servers.** `ServerMain.run(name, args, configProperty,
+  defaultFile, factory)` runs the servers a `main` makes (`ServerMain.service(server, name)` adapts
+  any `IBaseServer`) until the process is stopped. Settings: the command line (`-Dname=value` or
+  `name value`), the JVM's `-D` options, then the server's settings file (the one its `configFile`
+  property names, else `CONF/parley-NAME.properties`), read as system properties. CONF is
+  `ServerMain.confDir()`: `/etc/parley` (Windows `%ProgramData%\Parley`), or the folder of the file
+  `PARLEY_CONF` names. It exits with 1 when the settings can't be read or a server can't start, and
+  when the last running server stops by itself, so a service manager can restart it.
+- **What servers share in one JVM.** `ServerContext` holds the objects servers made together share
+  (`shared(key, type, make)`: a user list) and registers their JMX beans; parley-mail's servers use
+  it when an application makes them in one.
 
-`ServerLauncher` is the same thing without the process policy, for an application that runs servers
-in its own JVM. `ServerMain.run(name, args, configProperty, defaultFile, factory)` still runs a fixed
-list of servers without providers.
+Running several servers of different protocols together, choosing which run, what they share and
+how a failure is handled, is an application's job, not the framework's: the mail suite's launcher
+(providers found at run time, `parley.servers`, JMX management, one server never stopping another)
+is part of parley-mail-admin.
 
 ## Configuration
 

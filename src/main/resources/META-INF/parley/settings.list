@@ -1,10 +1,6 @@
 # The settings parley-net reads, for its servers' start-up check (KnownSettings: the format is
 # described there). Add a name here when code here starts reading it.
 
-# the launcher
-parley.servers
-parley.servers.configFile
-
 # access control lists and locks
 parley.net.acl.hashWait
 parley.net.acl.maxConcurrentHashes

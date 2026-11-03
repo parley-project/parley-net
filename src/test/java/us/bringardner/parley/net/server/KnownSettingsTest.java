@@ -19,7 +19,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -35,15 +34,6 @@ public class KnownSettingsTest {
 
 	@TempDir
 	File dir;
-
-	private ServerLauncher launcher;
-
-	@AfterEach
-	public void close() {
-		if (launcher != null) {
-			launcher.close();
-		}
-	}
 
 	@Test
 	public void namesAndPatterns() {
@@ -109,7 +99,7 @@ public class KnownSettingsTest {
 		KnownSettings k = KnownSettings.load();
 		assertTrue(k.isKnown("parley.core.forceTlsVersion"), "parley-core's");
 		assertTrue(k.isKnown("parley.files.lockDirectory"), "parley-files'");
-		assertTrue(k.isKnown("parley.servers"), "parley-net's");
+		assertTrue(k.isKnown("parley.net.acl.hashWait"), "parley-net's");
 		assertTrue(k.isKnown("parley.fake.port"), "a framework name under a test server's prefix");
 		assertFalse(k.isKnown("parley.fake.prot"));
 	}
@@ -143,25 +133,6 @@ public class KnownSettingsTest {
 		List<String> asked = new ArrayList<>(nio.asked());
 		assertTrue(asked.contains("parley.example.maxConnections"), asked.toString());
 		assertEquals(List.of(), k.undeclared(asked));
-	}
-
-	@Test
-	public void theLauncherWarnsAtStartAndOnAReload() throws Exception {
-		File own = new File(dir, "parley-fake.properties");
-		Files.write(own.toPath(), "parley.fake.value=own\nparley.fake.valeu=typo\nJPop3.port=110\n".getBytes(StandardCharsets.UTF_8));
-		String err = stderr(() -> {
-			launcher = ServerMain.launcher("FakeProcess", new String[] { "-Dparley.fake.famly=x" }, dir, "fake");
-			launcher.init();
-		});
-		assertTrue(err.contains("FakeProcess: warning: parley.fake.valeu (" + own.getPath() + ") is not a setting"), err);
-		assertTrue(err.contains("FakeProcess: warning: JPop3.port (" + own.getPath() + ") looks like a 1.x setting"), err);
-		assertTrue(err.contains("FakeProcess: warning: parley.fake.famly (the command line) is not a setting"), err);
-		assertFalse(err.contains("parley.fake.value "), "a known name isn't warned about: " + err);
-
-		Files.write(own.toPath(), "parley.fake.value=own\nparley.fake.other=x\n".getBytes(StandardCharsets.UTF_8));
-		err = stderr(() -> launcher.reloadSettings());
-		assertTrue(err.contains("parley.fake.other (" + own.getPath() + ") is not a setting"), err);
-		assertFalse(err.contains("valeu"), "fixed in the file: " + err);
 	}
 
 	/** A server started on its own (its main, through ServerMain.configure) is checked too */
