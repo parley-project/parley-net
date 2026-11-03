@@ -109,7 +109,12 @@ public abstract  class AbstractCommandProcessor extends AbstractProcessor implem
 				logDebug("Line longer than "+e.getMaxLineLength()+" bytes, closing");
 				break;
 			} catch(IOException e) {
-				if( !isClosed(con) && !stopping ) {
+				if( isTlsHandshakeFailure(e) ) {
+					logTlsHandshakeFailure(e);
+				} else if( e instanceof java.net.SocketException ) {
+					//  the client went away (reset the connection): nothing wrong here
+					logDebug("Connection lost reading a request: "+e);
+				} else if( !isClosed(con) && !stopping ) {
 					logError("Error reading request",e);
 				}
 				break;
@@ -124,7 +129,9 @@ public abstract  class AbstractCommandProcessor extends AbstractProcessor implem
 				processLine(line, cmdUsed);
 			} catch(IOException e) {
 				//  Can't talk to the client any more
-				if( !isClosed(con) && !stopping ) {
+				if( isTlsHandshakeFailure(e) ) {
+					logTlsHandshakeFailure(e);
+				} else if( !isClosed(con) && !stopping ) {
 					logError("I/O error processing request",e);
 				}
 				break;
@@ -289,5 +296,49 @@ public abstract  class AbstractCommandProcessor extends AbstractProcessor implem
 	public boolean isTls() {
 		IConnection con = getConnection();
 		return con != null && con.isSecure();
+	}
+
+	/**
+	 * True if this is, or was caused by, a failed TLS handshake (implicit TLS, or after STARTTLS).
+	 * That is the client's doing: it hung up (a port check, a scanner), or offered nothing this
+	 * server accepts (an old protocol, no cipher in common). Servers log it as one line
+	 * ({@link #logTlsHandshakeFailure}), not as an error with a stack trace.
+	 *
+	 * @since 2.0.0
+	 */
+	public static boolean isTlsHandshakeFailure(Throwable e) {
+		return handshakeFailure(e) != null;
+	}
+
+	private static javax.net.ssl.SSLHandshakeException handshakeFailure(Throwable e) {
+		for (int depth = 0; e != null && depth < 20; depth++, e = e.getCause()) {
+			if (e instanceof javax.net.ssl.SSLHandshakeException) {
+				return (javax.net.ssl.SSLHandshakeException) e;
+			}
+		}
+		return null;
+	}
+
+	/**
+	 * Logs a failed TLS handshake ({@link #isTlsHandshakeFailure}) as one INFO line: the client's
+	 * address and why.
+	 *
+	 * @since 2.0.0
+	 */
+	protected void logTlsHandshakeFailure(Throwable e) {
+		javax.net.ssl.SSLHandshakeException h = handshakeFailure(e);
+		String why = h == null ? String.valueOf(e) : h.getMessage();
+		logInfo("TLS handshake with " + clientAddressText() + " failed: " + why);
+	}
+
+	private String clientAddressText() {
+		try {
+			IConnection con = getConnection();
+			java.net.Socket s = con == null ? null : con.getSocket();
+			java.net.InetAddress a = s == null ? null : s.getInetAddress();
+			return a == null ? "the client" : a.getHostAddress();
+		} catch (RuntimeException e) {
+			return "the client";
+		}
 	}
 }
