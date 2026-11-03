@@ -43,6 +43,12 @@ import us.bringardner.parley.net.IManagedThread;
 public interface IBaseServer extends IManagedThread {
 
 	/**
+	 * The JMX domain of Parley's management beans ({@code us.bringardner.parley:type=...,name=...})
+	 * @since 2.0.0
+	 */
+	String JMX_DOMAIN = "us.bringardner.parley";
+
+	/**
 	 * The server's own settings, given when it was made (see parley-core's
 	 * {@code BaseObject.setConfiguration}), or null when it reads the system properties; the
 	 * objects it makes (processors, its access control list) read the same settings.

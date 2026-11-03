@@ -35,8 +35,8 @@ import us.bringardner.parley.net.sasl.ScramCredentials;
  * <p>
  * A list is closed by whoever made it: a server closes the list it made from its
  * {@link IBaseServer#AUTHENTICATION_PROVIDER_PROPERTY} setting when it stops (and makes a new one if it starts again), and a list
- * given to a server with {@code setAccessControl} is left for the caller to close. A list the
- * launcher's servers share is closed with the launcher's {@link ServerContext}.
+ * given to a server with {@code setAccessControl} is left for the caller to close (an application
+ * that gives several servers one list closes it when they have all stopped).
  */
 public interface IAccessControlList extends Closeable {
 

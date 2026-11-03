@@ -1,11 +1,9 @@
 package us.bringardner.parley.net;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertSame;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.IOException;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -19,7 +17,6 @@ import us.bringardner.parley.net.server.IPrincipal;
 import us.bringardner.parley.net.server.IPermission;
 import us.bringardner.parley.net.server.IServer;
 import us.bringardner.parley.net.server.Server;
-import us.bringardner.parley.net.server.ServerContext;
 
 /**
  * IAccessControlList.close() (To-Do 3.3): a server closes the list it made from its provider
@@ -149,16 +146,5 @@ public class TestAccessControlClose {
 		ServerTestSupport.waitFor(() -> !server.isRunning(), 5000, "server did not stop");
 		assertEquals(0, given.closed.get(), "the server doesn't close a list it was given");
 		given.close();
-	}
-
-	@Test
-	public void aSharedListIsClosedWithTheContext() throws Exception {
-		ServerContext context = new ServerContext();
-		CountingAcl shared = context.shared("users", CountingAcl.class, CountingAcl::new);
-		assertSame(shared, context.shared("users", CountingAcl.class, CountingAcl::new));
-		assertFalse(shared.closed.get() > 0);
-		context.close();
-		assertEquals(1, shared.closed.get(), "an IAccessControlList is AutoCloseable, so the context closes it");
-		assertTrue(CountingAcl.made.get() > 0);
 	}
 }
