@@ -37,24 +37,25 @@ public class FileBasedAclReloadTest {
 		long t = System.currentTimeMillis() - 60000;
 		write(f, "tony , secret , READ\n", t);
 		System.setProperty("reloadTest." + FileBasedAcl.PROP_FILE_NAME, f.getPath());
-		FileBasedAcl acl = new FileBasedAcl();
-		acl.initialize("reloadTest");
-		assertNotNull(acl.getPrincipal("tony"));
-		assertNull(acl.getPrincipal("jose"));
+		try (FileBasedAcl acl = new FileBasedAcl()) {
+			acl.initialize("reloadTest");
+			assertNotNull(acl.getPrincipal("tony"));
+			assertNull(acl.getPrincipal("jose"));
 
-		write(f, "tony , secret , READ\njose , other , READ|WRITE\n", t + 2000);
-		assertTrue(acl.reloadNow());
-		assertNotNull(acl.getPrincipal("jose"));
-		assertTrue(acl.verifyPassword(acl.getPrincipal("jose"), "other".getBytes(StandardCharsets.UTF_8)));
-		assertFalse(acl.reloadNow(), "unchanged");
+			write(f, "tony , secret , READ\njose , other , READ|WRITE\n", t + 2000);
+			assertTrue(acl.reloadNow());
+			assertNotNull(acl.getPrincipal("jose"));
+			assertTrue(acl.verifyPassword(acl.getPrincipal("jose"), "other".getBytes(StandardCharsets.UTF_8)));
+			assertFalse(acl.reloadNow(), "unchanged");
 
-		// checked by the lookups themselves, at most every reloadInterval
-		System.setProperty(FileBasedAcl.PROP_RELOAD_INTERVAL, "0");
-		write(f, "jose , other , READ\n", t + 4000);
-		assertNotNull(acl.getPrincipal("tony"), "0: never checked");
-		assertTrue(acl.reloadNow());
-		assertNull(acl.getPrincipal("tony"), "removed");
-		assertEquals("jose", acl.getPrincipal("jose").getName());
+			// checked by the lookups themselves, at most every reloadInterval
+			System.setProperty(FileBasedAcl.PROP_RELOAD_INTERVAL, "0");
+			write(f, "jose , other , READ\n", t + 4000);
+			assertNotNull(acl.getPrincipal("tony"), "0: never checked");
+			assertTrue(acl.reloadNow());
+			assertNull(acl.getPrincipal("tony"), "removed");
+			assertEquals("jose", acl.getPrincipal("jose").getName());
+		}
 	}
 
 	@Test

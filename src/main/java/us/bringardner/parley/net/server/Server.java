@@ -47,15 +47,14 @@ import javax.net.ssl.SSLSocket;
 
 import us.bringardner.parley.core.BaseThread;
 import us.bringardner.parley.core.ILogger.Level;
+import us.bringardner.parley.core.NamedThreadFactory;
 import us.bringardner.parley.core.util.AbstractCoreServer;
+import us.bringardner.parley.io.IoUtils;
 import us.bringardner.parley.net.Connection;
 import us.bringardner.parley.net.IConnection;
 import us.bringardner.parley.net.IConnectionFactory;
 import us.bringardner.parley.net.IProcessor;
 import us.bringardner.parley.net.IProcessorFactory;
-import us.bringardner.parley.core.NamedThreadFactory;
-import us.bringardner.parley.core.SecureBaseObject;
-import us.bringardner.parley.io.IoUtils;
 
 public class Server extends AbstractCoreServer implements IServer {
 

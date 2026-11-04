@@ -493,7 +493,7 @@ public class TestSasl {
 
 	@Test
 	public void accessControlListsDontServeScramByDefault() throws Exception {
-		IAccessControlList none = new IAccessControlList() {
+		try (IAccessControlList none = new IAccessControlList() {
 			@Override
 			public void initialize(us.bringardner.parley.net.server.IServer server) {
 			}
@@ -512,11 +512,12 @@ public class TestSasl {
 			public boolean verifyPassword(IPrincipal user, byte[] credentials) {
 				return false;
 			}
-		};
-		assertFalse(none.supportsScram("SHA-256"));
-		assertFalse(none.supportsApop());
-		assertFalse(none.verifyApop(null, "<1@x>", "00"));
-		assertNull(none.getScramCredentials("bob", "SHA-256"));
+		}) {
+			assertFalse(none.supportsScram("SHA-256"));
+			assertFalse(none.supportsApop());
+			assertFalse(none.verifyApop(null, "<1@x>", "00"));
+			assertNull(none.getScramCredentials("bob", "SHA-256"));
+		}
 	}
 
 	@Test
