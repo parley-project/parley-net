@@ -275,6 +275,11 @@ on its own line (`group: sales@bringardner.us , key=val`). Only users can be mem
 `groups` and `enabled` are the file's own, not attributes. Users read from a class path resource can't
 be changed (`UnsupportedOperationException`).
 
+`FileUserRegistry` is also a parley-iam `PermissionManager`: `grant` and `revoke` change a user's permissions
+field, and `findGrants` lists it. The file keeps grants to users about the whole server only, so
+`supportsGrant(toGroup, onResource)` is true only for `(false, false)`, and other grants are refused
+(`IllegalArgumentException`).
+
 A principal holds no secrets: the registry checks passwords, and hands out a stored secret only for a
 proof the server runs (SCRAM credentials, and the plain text password for POP3's APOP, which works
 only for users whose password is kept in plain text).

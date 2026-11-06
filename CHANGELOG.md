@@ -2,6 +2,12 @@
 
 ## parley-net 2.0.0 (unreleased)
 
+### Changed (2026-11-06: grants managed through parley-iam)
+
+- **`FileUserRegistry` is a parley-iam `PermissionManager`**: `grant`, `revoke` and `findGrants` for a user's
+  permissions field (names ignore case). It keeps grants to users about the whole server only (`supportsGrant`);
+  a grant to a group or about one resource is refused.
+
 ### Changed (2026-11-06: users and groups found and managed through parley-iam)
 
 - **`FileUserRegistry` finds groups both ways**: `findGroups(principal)` (now parley-iam's `UserRegistry` method) and
