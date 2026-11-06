@@ -6,9 +6,6 @@ import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
-import java.util.Collection;
-import java.util.Collections;
-import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import org.junit.jupiter.api.AfterEach;
@@ -16,6 +13,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.function.Executable;
 
 import us.bringardner.parley.iam.AuthenticationResult;
+import us.bringardner.parley.iam.AuthorizationResult;
 import us.bringardner.parley.iam.Credential;
 import us.bringardner.parley.iam.EntityId;
 import us.bringardner.parley.iam.ParleyPermission;
@@ -74,13 +72,8 @@ public class TestUserRegistryClose {
 		}
 
 		@Override
-		public Set<ParleyPrincipal> findGroups(ParleyPrincipal principal) {
-			return Collections.emptySet();
-		}
-
-		@Override
-		public Collection<ParleyPermission> findPermissions(Requester requester, ParleyPrincipal holder, ProtectedResource resource) {
-			return Collections.emptyList();
+		public AuthorizationResult checkPermission(Requester requester, ParleyPermission needed, ProtectedResource resource) {
+			return AuthorizationResult.denied("nothing is granted");
 		}
 
 		@Override

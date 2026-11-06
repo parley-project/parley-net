@@ -29,8 +29,6 @@ import java.util.UUID;
 
 import us.bringardner.parley.iam.AuthenticationResult;
 import us.bringardner.parley.iam.AuthorizationResult;
-import us.bringardner.parley.iam.Authorizer;
-import us.bringardner.parley.iam.BasicAuthorizer;
 import us.bringardner.parley.iam.Credential;
 import us.bringardner.parley.iam.ParleyPermission;
 import us.bringardner.parley.iam.ParleyPrincipal;
@@ -51,7 +49,7 @@ import us.bringardner.parley.net.sasl.ScramMechanism;
  * <p>
  * It has a property prefix, a port, a life cycle that can be started and waited for, stopped and
  * joined (what {@link ServerMain} needs to run any server as a service), and a
- * {@link UserRegistry} that logs users in, with an {@link Authorizer} that decides what they may do.
+ * {@link UserRegistry} that logs users in and decides what they may do.
  *
  * @since 2.0.0
  * @author Tony Bringardner
@@ -250,8 +248,8 @@ public interface IBaseServer extends IManagedThread {
 	}
 
 	/**
-	 * May the requester do something? Asks {@link #getAuthorizer()}. A null permission (a
-	 * command that names none) is DENIED. With no user registry this throws
+	 * May the requester do something? The registry answers (rule 5); the server never compares
+	 * permissions itself. A null permission (a command that names none) is DENIED. With no user registry this throws
 	 * ({@link #requireUserRegistry()}).
 	 *
 	 * @param requester who is asking
@@ -264,12 +262,11 @@ public interface IBaseServer extends IManagedThread {
 		if( needed == null ) {
 			return AuthorizationResult.denied("no permission named");
 		}
-		Authorizer authorizer = getAuthorizer();
-		if( authorizer == null ) {
-			// nothing can decide: no registry, so this throws
-			requireUserRegistry();
+		AuthorizationResult result = requireUserRegistry().checkPermission(requester, needed, resource);
+		if( result == null ) {
+			return AuthorizationResult.unavailable("the user registry gave no answer");
 		}
-		return authorizer.check(requester, needed, resource);
+		return result;
 	}
 
 	/**
@@ -314,17 +311,4 @@ public interface IBaseServer extends IManagedThread {
 	 * @since 2.0.0
 	 */
 	void setUserRegistry(UserRegistry registry);
-
-	/**
-	 * @return the authorizer set with {@link #setAuthorizer(Authorizer)}, else a
-	 * {@link BasicAuthorizer} for {@link #getUserRegistry()}, else null when there is no registry
-	 * @since 2.0.0
-	 */
-	Authorizer getAuthorizer();
-
-	/**
-	 * @param authorizer the authorizer to use; null for the default
-	 * @since 2.0.0
-	 */
-	void setAuthorizer(Authorizer authorizer);
 }

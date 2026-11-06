@@ -42,7 +42,7 @@ protocols. It is on Maven Central, so no extra repository is needed:
 | `IConnectionFactory` → `Connection` | Wraps each socket; reads and writes lines (CR LF or LF). |
 | `IProcessorFactory` → `AbstractCommandProcessor` | Reads a line, finds the command, checks permission, runs it. |
 | `ICommandFactory` → `ICommand` | Your protocol: one `ICommand` per command. |
-| parley-iam's `UserRegistry` (`FileUserRegistry`, `PropertiesUserRegistry`) and `Authorizer` | Users, passwords, groups and permissions. |
+| parley-iam's `UserRegistry` (`FileUserRegistry`, `PropertiesUserRegistry`) | Users, passwords, groups and permissions. |
 
 | Client side | |
 |---|---|
@@ -142,7 +142,7 @@ certificate must match the host name. For self-signed certificates either
 ## Authentication and permissions
 
 Users, credentials and permissions are parley-iam's types (`UserRegistry`, `Credential`,
-`ParleyPrincipal`, `ParleyPermission`, `Requester`, `Authorizer`). Give a server a registry with
+`ParleyPrincipal`, `ParleyPermission`, `Requester`). Give a server a registry with
 `server.setUserRegistry(...)`, or name the class in the `authenticationProvider` property
 (`IBaseServer.AUTHENTICATION_PROVIDER_PROPERTY`). The server makes it with the class's public
 constructor that takes an `IBaseServer` when it has one (so it can read the server's settings),
@@ -206,8 +206,17 @@ session out. A challenge and response (APOP, SSH keys) is a `ProofCredential` wi
 `ProofVerifier` (`ApopVerifier` for APOP); the server gets the stored secret, runs the verifier without
 holding the registry, looks the principal up and tells the registry the outcome. Commands whose
 `requiresAuthorization()` is true run only when `checkPermission(command.getPermission(), null)` allows it
-(the server's `Authorizer`, by default a `BasicAuthorizer` over the registry; with no registry nothing is
-allowed); otherwise the client gets "not authorized".
+(the registry's `checkPermission` answers; the server never compares permissions itself). A denial is
+answered "not authorized" (`replyNotAuthorized`), and a registry that can't answer now gets a temporary error
+(`replyPermissionUnavailable`). Logging in or checking a permission with no registry is an
+`IllegalStateException` naming the `authenticationProvider` setting.
+
+The server applies the login limits itself. A refused login is answered only after `loginFailureDelay`
+(1 second by default), a successful one starts the count again, and an unavailable registry isn't counted.
+After `maxLoginAttempts` refusals (3 by default) the connection is closed once the reply to the last one has
+gone; a protocol adds a closing line of its own by overriding `replyTooManyLoginFailures()` (or
+`INioHandler.onTooManyLoginFailures` on a non-blocking server, which holds the reply instead of sleeping).
+A connection nobody has logged in to within `loginTimeLimit` (none by default) is closed.
 
 ## Session state, capabilities and SASL
 

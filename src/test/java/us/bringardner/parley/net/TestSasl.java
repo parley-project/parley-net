@@ -708,14 +708,9 @@ public class TestSasl {
 			}
 
 			@Override
-			public java.util.Set<ParleyPrincipal> findGroups(ParleyPrincipal principal) throws UserRegistryUnavailableException {
-				throw new UserRegistryUnavailableException("the database is down");
-			}
-
-			@Override
-			public java.util.Collection<ParleyPermission> findPermissions(Requester requester, ParleyPrincipal holder,
-					ProtectedResource resource) throws UserRegistryUnavailableException {
-				throw new UserRegistryUnavailableException("the database is down");
+			public AuthorizationResult checkPermission(Requester requester, ParleyPermission needed,
+					ProtectedResource resource) {
+				return AuthorizationResult.unavailable("the database is down");
 			}
 		};
 	}

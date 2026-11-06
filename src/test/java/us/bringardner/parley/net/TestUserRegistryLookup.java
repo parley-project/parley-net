@@ -1,8 +1,6 @@
 package us.bringardner.parley.net;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -13,12 +11,12 @@ import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
 
 import us.bringardner.parley.iam.AuthorizationResult;
-import us.bringardner.parley.iam.Authorizer;
 import us.bringardner.parley.iam.BasicParleyPermission;
 import us.bringardner.parley.iam.ParleyPermission;
 import us.bringardner.parley.iam.ProtectedResource;
 import us.bringardner.parley.iam.Requester;
 import us.bringardner.parley.iam.UserRegistry;
+import us.bringardner.parley.net.server.FileUserRegistry;
 import us.bringardner.parley.net.server.IServer;
 import us.bringardner.parley.net.server.Server;
 
@@ -72,16 +70,13 @@ public class TestUserRegistryLookup {
 			assertThrows(IllegalStateException.class, () -> svr.checkPermission(ServerTestSupport.requester(), read, null));
 		}
 		assertNull(svr.getUserRegistry());
-		assertNull(svr.getAuthorizer());
 		assertThrows(IllegalStateException.class, () -> ServerTestSupport.login(svr, "u", "pw"));
 		assertEquals(1, svr.lookups.get(), "provider property lookups");
 
-		// setting a registry is used at once, with a default authorizer for it
+		// setting a registry is used at once
 		UserRegistry registry = ServerTestSupport.registry("u, pw, read");
 		svr.setUserRegistry(registry);
 		assertSame(registry, svr.getUserRegistry());
-		assertNotNull(svr.getAuthorizer());
-		assertSame(svr.getAuthorizer(), svr.getAuthorizer(), "made once for a registry");
 
 		// clearing it looks at the property again, once
 		svr.setUserRegistry(null);
@@ -91,22 +86,28 @@ public class TestUserRegistryLookup {
 		assertEquals(2, svr.lookups.get(), "provider property lookups after clearing");
 	}
 
-	/** An authorizer that is set is used instead of the default, with or without a registry. */
+	/** The registry answers the check (rule 5); the server only passes its answer on. */
 	@Test
-	public void aGivenAuthorizerIsUsed() {
-		Server svr = new Server(0, "GivenAuthorizer-" + System.nanoTime());
-		Authorizer everything = new Authorizer() {
+	public void theRegistryDecides() {
+		Server svr = new Server(0, "RegistryDecides-" + System.nanoTime());
+		ParleyPermission x = new BasicParleyPermission("x", null);
+		svr.setUserRegistry(new FileUserRegistry() {
 			@Override
-			public AuthorizationResult check(Requester requester, ParleyPermission needed, ProtectedResource resource) {
-				return AuthorizationResult.allowed("everything");
+			public AuthorizationResult checkPermission(Requester requester, ParleyPermission needed, ProtectedResource resource) {
+				return AuthorizationResult.allowed("everything, even for nobody logged in");
 			}
-		};
-		svr.setAuthorizer(everything);
-		assertSame(everything, svr.getAuthorizer());
-		assertTrue(svr.checkPermission(ServerTestSupport.requester(), new BasicParleyPermission("x", null), null).isAllowed());
-		svr.setAuthorizer(null);
-		assertNull(svr.getAuthorizer(), "no registry, no default");
-		assertThrows(IllegalStateException.class,
-				() -> svr.checkPermission(ServerTestSupport.requester(), new BasicParleyPermission("x", null), null));
+		});
+		assertTrue(svr.checkPermission(ServerTestSupport.requester(), x, null).isAllowed());
+
+		svr.setUserRegistry(new FileUserRegistry() {
+			@Override
+			public AuthorizationResult checkPermission(Requester requester, ParleyPermission needed, ProtectedResource resource) {
+				return null;
+			}
+		});
+		assertEquals(AuthorizationResult.Status.UNAVAILABLE,
+				svr.checkPermission(ServerTestSupport.requester(), x, null).getStatus(), "no answer is not a denial");
+		assertEquals(AuthorizationResult.Status.DENIED, svr.checkPermission(ServerTestSupport.requester(), null, null).getStatus(),
+				"a command that names no permission");
 	}
 }

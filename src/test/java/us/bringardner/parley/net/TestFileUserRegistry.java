@@ -185,15 +185,15 @@ public class TestFileUserRegistry {
 
 		ParleyPrincipal p = in.getPrincipal();
 		assertEquals("user1", p.getName());
-		assertEquals(Arrays.asList("one","two","three","four","five"), ServerTestSupport.names(registry.findPermissions(nobody, p, null)));
+		assertEquals(Arrays.asList("one","two","three","four","five"), ServerTestSupport.names(((FileUserRegistry) registry).findPermissions(nobody, p, null)));
 		assertEquals("val3", p.getAttribute("key3"),"Wrong parameter value for key3");
 		assertEquals("val4", p.getAttribute("key4"),"Wrong parameter value for key4");
-		assertEquals(Collections.emptySet(), registry.findGroups(p));
+		assertEquals(Collections.emptySet(), ((FileUserRegistry) registry).findGroups(p));
 
 		in = ServerTestSupport.login(svr, "echoUser", "password");
 		assertEquals(AuthenticationResult.Status.AUTHENTICATED, in.getStatus(), "echoUser was not authenticated");
 		p = in.getPrincipal();
-		assertEquals(Arrays.asList("Echo","Login"), ServerTestSupport.names(registry.findPermissions(nobody, p, null)));
+		assertEquals(Arrays.asList("Echo","Login"), ServerTestSupport.names(((FileUserRegistry) registry).findPermissions(nobody, p, null)));
 		assertEquals("val1", p.getAttribute("key1"),"Wrong parameter value for key1");
 		assertEquals("val2", p.getAttribute("key2"),"Wrong parameter value for key2");
 	}

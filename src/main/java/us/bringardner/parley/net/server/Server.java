@@ -49,8 +49,6 @@ import us.bringardner.parley.core.BaseThread;
 import us.bringardner.parley.core.ILogger.Level;
 import us.bringardner.parley.core.NamedThreadFactory;
 import us.bringardner.parley.core.util.AbstractCoreServer;
-import us.bringardner.parley.iam.Authorizer;
-import us.bringardner.parley.iam.BasicAuthorizer;
 import us.bringardner.parley.iam.UserRegistry;
 import us.bringardner.parley.io.IoUtils;
 import us.bringardner.parley.net.Connection;
@@ -130,10 +128,6 @@ public class Server extends AbstractCoreServer implements IServer {
 	private volatile boolean noUserRegistry;
 	/** True when userRegistry was made here from the provider setting: it is closed when the server stops */
 	private volatile boolean ownsUserRegistry;
-	/** The authorizer given with setAuthorizer, or null for the default */
-	private volatile Authorizer authorizer;
-	/** The default authorizer and the registry it was made for */
-	private volatile DefaultAuthorizer defaultAuthorizer;
 	private String serverGreating;
 
 	/**
@@ -1325,40 +1319,6 @@ public class Server extends AbstractCoreServer implements IServer {
 			this.noUserRegistry = false;
 		}
 		close(old);
-	}
-
-	@Override
-	public Authorizer getAuthorizer() {
-		Authorizer given = authorizer;
-		if( given != null ) {
-			return given;
-		}
-		UserRegistry registry = getUserRegistry();
-		if( registry == null ) {
-			return null;
-		}
-		DefaultAuthorizer made = defaultAuthorizer;
-		if( made == null || made.registry != registry ) {
-			made = new DefaultAuthorizer(registry);
-			defaultAuthorizer = made;
-		}
-		return made.authorizer;
-	}
-
-	@Override
-	public void setAuthorizer(Authorizer authorizer) {
-		this.authorizer = authorizer;
-	}
-
-	/** A {@link BasicAuthorizer} and the registry it asks, so it is made again when the registry changes. */
-	private static final class DefaultAuthorizer {
-		final UserRegistry registry;
-		final Authorizer authorizer;
-
-		DefaultAuthorizer(UserRegistry registry) {
-			this.registry = registry;
-			this.authorizer = new BasicAuthorizer(registry);
-		}
 	}
 
 	/**

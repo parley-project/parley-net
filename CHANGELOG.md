@@ -2,6 +2,23 @@
 
 ## parley-net 2.0.0 (unreleased)
 
+### Changed (2026-11-06: the authorization rules of the parley-iam design)
+
+- **The registry answers the permission check** (rule 5): `checkPermission` asks `UserRegistry.checkPermission`.
+  Removed: `IBaseServer.getAuthorizer` / `setAuthorizer` (and parley-iam's `Authorizer`, `BasicAuthorizer` and
+  `BuiltInGroups`). `FileUserRegistry.findGroups` and `findPermissions` are its own methods now.
+- **No registry is an error** (rule 9): `authenticate`, `probe` and `checkPermission` throw
+  `IllegalStateException` naming the `authenticationProvider` setting instead of answering UNSUPPORTED or DENIED.
+- **UNAVAILABLE isn't "not authorized"** (rule 6): `AbstractCommandProcessor` answers it with
+  `replyPermissionUnavailable` (default a 400); a denial goes to `replyNotAuthorized`.
+- **Login limits applied by the framework** (rule 8): every login through a session's `authenticate` is counted
+  per connection (`LoginFailures`); a refusal is answered after `loginFailureDelay`, and after `maxLoginAttempts`
+  the connection is closed after the reply (`replyTooManyLoginFailures`, `INioHandler.onTooManyLoginFailures`).
+  The non-blocking server holds the reply instead of sleeping (`NioReactor.schedule`) and now applies
+  `loginTimeLimit`. Removed: `AbstractCommandProcessor.loginFailedDelay()`.
+- **One door for logging in** (rule 1): a session's `getRequester`, `getPrincipal`, `authenticate` and `logout`
+  are final.
+
 ### Changed (2026-11-05: users, logins and permissions come from parley-iam)
 
 - **parley-net uses parley-iam** for who users are and what they may do. Removed: `IAccessControlList`,
@@ -10,8 +27,7 @@
   methods `authenticate(String, byte[])`, `checkLogin`, `checkApopLogin`, `getVerifiedPrincipal`, `isAuthorized`,
   `getAccessControl` and `setAccessControl`.
 - **`IBaseServer`**: `getUserRegistry` / `setUserRegistry` (same ownership as before: a registry the server made
-  from `authenticationProvider` is closed when it stops; one given to it is the caller's), `getAuthorizer` /
-  `setAuthorizer` (default `BasicAuthorizer`), `authenticate(Credential)`, `probe(Credential)`,
+  from `authenticationProvider` is closed when it stops; one given to it is the caller's), `authenticate(Credential)`, `probe(Credential)`,
   `makeUpStoredCredential` and `checkPermission(Requester, ParleyPermission, ProtectedResource)`. The setting
   `authenticationProvider` keeps its name and now names a `UserRegistry` class, made with its `IBaseServer`
   constructor when it has one.

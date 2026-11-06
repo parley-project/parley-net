@@ -28,6 +28,7 @@ import javax.crypto.spec.PBEKeySpec;
 
 import us.bringardner.parley.core.BaseObject;
 import us.bringardner.parley.iam.AuthenticationResult;
+import us.bringardner.parley.iam.AuthorizationResult;
 import us.bringardner.parley.iam.BasicParleyPermission;
 import us.bringardner.parley.iam.BasicParleyPrincipal;
 import us.bringardner.parley.iam.Credential;
@@ -789,8 +790,28 @@ public class FileUserRegistry extends BaseObject implements UserRegistry {
 		return u.groupsById.get(id);
 	}
 
-	/** The groups the user's line names, in order; groups don't nest. */
+	/**
+	 * Allowed when the logged-in user's line lists a permission that covers the one needed
+	 * ({@link ParleyPermission#implies}). The permissions in the file are on the server as a
+	 * whole, so a check about a resource is denied; groups grant nothing, and nobody logged in
+	 * holds nothing.
+	 */
 	@Override
+	public AuthorizationResult checkPermission(Requester requester, ParleyPermission needed,
+			ProtectedResource resource) {
+		ParleyPrincipal principal = requester.getPrincipal();
+		if( principal == null ) {
+			return AuthorizationResult.denied("nobody logged in");
+		}
+		for (ParleyPermission permission : findPermissions(requester, principal, resource)) {
+			if( permission.implies(needed) ) {
+				return AuthorizationResult.allowed(principal.getName()+" holds "+permission);
+			}
+		}
+		return AuthorizationResult.denied(principal.getName()+" holds nothing that covers "+needed);
+	}
+
+	/** The groups the user's line names, in order; groups don't nest. */
 	public Set<ParleyPrincipal> findGroups(ParleyPrincipal principal) {
 		FileUser user = principal == null ? null : users.byId.get(principal.getId());
 		if( user == null ) {
@@ -800,10 +821,9 @@ public class FileUserRegistry extends BaseObject implements UserRegistry {
 	}
 
 	/**
-	 * The user's permissions, which are on the server as a whole: empty for a resource, for a
-	 * group and for the built-in groups.
+	 * The user's permissions, which are on the server as a whole: empty for a resource and for
+	 * a group.
 	 */
-	@Override
 	public Collection<ParleyPermission> findPermissions(Requester requester, ParleyPrincipal holder,
 			ProtectedResource resource) {
 		FileUser user = holder == null || resource != null ? null : users.byId.get(holder.getId());
