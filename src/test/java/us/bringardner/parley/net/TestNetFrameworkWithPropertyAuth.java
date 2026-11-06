@@ -36,17 +36,19 @@ import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import us.bringardner.parley.iam.AuthenticationResult;
+import us.bringardner.parley.iam.BasicParleyPermission;
+import us.bringardner.parley.iam.ParleyPermission;
+import us.bringardner.parley.iam.PasswordCredential;
 import us.bringardner.parley.net.client.CommandClient;
 import us.bringardner.parley.net.client.ICommandResponse;
 import us.bringardner.parley.net.server.AbstractCommandProcessor;
 import us.bringardner.parley.net.server.ICommand;
 import us.bringardner.parley.net.server.ICommandFactory;
 import us.bringardner.parley.net.server.ICommandProcessor;
-import us.bringardner.parley.net.server.IPermission;
-import us.bringardner.parley.net.server.IPrincipal;
 import us.bringardner.parley.net.server.IRequestContext;
 import us.bringardner.parley.net.server.IServer;
-import us.bringardner.parley.net.server.PropertyAuthenticator;
+import us.bringardner.parley.net.server.PropertiesUserRegistry;
 import us.bringardner.parley.net.server.Server;
 
 public class TestNetFrameworkWithPropertyAuth {
@@ -68,14 +70,8 @@ public class TestNetFrameworkWithPropertyAuth {
 			}
 
 			@Override
-			public IPermission getPermission() {
-				return new IPermission() {
-					
-					@Override
-					public String getName() {						
-						return LOGING_COMMAND;
-					}
-				};
+			public ParleyPermission getPermission() {
+				return new BasicParleyPermission(LOGING_COMMAND, null);
 			}
 			
 			@Override
@@ -96,12 +92,12 @@ public class TestNetFrameworkWithPropertyAuth {
 				}
 				String password = context.getNextToken();
 				
-				IPrincipal p = processor.getServer().authenticate(user, password.getBytes());
-				if( p == null ) {
+				AuthenticationResult result = processor.authenticate(
+						new PasswordCredential(user, password.toCharArray(), processor.getRequester()));
+				if( result.getStatus() != AuthenticationResult.Status.AUTHENTICATED ) {
 					processor.reply(REPLY_400_GENERIC_TEMPORARY_ERROR,"User not identified");
-					processor.setPrincipal(null);
+					processor.logout();
 				} else {
-					processor.setPrincipal(p);
 					processor.reply(REPLY_200_GENERIC_OK,"Ok");
 				}
 				
@@ -112,14 +108,8 @@ public class TestNetFrameworkWithPropertyAuth {
 			private static final long serialVersionUID = 1L;
 
 			@Override
-			public IPermission getPermission() {
-				return new IPermission() {
-					
-					@Override
-					public String getName() {
-						return ECHO_COMMAND;
-					}
-				};
+			public ParleyPermission getPermission() {
+				return new BasicParleyPermission(ECHO_COMMAND, null);
 			}
 			
 			@Override
@@ -153,7 +143,7 @@ public class TestNetFrameworkWithPropertyAuth {
 		// 0 = any free port, so tests don't collide with each other or other programs
 		int port = 0;
 		String serverName = "EchoServer";
-		System.setProperty(serverName+"."+IServer.AUTHENTICATION_PROVIDER_PROPERTY, PropertyAuthenticator.class.getCanonicalName());
+		System.setProperty(serverName+"."+IServer.AUTHENTICATION_PROVIDER_PROPERTY, PropertiesUserRegistry.class.getCanonicalName());
 		System.setProperty(serverName+".user0", "echoUser,password,"+ECHO_COMMAND);
 		
 		/**

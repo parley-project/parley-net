@@ -25,6 +25,8 @@
 package us.bringardner.parley.net.nio;
 
 import java.io.IOException;
+import java.net.InetAddress;
+import java.net.InetSocketAddress;
 import java.net.SocketAddress;
 import java.nio.ByteBuffer;
 import java.nio.channels.ClosedChannelException;
@@ -49,9 +51,12 @@ import javax.net.ssl.SSLException;
 import javax.net.ssl.SSLSession;
 
 import us.bringardner.parley.core.BaseObject;
+import us.bringardner.parley.iam.AuthenticationResult;
+import us.bringardner.parley.iam.Credential;
+import us.bringardner.parley.iam.ParleyPrincipal;
+import us.bringardner.parley.iam.Requester;
 import us.bringardner.parley.io.IoUtils;
 import us.bringardner.parley.net.server.Server;
-import us.bringardner.parley.net.server.IPrincipal;
 
 /**
  * A connection on a non-blocking SocketChannel, served by one {@link NioReactor}.
@@ -87,7 +92,9 @@ public class NioConnection extends BaseObject implements INioConnection {
 	private final long maxIdleTime;
 	private final Map<String,Object> attributes = new ConcurrentHashMap<String, Object>();
 	private volatile IFrameDecoder decoder;
-	private volatile IPrincipal principal;
+	/** Who is asking; made on first use, guarded by requesterLock */
+	private Requester requester;
+	private final Object requesterLock = new Object();
 	private volatile SelectionKey key;
 	private volatile CompletableFuture<INioConnection> connectFuture;
 	private final TlsLayer.EngineFactory engineFactory;
@@ -394,14 +401,61 @@ public class NioConnection extends BaseObject implements INioConnection {
 		scheduleProcess();
 	}
 
+	/** Made on first use; says the connection is secure once TLS has started. */
 	@Override
-	public IPrincipal getPrincipal() {
-		return principal;
+	public Requester getRequester() {
+		synchronized (requesterLock) {
+			boolean secure = isSecure();
+			if( requester == null ) {
+				InetAddress client = null;
+				SocketAddress remote = getRemoteAddress();
+				if( remote instanceof InetSocketAddress ) {
+					client = ((InetSocketAddress) remote).getAddress();
+				}
+				int localPort = 0;
+				SocketAddress local = getLocalAddress();
+				if( local instanceof InetSocketAddress ) {
+					localPort = ((InetSocketAddress) local).getPort();
+				}
+				String serverName = server == null || server.getPropertyPrefix() == null ? "" : server.getPropertyPrefix();
+				requester = Requester.connected(client, localPort, secure, Requester.Transport.TCP, serverName);
+			} else if( requester.isSecure() != secure ) {
+				requester = requester.withSecure(secure);
+			}
+			return requester;
+		}
+	}
+
+	/** Not logged in until the principal is known; a client connection has no server to ask. */
+	@Override
+	public AuthenticationResult authenticate(Credential credential) {
+		if( server == null ) {
+			return AuthenticationResult.unsupported("a client connection");
+		}
+		AuthenticationResult result = server.authenticate(credential);
+		if( result.getStatus() == AuthenticationResult.Status.AUTHENTICATED ) {
+			synchronized (requesterLock) {
+				requester = getRequester().loggedIn(result);
+			}
+		}
+		return result;
 	}
 
 	@Override
-	public void setPrincipal(IPrincipal principal) {
-		this.principal = principal;
+	public void logout() {
+		synchronized (requesterLock) {
+			if( requester != null ) {
+				requester = requester.loggedOut();
+			}
+		}
+	}
+
+	/** Doesn't make a requester just to say nobody is logged in. */
+	@Override
+	public ParleyPrincipal getPrincipal() {
+		synchronized (requesterLock) {
+			return requester == null ? null : requester.getPrincipal();
+		}
 	}
 
 	@Override

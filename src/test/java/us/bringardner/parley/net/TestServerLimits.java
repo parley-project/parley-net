@@ -303,7 +303,7 @@ public class TestServerLimits {
 	@Test
 	public void testLoginTimeLimit() throws Exception {
 		TestServer svr = ServerTestSupport.create("LoginLimitServer", ServerTestSupport.standardCommands(), null);
-		svr.setAccessControl(ServerTestSupport.acl("bob, bobpw, Secret"));
+		svr.setUserRegistry(ServerTestSupport.registry("bob, bobpw, Secret"));
 		svr.setLoginTimeLimit(500);
 		ServerTestSupport.start(svr);
 		try (CommandClient idle = ServerTestSupport.connect(svr); CommandClient user = ServerTestSupport.connect(svr)) {

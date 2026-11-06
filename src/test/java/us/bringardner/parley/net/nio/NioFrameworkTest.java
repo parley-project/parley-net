@@ -26,9 +26,11 @@ import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
-import us.bringardner.parley.net.server.IPrincipal;
-import us.bringardner.parley.net.server.Permission;
-import us.bringardner.parley.net.server.PropertyAuthenticator;
+import us.bringardner.parley.iam.AuthenticationResult;
+import us.bringardner.parley.iam.BasicParleyPermission;
+import us.bringardner.parley.iam.ParleyPrincipal;
+import us.bringardner.parley.iam.PasswordCredential;
+import us.bringardner.parley.net.server.PropertiesUserRegistry;
 
 /**
  * <PRE>
@@ -294,11 +296,11 @@ public class NioFrameworkTest {
 		}
 	}
 
-	/** Login with the framework's PropertyAuthenticator, then check permissions per connection */
+	/** Login with the framework's PropertiesUserRegistry, then check permissions per connection */
 	@Test
 	public void accessControl() throws Exception {
 		String name = "nio-auth-test";
-		System.setProperty(name+"."+NioServer.AUTHENTICATION_PROVIDER_PROPERTY, PropertyAuthenticator.class.getName());
+		System.setProperty(name+"."+NioServer.AUTHENTICATION_PROVIDER_PROPERTY, PropertiesUserRegistry.class.getName());
 		System.setProperty(name+".user0", "alice, secret, shell|sftp");
 		try {
 			server = new NioServer(0, name);
@@ -307,11 +309,15 @@ public class NioFrameworkTest {
 			server.setHandlerFactory(() -> (connection, frame) -> {
 				String[] parts = LineFrameDecoder.toString(frame).split(" ");
 				if( parts[0].equals("LOGIN") ) {
-					IPrincipal user = connection.getServer().authenticate(parts[1], parts[2].getBytes(StandardCharsets.UTF_8));
-					connection.setPrincipal(user);
-					connection.writeLine(user == null ? "denied" : "welcome "+user.getName());
+					AuthenticationResult result = connection.authenticate(
+							new PasswordCredential(parts[1], parts[2].toCharArray(), connection.getRequester()));
+					ParleyPrincipal user = connection.getPrincipal();
+					connection.writeLine(result.getStatus() != AuthenticationResult.Status.AUTHENTICATED ? "denied" : "welcome "+user.getName());
+				} else if( parts[0].equals("LOGOUT") ) {
+					connection.logout();
+					connection.writeLine("bye");
 				} else {
-					connection.writeLine(connection.isAuthorized(new Permission(parts[1])) ? "yes" : "no");
+					connection.writeLine(connection.checkPermission(new BasicParleyPermission(parts[1], null), null).isAllowed() ? "yes" : "no");
 				}
 			});
 			server.startAndWait(5000);
@@ -331,6 +337,10 @@ public class NioFrameworkTest {
 			assertEquals("yes", c.nextLine());
 			con.writeLine("CAN admin");
 			assertEquals("no", c.nextLine());
+			con.writeLine("LOGOUT");
+			assertEquals("bye", c.nextLine());
+			con.writeLine("CAN shell");
+			assertEquals("no", c.nextLine(), "logged out");
 		} finally {
 			System.clearProperty(name+"."+NioServer.AUTHENTICATION_PROVIDER_PROPERTY);
 			System.clearProperty(name+".user0");

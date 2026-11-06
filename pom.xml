@@ -179,6 +179,13 @@
 			<version>${project.version}</version>
 		</dependency>
 
+		<!-- principals, credentials, permissions and the user registry servers log users in with -->
+		<dependency>
+			<groupId>us.bringardner.parley</groupId>
+			<artifactId>parley-iam</artifactId>
+			<version>${project.version}</version>
+		</dependency>
+
 		<dependency>
 			<groupId>org.junit.jupiter</groupId>
 			<artifactId>junit-jupiter</artifactId>

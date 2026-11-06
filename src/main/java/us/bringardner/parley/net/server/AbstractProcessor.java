@@ -24,10 +24,16 @@
  */
 package us.bringardner.parley.net.server;
 
+import java.net.InetAddress;
+import java.net.Socket;
 import java.util.HashMap;
 import java.util.Map;
 
 import us.bringardner.parley.core.BaseThread;
+import us.bringardner.parley.iam.AuthenticationResult;
+import us.bringardner.parley.iam.Credential;
+import us.bringardner.parley.iam.ParleyPrincipal;
+import us.bringardner.parley.iam.Requester;
 import us.bringardner.parley.net.IConnection;
 import us.bringardner.parley.net.IProcessor;
 
@@ -37,7 +43,9 @@ public abstract class AbstractProcessor extends BaseThread implements IProcessor
 	private IConnection connection;
 	private IServer server;
 	private Map<String, Object> sessionValues = new HashMap<String, Object>();
-	private IPrincipal principal;
+	/** Who is asking; made on first use, guarded by requesterLock */
+	private Requester requester;
+	private final Object requesterLock = new Object();
 	private volatile String pendingGreeting;
 	
 	public AbstractProcessor() {
@@ -51,23 +59,56 @@ public abstract class AbstractProcessor extends BaseThread implements IProcessor
 
 	
 	
-	public IPrincipal getPrincipal() {
-		return principal;
+	/** Made on first use from the connection; says the connection is secure once TLS has started. */
+	@Override
+	public Requester getRequester() {
+		synchronized (requesterLock) {
+			IConnection con = getConnection();
+			boolean secure = con != null && con.isSecure();
+			if( requester == null ) {
+				Socket socket = con == null ? null : con.getSocket();
+				InetAddress client = socket == null ? null : socket.getInetAddress();
+				int localPort = socket == null ? 0 : socket.getLocalPort();
+				IServer svr = getServer();
+				String serverName = svr == null || svr.getPropertyPrefix() == null ? "" : svr.getPropertyPrefix();
+				requester = Requester.connected(client, localPort, secure, Requester.Transport.TCP, serverName);
+			} else if( requester.isSecure() != secure ) {
+				requester = requester.withSecure(secure);
+			}
+			return requester;
+		}
 	}
 
-
-
-	public void setPrincipal(IPrincipal principal) {
-		this.principal = principal;
+	/** Doesn't make a requester just to say nobody is logged in. */
+	@Override
+	public ParleyPrincipal getPrincipal() {
+		synchronized (requesterLock) {
+			return requester == null ? null : requester.getPrincipal();
+		}
 	}
 
+	@Override
+	public AuthenticationResult authenticate(Credential credential) {
+		IServer svr = getServer();
+		if( svr == null ) {
+			return AuthenticationResult.unsupported("no server");
+		}
+		AuthenticationResult result = svr.authenticate(credential);
+		if( result.getStatus() == AuthenticationResult.Status.AUTHENTICATED ) {
+			synchronized (requesterLock) {
+				requester = getRequester().loggedIn(result);
+			}
+		}
+		return result;
+	}
 
-
-	/*
-	 * @see us.bringardner.parley.net.IProcessor#isAuthorized(IPermission)
-	 */
-	public boolean isAuthorized(IPermission action) {
-		return getServer().isAuthorized(getPrincipal(), action);
+	@Override
+	public void logout() {
+		synchronized (requesterLock) {
+			if( requester != null ) {
+				requester = requester.loggedOut();
+			}
+		}
 	}
 
 	public void setServer(IServer server) {
@@ -79,8 +120,12 @@ public abstract class AbstractProcessor extends BaseThread implements IProcessor
 		}
 	}
 
+	/** A new connection has a new requester, with nobody logged in. */
 	public void setConnection(IConnection connection) {
 		this.connection = connection;
+		synchronized (requesterLock) {
+			requester = null;
+		}
 	}
 
 	public IConnection getConnection() {

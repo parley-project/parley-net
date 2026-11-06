@@ -34,6 +34,7 @@ import java.net.SocketTimeoutException;
 import java.util.Map;
 import java.util.TreeMap;
 
+import us.bringardner.parley.iam.ParleyPermission;
 import us.bringardner.parley.net.IConnection;
 import us.bringardner.parley.net.IGenericResponseCode;
 
@@ -190,15 +191,17 @@ public abstract  class AbstractCommandProcessor extends AbstractProcessor implem
 					&& command instanceof IStatefulCommand 
 					&& !states.isValid((IStatefulCommand<?>) command)) {
 				replyInvalidState(command, states);
-			} else if(!command.requiresAuthorization() 
-					|| 
-					isAuthorized(command.getPermission()) 
-					){
+			} else if(!command.requiresAuthorization() || isAllowed(command.getPermission())){
 				command.execute(this,context);
 			} else {
 				reply(IGenericResponseCode.REPLY_500_GENERIC_ERROR, command.getName()+" not authorized");
 			}
 		}
+	}
+
+	/** @return true when this session holds the permission on the server as a whole */
+	private boolean isAllowed(ParleyPermission needed) {
+		return checkPermission(needed, null).isAllowed();
 	}
 
 	/**

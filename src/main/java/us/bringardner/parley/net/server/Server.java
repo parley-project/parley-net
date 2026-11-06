@@ -49,6 +49,9 @@ import us.bringardner.parley.core.BaseThread;
 import us.bringardner.parley.core.ILogger.Level;
 import us.bringardner.parley.core.NamedThreadFactory;
 import us.bringardner.parley.core.util.AbstractCoreServer;
+import us.bringardner.parley.iam.Authorizer;
+import us.bringardner.parley.iam.BasicAuthorizer;
+import us.bringardner.parley.iam.UserRegistry;
 import us.bringardner.parley.io.IoUtils;
 import us.bringardner.parley.net.Connection;
 import us.bringardner.parley.net.IConnection;
@@ -118,15 +121,19 @@ public class Server extends AbstractCoreServer implements IServer {
 	private boolean reuseAddress = true;
 	private int backlog = 0;
 	private boolean debug;
-	private volatile IAccessControlList accessControl;
+	private volatile UserRegistry userRegistry;
 	/**
-	 * True once the access control property has been looked at and named no provider, so
-	 * every command doesn't take the server lock, look the property up again and log
-	 * "No access control defined". Cleared by setAccessControl.
+	 * True once the provider setting has been looked at and named no registry, so every
+	 * command doesn't take the server lock, look the setting up again and log
+	 * "No user registry defined". Cleared by setUserRegistry.
 	 */
-	private volatile boolean noAccessControl;
-	/** True when accessControl was made here from the provider property: it is closed when the server stops */
-	private volatile boolean ownsAccessControl;
+	private volatile boolean noUserRegistry;
+	/** True when userRegistry was made here from the provider setting: it is closed when the server stops */
+	private volatile boolean ownsUserRegistry;
+	/** The authorizer given with setAuthorizer, or null for the default */
+	private volatile Authorizer authorizer;
+	/** The default authorizer and the registry it was made for */
+	private volatile DefaultAuthorizer defaultAuthorizer;
 	private String serverGreating;
 
 	/**
@@ -496,7 +503,7 @@ public class Server extends AbstractCoreServer implements IServer {
 			svr = null;
 		}
 
-		closeOwnAccessControl();
+		closeOwnUserRegistry();
 		running = false;
 		logInfo("Server "+getName()+" has stopped.");
 	}
@@ -1247,97 +1254,135 @@ public class Server extends AbstractCoreServer implements IServer {
 
 	}
 
-	/* (non-Javadoc)
-	 * @see us.bringardner.parley.net.IServer#authenticate(java.lang.String, byte[])
-	 */
-	public IPrincipal authenticate(String user, byte[] credentials) {
-		try {
-			return checkLogin(user, credentials);
-		} catch (AccessControlUnavailableException e) {
-			// this method can only say "failed"; checkLogin tells the two apart
-			logError("Can't check the login of "+user+": "+e.getMessage());
-			return null;
-		}
-	}
-
-
-	/* (non-Javadoc)
-	 * @see us.bringardner.parley.net.IServer#getAcl()
-	 */
 	@Override
-	public IAccessControlList getAccessControl() {
-		if( accessControl == null && !noAccessControl ) {
+	public UserRegistry getUserRegistry() {
+		if( userRegistry == null && !noUserRegistry ) {
 			synchronized (this) {
-				if( accessControl == null && !noAccessControl ) {
+				if( userRegistry == null && !noUserRegistry ) {
 					String tmp = getProperty(propertyName(AUTHENTICATION_PROVIDER_PROPERTY));
-					if(tmp != null ) {
+					if( tmp != null && !tmp.trim().isEmpty() ) {
 						try {
-							Class<?> authClass = Class.forName(tmp);
-							IAccessControlList auth = (IAccessControlList)authClass.getDeclaredConstructor().newInstance();
-							if (auth instanceof us.bringardner.parley.core.BaseObject) {
-								((us.bringardner.parley.core.BaseObject) auth).useConfigurationOf(this);
-							}
-							auth.initialize(this);
-							accessControl = auth;
-							ownsAccessControl = true;
+							userRegistry = newUserRegistry(tmp.trim());
+							ownsUserRegistry = true;
 						} catch (Exception e) {
-							logError("Fatal Error! Can't configure access control class='"+tmp+"'",e);
+							logError("Fatal Error! Can't configure the user registry class='"+tmp+"'",e);
 							// Just in case logging is turned off
-							System.err.println("Fatal Error! Can't configure access control class='"+tmp+"'"+e);
-							throw new IllegalStateException("Fatal Error! Can't configure access control class='"+tmp,e);
+							System.err.println("Fatal Error! Can't configure the user registry class='"+tmp+"'"+e);
+							throw new IllegalStateException("Fatal Error! Can't configure the user registry class='"+tmp+"'",e);
 						}
 					} else {
 						// remembered and logged once
-						noAccessControl = true;
-						logInfo("No access control defined in server "+getName());
+						noUserRegistry = true;
+						logInfo("No user registry defined in server "+getName());
 					}
 				}
 			}
 		}
 
-		return accessControl;
+		return userRegistry;
 	}
 
 	/**
-	 * The list is the caller's: the server doesn't close it. A list the server made itself from
-	 * the provider property is closed here when it is replaced.
+	 * Make the registry the provider setting names: with its public constructor that takes an
+	 * IBaseServer when it has one, otherwise with its no-argument constructor.
+	 */
+	private UserRegistry newUserRegistry(String className) throws ReflectiveOperationException {
+		Class<?> registryClass = Class.forName(className);
+		java.lang.reflect.Constructor<?> withServer = null;
+		try {
+			withServer = registryClass.getConstructor(IBaseServer.class);
+		} catch (NoSuchMethodException e) {
+			// it has none; the no-argument constructor is used
+		}
+		Object made;
+		if( withServer != null ) {
+			made = withServer.newInstance(this);
+		} else {
+			made = registryClass.getDeclaredConstructor().newInstance();
+			if (made instanceof us.bringardner.parley.core.BaseObject) {
+				((us.bringardner.parley.core.BaseObject) made).useConfigurationOf(this);
+			}
+		}
+		if( !(made instanceof UserRegistry) ) {
+			throw new IllegalArgumentException(className+" is not a "+UserRegistry.class.getName());
+		}
+		return (UserRegistry) made;
+	}
+
+	/**
+	 * The registry is the caller's: the server doesn't close it. A registry the server made itself
+	 * from the provider setting is closed here when it is replaced.
 	 */
 	@Override
-	public void setAccessControl(IAccessControlList acl) {
-		IAccessControlList old;
+	public void setUserRegistry(UserRegistry registry) {
+		UserRegistry old;
 		synchronized (this) {
-			old = ownsAccessControl && accessControl != acl ? accessControl : null;
-			// the list the server made, given back: still the server's
-			this.ownsAccessControl = ownsAccessControl && accessControl == acl && acl != null;
-			this.accessControl = acl;
-			// null: look at the provider property again on the next use
-			this.noAccessControl = false;
+			old = ownsUserRegistry && userRegistry != registry ? userRegistry : null;
+			// the registry the server made, given back: still the server's
+			this.ownsUserRegistry = ownsUserRegistry && userRegistry == registry && registry != null;
+			this.userRegistry = registry;
+			// null: look at the provider setting again on the next use
+			this.noUserRegistry = false;
 		}
 		close(old);
 	}
 
-	/**
-	 * Close the list made from the provider property, if one was made, and forget it, so a
-	 * restart makes a new one. A list given with setAccessControl is left alone.
-	 */
-	private void closeOwnAccessControl() {
-		IAccessControlList acl;
-		synchronized (this) {
-			acl = ownsAccessControl ? accessControl : null;
-			if (acl != null) {
-				accessControl = null;
-				ownsAccessControl = false;
-			}
+	@Override
+	public Authorizer getAuthorizer() {
+		Authorizer given = authorizer;
+		if( given != null ) {
+			return given;
 		}
-		close(acl);
+		UserRegistry registry = getUserRegistry();
+		if( registry == null ) {
+			return null;
+		}
+		DefaultAuthorizer made = defaultAuthorizer;
+		if( made == null || made.registry != registry ) {
+			made = new DefaultAuthorizer(registry);
+			defaultAuthorizer = made;
+		}
+		return made.authorizer;
 	}
 
-	private void close(IAccessControlList acl) {
-		if (acl != null) {
+	@Override
+	public void setAuthorizer(Authorizer authorizer) {
+		this.authorizer = authorizer;
+	}
+
+	/** A {@link BasicAuthorizer} and the registry it asks, so it is made again when the registry changes. */
+	private static final class DefaultAuthorizer {
+		final UserRegistry registry;
+		final Authorizer authorizer;
+
+		DefaultAuthorizer(UserRegistry registry) {
+			this.registry = registry;
+			this.authorizer = new BasicAuthorizer(registry);
+		}
+	}
+
+	/**
+	 * Close the registry made from the provider setting, if one was made, and forget it, so a
+	 * restart makes a new one. A registry given with setUserRegistry is left alone.
+	 */
+	private void closeOwnUserRegistry() {
+		UserRegistry registry;
+		synchronized (this) {
+			registry = ownsUserRegistry ? userRegistry : null;
+			if (registry != null) {
+				userRegistry = null;
+				ownsUserRegistry = false;
+			}
+		}
+		close(registry);
+	}
+
+	private void close(UserRegistry registry) {
+		if (registry != null) {
 			try {
-				acl.close();
+				registry.close();
 			} catch (IOException | RuntimeException e) {
-				logError("Can't close the access control of "+getName(), e);
+				logError("Can't close the user registry of "+getName(), e);
 			}
 		}
 	}

@@ -15,16 +15,16 @@ import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
+import us.bringardner.parley.iam.BasicParleyPermission;
+import us.bringardner.parley.iam.ParleyPermission;
 import us.bringardner.parley.net.ServerTestSupport.TestServer;
 import us.bringardner.parley.net.client.CommandClient;
 import us.bringardner.parley.net.server.AbstractCommandProcessor;
 import us.bringardner.parley.net.server.ICommand;
 import us.bringardner.parley.net.server.ICommandFactory;
 import us.bringardner.parley.net.server.ICommandProcessor;
-import us.bringardner.parley.net.server.IPermission;
 import us.bringardner.parley.net.server.IRequestContext;
 import us.bringardner.parley.net.server.IStatefulCommand;
-import us.bringardner.parley.net.server.Permission;
 import us.bringardner.parley.net.server.StateMachine;
 
 /**
@@ -107,8 +107,8 @@ public class TestStateMachine {
 			}
 
 			@Override
-			public IPermission getPermission() {
-				return new Permission(name);
+			public ParleyPermission getPermission() {
+				return new BasicParleyPermission(name, null);
 			}
 
 			@Override
@@ -215,8 +215,8 @@ public class TestStateMachine {
 		}
 
 		@Override
-		public IPermission getPermission() {
-			return new Permission(name);
+		public ParleyPermission getPermission() {
+			return new BasicParleyPermission(name, null);
 		}
 
 		@Override

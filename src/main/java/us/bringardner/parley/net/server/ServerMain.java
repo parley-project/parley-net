@@ -9,6 +9,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Properties;
 
+import us.bringardner.parley.iam.ParleyPrincipal;
 import us.bringardner.parley.plugin.PluginFolders;
 
 /**
@@ -149,7 +150,7 @@ public final class ServerMain {
 					if (m != null) {
 						for (java.util.Map.Entry<java.net.Socket, us.bringardner.parley.net.IProcessor> e : new java.util.LinkedHashMap<>(m).entrySet()) {
 							java.net.Socket s = e.getKey();
-							IPrincipal p = null;
+							ParleyPrincipal p = null;
 							try {
 								p = e.getValue() == null ? null : e.getValue().getPrincipal();
 							} catch (RuntimeException ex) {
@@ -161,7 +162,7 @@ public final class ServerMain {
 					}
 				} else if (server instanceof us.bringardner.parley.net.nio.NioServer) {
 					for (us.bringardner.parley.net.nio.INioConnection c : ((us.bringardner.parley.net.nio.NioServer) server).getConnections()) {
-						IPrincipal p = c.getPrincipal();
+						ParleyPrincipal p = c.getPrincipal();
 						ret.add(new ParleyConnection(address(c.getRemoteAddress()), p == null ? null : p.getName(), c.isSecure()));
 					}
 				}

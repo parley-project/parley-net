@@ -33,13 +33,15 @@ import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import us.bringardner.parley.iam.AuthorizationResult;
+import us.bringardner.parley.iam.ParleyPermission;
+import us.bringardner.parley.iam.ProtectedResource;
 import us.bringardner.parley.net.client.CommandClient;
 import us.bringardner.parley.net.client.ICommandResponse;
 import us.bringardner.parley.net.server.AbstractCommandProcessor;
 import us.bringardner.parley.net.server.ICommand;
 import us.bringardner.parley.net.server.ICommandFactory;
 import us.bringardner.parley.net.server.ICommandProcessor;
-import us.bringardner.parley.net.server.IPermission;
 import us.bringardner.parley.net.server.IRequestContext;
 import us.bringardner.parley.net.server.Server;
 
@@ -84,9 +86,8 @@ public class TestNetFramework {
 					}
 
 					@Override
-					public boolean isAuthorized(IPermission action) {
-						// everyone is authorized
-						return true;
+					public AuthorizationResult checkPermission(ParleyPermission needed, ProtectedResource resource) {
+						return AuthorizationResult.allowed("everyone");
 					}
 					@Override
 					public ICommandFactory getCommandFactory() {
@@ -103,7 +104,7 @@ public class TestNetFramework {
 
 										private static final long serialVersionUID = 1L;
 
-										public IPermission getPermission() {
+										public ParleyPermission getPermission() {
 											return null;
 										}
 

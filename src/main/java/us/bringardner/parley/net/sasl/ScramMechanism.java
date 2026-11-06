@@ -12,6 +12,8 @@ import javax.crypto.SecretKeyFactory;
 import javax.crypto.spec.PBEKeySpec;
 import javax.crypto.spec.SecretKeySpec;
 
+import us.bringardner.parley.iam.StoredCredentialType;
+
 /**
  * SCRAM (RFC 5802, RFC 7677): the client proves it knows the password without sending it, and
  * the server proves it knows the stored verifier, so both ends are authenticated. The server
@@ -117,6 +119,31 @@ public final class ScramMechanism implements ISaslMechanism {
 		byte[] salt = new byte[16];
 		RANDOM.nextBytes(salt);
 		return deriveCredentials(password, salt, DEFAULT_ITERATIONS);
+	}
+
+	/**
+	 * @return the kind of stored secret this mechanism needs from a user registry
+	 * ({@link StoredCredentialType#SCRAM_SHA_256} or {@link StoredCredentialType#SCRAM_SHA_1});
+	 * its value is a {@link ScramCredentials}
+	 * @since 2.0.0
+	 */
+	public StoredCredentialType getStoredType() {
+		return digest.equals(SHA_256.getHash()) ? StoredCredentialType.SCRAM_SHA_256 : StoredCredentialType.SCRAM_SHA_1;
+	}
+
+	/**
+	 * @param type a kind of stored secret
+	 * @return {@link #SHA_256} or {@link #SHA_1} for the SCRAM kinds, otherwise null
+	 * @since 2.0.0
+	 */
+	public static ScramMechanism forStoredType(StoredCredentialType type) {
+		if( StoredCredentialType.SCRAM_SHA_256.equals(type) ) {
+			return SHA_256;
+		}
+		if( StoredCredentialType.SCRAM_SHA_1.equals(type) ) {
+			return SHA_1;
+		}
+		return null;
 	}
 
 	/**
@@ -276,7 +303,7 @@ public final class ScramMechanism implements ISaslMechanism {
 				if (credentials == null) {
 					// carry on with made up values, so an unknown user looks like a bad password
 					unknownUser = true;
-					credentials = fake(user);
+					credentials = madeUpCredentials(user);
 				}
 				nonce = r + nonces.get();
 				serverFirst = "r=" + nonce + ",s=" + b64(credentials.getSalt()) + ",i=" + credentials.getIterations();
@@ -320,8 +347,17 @@ public final class ScramMechanism implements ISaslMechanism {
 		};
 	}
 
-	private ScramCredentials fake(String user) {
-		byte[] salt = java.util.Arrays.copyOf(hmac(FAKE_SECRET, user), 16);
+	/**
+	 * Credentials for a user who has none, so an exchange for an unknown user looks like one
+	 * with a wrong password. The salt is the same each time for the same user (in this JVM),
+	 * and no password matches them.
+	 *
+	 * @param user the user name the client gave
+	 * @return the made up credentials
+	 * @since 2.0.0
+	 */
+	public ScramCredentials madeUpCredentials(String user) {
+		byte[] salt = java.util.Arrays.copyOf(hmac(FAKE_SECRET, user == null ? "" : user), 16);
 		byte[] key = new byte[hashLength];
 		return new ScramCredentials(salt, DEFAULT_ITERATIONS, key, key);
 	}

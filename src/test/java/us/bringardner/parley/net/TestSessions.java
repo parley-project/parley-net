@@ -41,7 +41,7 @@ public class TestSessions {
 	@BeforeAll
 	public static void startServer() {
 		svr = ServerTestSupport.create("SessionServer", ServerTestSupport.standardCommands(), null);
-		svr.setAccessControl(ServerTestSupport.acl(
+		svr.setUserRegistry(ServerTestSupport.registry(
 				"alice, alicepw, Echo|Secret",
 				"bob, bobpw, Echo"));
 		ServerTestSupport.start(svr);

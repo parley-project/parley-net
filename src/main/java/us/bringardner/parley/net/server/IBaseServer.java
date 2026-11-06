@@ -25,8 +25,24 @@
 package us.bringardner.parley.net.server;
 
 import java.io.IOException;
+import java.util.UUID;
 
+import us.bringardner.parley.iam.AuthenticationResult;
+import us.bringardner.parley.iam.AuthorizationResult;
+import us.bringardner.parley.iam.Authorizer;
+import us.bringardner.parley.iam.BasicAuthorizer;
+import us.bringardner.parley.iam.Credential;
+import us.bringardner.parley.iam.ParleyPermission;
+import us.bringardner.parley.iam.ParleyPrincipal;
+import us.bringardner.parley.iam.ProofCredential;
+import us.bringardner.parley.iam.ProtectedResource;
+import us.bringardner.parley.iam.Requester;
+import us.bringardner.parley.iam.StoredCredential;
+import us.bringardner.parley.iam.StoredCredentialType;
+import us.bringardner.parley.iam.UserRegistry;
+import us.bringardner.parley.iam.UserRegistryUnavailableException;
 import us.bringardner.parley.net.IManagedThread;
+import us.bringardner.parley.net.sasl.ScramMechanism;
 
 /**
  * What every Parley server is, whatever way it serves its connections: the thread-per-connection
@@ -34,8 +50,8 @@ import us.bringardner.parley.net.IManagedThread;
  * {@link us.bringardner.parley.net.nio.NioServer}.
  * <p>
  * It has a property prefix, a port, a life cycle that can be started and waited for, stopped and
- * joined (what {@link ServerMain} needs to run any server as a service), and an access control
- * list that logs users in and authorizes what they do.
+ * joined (what {@link ServerMain} needs to run any server as a service), and a
+ * {@link UserRegistry} that logs users in, with an {@link Authorizer} that decides what they may do.
  *
  * @since 2.0.0
  * @author Tony Bringardner
@@ -51,7 +67,7 @@ public interface IBaseServer extends IManagedThread {
 	/**
 	 * The server's own settings, given when it was made (see parley-core's
 	 * {@code BaseObject.setConfiguration}), or null when it reads the system properties; the
-	 * objects it makes (processors, its access control list) read the same settings.
+	 * objects it makes (processors, its user registry) read the same settings.
 	 *
 	 * @since 2.0.0
 	 */
@@ -59,12 +75,12 @@ public interface IBaseServer extends IManagedThread {
 		return null;
 	}
 
-	/** Property (prefix.authenticationProvider) naming the {@link IAccessControlList} class */
+	/** Property (prefix.authenticationProvider) naming the {@link UserRegistry} class */
 	public static final String AUTHENTICATION_PROVIDER_PROPERTY = "authenticationProvider";
 
 	/**
 	 * The prefix of this server's properties (for example parley.mail.pop3): its own settings, such as
-	 * port, and those of its access control list, such as userFile, are read as prefix.name.
+	 * port, and those of its user registry, such as userFile, are read as prefix.name.
 	 */
 	public String getPropertyPrefix();
 
@@ -118,126 +134,180 @@ public interface IBaseServer extends IManagedThread {
 	 */
 	public void join(long timeoutMillis) throws InterruptedException;
 
-	// ------------------------------------------------------------------ access control
+	// ------------------------------------------------------------------ users
 
 	/**
-	 * Authenticate a user with the given credentials (probably a password).
+	 * Check a credential. A proof (a {@link ProofCredential}) is run here, so every protocol
+	 * does it the same way:
+	 * <ol>
+	 * <li>the registry gives the user's stored secret (quick; no waiting on the client). For a
+	 * user without one, {@link #makeUpStoredCredential} gives a made-up one so the exchange fails
+	 * the same way; when it can't, the proof is refused without running;</li>
+	 * <li>the proof's verifier runs, holding no lock of the registry;</li>
+	 * <li>on success the registry gives the principal;</li>
+	 * <li>the registry is told the outcome ({@link UserRegistry#recordOutcome}).</li>
+	 * </ol>
+	 * Every other credential goes to {@link UserRegistry#authenticate(Credential)}.
 	 *
-	 * @param user
-	 * @param credentials (password)
-	 * @return a read only authenticated principal, or null if the user can't be authenticated,
-	 * the access control list can't answer now (see {@link #checkLogin(String, byte[])}), or
-	 * there is no access control
-	 */
-	public IPrincipal authenticate(String user, byte[] credentials);
-
-	/**
-	 * Check a login like {@link #authenticate(String, byte[])}, but tell a failed login (null)
-	 * from an access control list that can't answer now (the exception), so the server can answer
-	 * "try again later" instead of "wrong password".
-	 * <p>
-	 * The default looks the user up in {@link #getAccessControl()} with
-	 * {@link IAccessControlList#findPrincipal(String)}.
-	 *
-	 * @return a read only authenticated principal, or null if the login failed or there is no
-	 * access control
-	 * @throws AccessControlUnavailableException if the access control list can't answer now
-	 * @since 1.1.0
-	 */
-	default IPrincipal checkLogin(String user, byte[] credentials) throws AccessControlUnavailableException {
-		IAccessControlList acl = getAccessControl();
-		if( acl == null || user == null ) {
-			return null;
-		}
-		IPrincipal tmp = acl.findPrincipal(user);
-		if( tmp == null ) {
-			// same work as a real check so timing doesn't reveal valid user names
-			acl.authenticateUnknownUser(credentials);
-			return null;
-		}
-		if( !acl.verifyPassword(tmp, credentials) ) {
-			return null;
-		}
-		IPrincipal ret = new ImmutablePrincipal(tmp);
-		ret.setState(IPrincipal.State.Authenticated);
-		return ret;
-	}
-
-	/**
-	 * Check an APOP login (RFC 1939 section 7) with
-	 * {@link IAccessControlList#verifyApop(IPrincipal, String, String)}, so the user's secret
-	 * stays in the access control list.
-	 *
-	 * @param user the user name
-	 * @param timestamp the timestamp the server sent in its greeting
-	 * @param digest the digest the client sent
-	 * @return a read only authenticated principal, or null if the login failed or there is no
-	 * access control
-	 * @throws AccessControlUnavailableException if the access control list can't answer now
+	 * @param credential what the client offered
+	 * @return AUTHENTICATED (for a proof, the method is the stored secret's kind), REFUSED,
+	 * UNSUPPORTED (also when there is no registry) or UNAVAILABLE (the registry can't answer now)
 	 * @since 2.0.0
 	 */
-	default IPrincipal checkApopLogin(String user, String timestamp, String digest) throws AccessControlUnavailableException {
-		IAccessControlList acl = getAccessControl();
-		if( acl == null || user == null ) {
-			return null;
+	default AuthenticationResult authenticate(Credential credential) {
+		UserRegistry registry = getUserRegistry();
+		if( registry == null ) {
+			return AuthenticationResult.unsupported("no user registry");
 		}
-		IPrincipal tmp = acl.findPrincipal(user);
-		if( tmp == null || !acl.verifyApop(tmp, timestamp, digest) ) {
-			return null;
+		try {
+			if( credential instanceof ProofCredential ) {
+				return checkProof(registry, (ProofCredential) credential, true);
+			}
+			return registry.authenticate(credential);
+		} catch (UserRegistryUnavailableException e) {
+			return AuthenticationResult.unavailable(e.getMessage());
 		}
-		IPrincipal ret = new ImmutablePrincipal(tmp);
-		ret.setState(IPrincipal.State.Authenticated);
-		return ret;
 	}
 
 	/**
-	 * The principal of a user whose identity a SASL mechanism has already proven without
-	 * {@link #authenticate(String, byte[])} (SCRAM checks a proof against the credentials
-	 * from {@link IAccessControlList#getScramCredentials(String, String)}). Call it only
-	 * after such a mechanism succeeded for this user.
-	 * <p>
-	 * The default looks the user up in {@link #getAccessControl()}.
+	 * Would this credential be accepted? Like {@link #authenticate(Credential)}, but the
+	 * registry isn't told the outcome of a proof. For a client that asks before it proves
+	 * (SSH asks whether a public key would do).
 	 *
-	 * @param user the user the mechanism proved
-	 * @return a read only authenticated principal, or null if there is no access control or
-	 * no such user
-	 * @throws AccessControlUnavailableException if the access control list can't answer now
-	 * @since 1.1.0
+	 * @param credential what the client offered
+	 * @return what {@link #authenticate(Credential)} would answer
+	 * @since 2.0.0
 	 */
-	default IPrincipal getVerifiedPrincipal(String user) throws AccessControlUnavailableException {
-		IAccessControlList acl = getAccessControl();
-		if( acl == null || user == null ) {
-			return null;
+	default AuthenticationResult probe(Credential credential) {
+		UserRegistry registry = getUserRegistry();
+		if( registry == null ) {
+			return AuthenticationResult.unsupported("no user registry");
 		}
-		IPrincipal p = acl.findPrincipal(user);
-		if( p == null ) {
-			return null;
+		try {
+			if( credential instanceof ProofCredential ) {
+				return checkProof(registry, (ProofCredential) credential, false);
+			}
+			return registry.authenticate(credential);
+		} catch (UserRegistryUnavailableException e) {
+			return AuthenticationResult.unavailable(e.getMessage());
 		}
-		IPrincipal ret = new ImmutablePrincipal(p);
-		ret.setState(IPrincipal.State.Authenticated);
-		return ret;
+	}
+
+	/** The steps of a proof, see {@link #authenticate(Credential)}. */
+	private AuthenticationResult checkProof(UserRegistry registry, ProofCredential proof, boolean record)
+			throws UserRegistryUnavailableException {
+		String user = proof.getUser();
+		StoredCredentialType type = proof.getStoredType();
+		StoredCredential stored = user == null ? null : registry.findStoredCredential(user, type);
+		boolean known = stored != null;
+		if( !known ) {
+			stored = makeUpStoredCredential(user, type);
+		}
+		AuthenticationResult result;
+		if( stored == null ) {
+			result = AuthenticationResult.refused("no " + type + " secret for " + user);
+		} else {
+			boolean proven;
+			try {
+				proven = proof.getVerifier().verify(stored);
+			} catch (IOException e) {
+				proven = false;
+			}
+			if( !proven || !known ) {
+				result = AuthenticationResult.refused(type + " proof failed for " + user);
+			} else {
+				ParleyPrincipal principal = registry.findPrincipal(user);
+				if( principal == null ) {
+					result = AuthenticationResult.refused("no user " + user);
+				} else {
+					result = AuthenticationResult.authenticated(principal, type.getName());
+				}
+			}
+		}
+		if( record ) {
+			registry.recordOutcome(user, result);
+		}
+		return result;
 	}
 
 	/**
-	 * @return true if the user is logged in and the access control allows the action
+	 * A stored secret for a user the registry has none for (an unknown user), so a proof
+	 * fails the same way as for a known user with a wrong answer. It never proves anything.
+	 * <p>
+	 * The default makes one for SCRAM (salt the same each time for a user) and for
+	 * {@link StoredCredentialType#PLAIN_TEXT}, and null for every other kind; a server that
+	 * serves other proofs overrides it.
+	 *
+	 * @param user the user name the client gave, or null
+	 * @param type the kind of secret the proof needs
+	 * @return the made-up secret, or null when none can be made for this kind
+	 * @since 2.0.0
 	 */
-	default boolean isAuthorized(IPrincipal user, IPermission action) {
-		if( user == null ) {
-			// Not logged in
-			return false;
+	default StoredCredential makeUpStoredCredential(String user, StoredCredentialType type) {
+		ScramMechanism scram = ScramMechanism.forStoredType(type);
+		if( scram != null ) {
+			return new StoredCredential(type, scram.madeUpCredentials(user));
 		}
-		IAccessControlList acl = getAccessControl();
-		return acl != null && acl.checkPermission(user, action);
+		if( StoredCredentialType.PLAIN_TEXT.equals(type) ) {
+			return new StoredCredential(type, UUID.randomUUID().toString());
+		}
+		return null;
 	}
 
 	/**
-	 * @return the access control set with {@link #setAccessControl(IAccessControlList)}, else
-	 * one made from the {@value #AUTHENTICATION_PROVIDER_PROPERTY} property, else null
+	 * May the requester do something? Asks {@link #getAuthorizer()}. With no user registry
+	 * the answer is DENIED, so a server without users authorizes nothing, and so is a null
+	 * permission (a command that names none).
+	 *
+	 * @param requester who is asking
+	 * @param needed the permission needed, or null
+	 * @param resource what it is about, or null for the server as a whole
+	 * @return ALLOWED, DENIED or UNAVAILABLE
+	 * @since 2.0.0
 	 */
-	IAccessControlList getAccessControl();
+	default AuthorizationResult checkPermission(Requester requester, ParleyPermission needed, ProtectedResource resource) {
+		if( needed == null ) {
+			return AuthorizationResult.denied("no permission named");
+		}
+		Authorizer authorizer = getAuthorizer();
+		if( authorizer == null ) {
+			return AuthorizationResult.denied("no user registry");
+		}
+		return authorizer.check(requester, needed, resource);
+	}
 
 	/**
-	 * @param acl the access control, already initialized; null to look at the property again on the next use
+	 * The registry set with {@link #setUserRegistry(UserRegistry)}, else one made from the
+	 * {@value #AUTHENTICATION_PROVIDER_PROPERTY} setting, else null. To make one from the setting
+	 * the server uses the class's public constructor that takes an {@link IBaseServer} when it
+	 * has one (so the registry can read the server's settings), otherwise its no-argument one.
+	 * A registry made from the setting is the server's: it is closed when the server stops, and
+	 * a restart makes a new one.
+	 *
+	 * @return the registry, or null
+	 * @throws IllegalStateException if the setting names a class that can't be made
+	 * @since 2.0.0
 	 */
-	void setAccessControl(IAccessControlList acl);
+	UserRegistry getUserRegistry();
+
+	/**
+	 * @param registry the registry to use, ready to use; it is the caller's to close. Null
+	 * looks at the setting again on the next use. A registry the server made itself is closed
+	 * when it is replaced.
+	 * @since 2.0.0
+	 */
+	void setUserRegistry(UserRegistry registry);
+
+	/**
+	 * @return the authorizer set with {@link #setAuthorizer(Authorizer)}, else a
+	 * {@link BasicAuthorizer} for {@link #getUserRegistry()}, else null when there is no registry
+	 * @since 2.0.0
+	 */
+	Authorizer getAuthorizer();
+
+	/**
+	 * @param authorizer the authorizer to use; null for the default
+	 * @since 2.0.0
+	 */
+	void setAuthorizer(Authorizer authorizer);
 }

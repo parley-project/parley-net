@@ -22,6 +22,9 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import us.bringardner.parley.iam.AuthorizationResult;
+import us.bringardner.parley.iam.ParleyPermission;
+import us.bringardner.parley.iam.ProtectedResource;
 import us.bringardner.parley.net.nio.NioServer;
 
 /**
@@ -145,8 +148,8 @@ public class ServerMainTest {
 			}
 
 			@Override
-			public boolean isAuthorized(IPermission action) {
-				return true;
+			public AuthorizationResult checkPermission(ParleyPermission needed, ProtectedResource resource) {
+				return AuthorizationResult.allowed("everyone");
 			}
 
 			@Override

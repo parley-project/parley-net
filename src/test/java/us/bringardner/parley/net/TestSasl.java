@@ -19,6 +19,20 @@ import java.util.List;
 
 import org.junit.jupiter.api.Test;
 
+import us.bringardner.parley.iam.AuthenticationResult;
+import us.bringardner.parley.iam.AuthorizationResult;
+import us.bringardner.parley.iam.BasicParleyPermission;
+import us.bringardner.parley.iam.Credential;
+import us.bringardner.parley.iam.EntityId;
+import us.bringardner.parley.iam.ParleyPermission;
+import us.bringardner.parley.iam.ParleyPrincipal;
+import us.bringardner.parley.iam.ProofCredential;
+import us.bringardner.parley.iam.ProtectedResource;
+import us.bringardner.parley.iam.Requester;
+import us.bringardner.parley.iam.StoredCredential;
+import us.bringardner.parley.iam.StoredCredentialType;
+import us.bringardner.parley.iam.UserRegistry;
+import us.bringardner.parley.iam.UserRegistryUnavailableException;
 import us.bringardner.parley.net.sasl.CramMd5Mechanism;
 import us.bringardner.parley.net.sasl.ISaslAuthenticator;
 import us.bringardner.parley.net.sasl.ISaslChannel;
@@ -38,11 +52,8 @@ import us.bringardner.parley.net.sasl.ScramCredentials;
 import us.bringardner.parley.net.sasl.ScramMechanism;
 import us.bringardner.parley.net.sasl.ServerSaslAuthenticator;
 import us.bringardner.parley.net.sasl.XOAuth2Mechanism;
-import us.bringardner.parley.net.server.AccessControlUnavailableException;
-import us.bringardner.parley.net.server.FileBasedAcl;
-import us.bringardner.parley.net.server.IAccessControlList;
-import us.bringardner.parley.net.server.IPermission;
-import us.bringardner.parley.net.server.IPrincipal;
+import us.bringardner.parley.net.server.FileUserRegistry;
+import us.bringardner.parley.net.server.ILoginSession;
 import us.bringardner.parley.net.server.Server;
 
 /**
@@ -450,24 +461,82 @@ public class TestSasl {
 		assertTrue(SaslMechanisms.standard("h").offered(passwordsOnly, false).isEmpty());
 	}
 
+	/** A session for these tests: logs in only through its server, as a real one does. */
+	private static final class Session implements ILoginSession {
+		private final Server server;
+		private Requester requester = ServerTestSupport.requester();
+		int logins;
+
+		Session(Server server) {
+			this.server = server;
+		}
+
+		@Override
+		public Requester getRequester() {
+			return requester;
+		}
+
+		@Override
+		public AuthenticationResult authenticate(Credential credential) {
+			AuthenticationResult result = server.authenticate(credential);
+			if( result.getStatus() == AuthenticationResult.Status.AUTHENTICATED ) {
+				requester = requester.loggedIn(result);
+				logins++;
+			}
+			return result;
+		}
+
+		@Override
+		public void logout() {
+			requester = requester.loggedOut();
+		}
+
+		@Override
+		public AuthorizationResult checkPermission(ParleyPermission needed, ProtectedResource resource) {
+			return server.checkPermission(requester, needed, resource);
+		}
+	}
+
 	@Test
 	public void serverAuthenticatorUsesTheServersUsers() throws Exception {
 		Server svr = ServerTestSupport.create("SaslServer", ServerTestSupport.standardCommands(), null);
-		svr.setAccessControl(ServerTestSupport.acl("bob, bobpw, Secret"));
-		ServerSaslAuthenticator auth = new ServerSaslAuthenticator(svr);
+		svr.setUserRegistry(ServerTestSupport.registry("bob, bobpw, Secret"));
+		Session session = new Session(svr);
+		ServerSaslAuthenticator auth = new ServerSaslAuthenticator(svr, session);
 		// a plain text password can serve SCRAM too
 		assertEquals(Arrays.asList("SCRAM-SHA-256", "SCRAM-SHA-1", "PLAIN", "LOGIN"), SaslMechanisms.standard("h").offered(auth, true));
 
 		SaslOutcome out = run(new PlainMechanism(), PlainMechanism.client("bob", "bobpw"), auth, true);
 		assertTrue(out.isSuccess());
-		assertEquals("bob", auth.getPrincipal().getName());
+		assertEquals("bob", auth.getResult().getPrincipal().getName());
+		assertEquals("bob", session.getPrincipal().getName(), "the session is logged in");
+		assertTrue(session.checkPermission(new BasicParleyPermission("Secret", null), null).isAllowed());
 
-		ServerSaslAuthenticator other = new ServerSaslAuthenticator(svr);
-		assertEquals(Status.FAILED, run(new PlainMechanism(), PlainMechanism.client("bob", "wrong"), other, true).getStatus());
+		Session other = new Session(svr);
+		ServerSaslAuthenticator wrong = new ServerSaslAuthenticator(svr, other);
+		assertEquals(Status.FAILED, run(new PlainMechanism(), PlainMechanism.client("bob", "wrong"), wrong, true).getStatus());
+		assertEquals(AuthenticationResult.Status.REFUSED, wrong.getResult().getStatus());
 		assertNull(other.getPrincipal());
+
+		// made with a requester only: it reports and logs nobody in
+		ServerSaslAuthenticator report = new ServerSaslAuthenticator(svr, ServerTestSupport.requester());
+		assertTrue(run(new PlainMechanism(), PlainMechanism.client("bob", "bobpw"), report, true).isSuccess());
+		assertEquals(AuthenticationResult.Status.AUTHENTICATED, report.getResult().getStatus());
 	}
 
-	// ------------------------------------------------------------------ SCRAM from the access control list
+	@Test
+	public void nothingIsServedWithoutARegistry() {
+		Server svr = new Server(0, "SaslNoRegistry-" + System.nanoTime());
+		ServerSaslAuthenticator auth = new ServerSaslAuthenticator(svr, ServerTestSupport.requester());
+		assertFalse(auth.supports("PLAIN"));
+		assertFalse(auth.supports("SCRAM-SHA-256"));
+		assertNull(auth.getScramCredentials("bob", "SHA-256"));
+		assertFalse(auth.checkPassword("bob", "pw"));
+		assertEquals(AuthenticationResult.Status.UNSUPPORTED, auth.getResult().getStatus());
+		assertNull(new ServerSaslAuthenticator(svr, ServerTestSupport.requester()).getResult());
+	}
+
+	// ------------------------------------------------------------------ SCRAM from the user registry
 
 	@Test
 	public void scramCredentialsAsTextRoundTrip() {
@@ -489,186 +558,191 @@ public class TestSasl {
 		assertEquals("SHA-1", ScramMechanism.hashOf("SCRAM-SHA-1"));
 		assertNull(ScramMechanism.hashOf("PLAIN"));
 		assertNull(ScramMechanism.hashOf(null));
+		assertEquals(StoredCredentialType.SCRAM_SHA_256, ScramMechanism.SHA_256.getStoredType());
+		assertEquals(StoredCredentialType.SCRAM_SHA_1, ScramMechanism.SHA_1.getStoredType());
+		assertEquals(ScramMechanism.SHA_1, ScramMechanism.forStoredType(StoredCredentialType.SCRAM_SHA_1));
+		assertNull(ScramMechanism.forStoredType(StoredCredentialType.PLAIN_TEXT));
+		assertArrayEquals(ScramMechanism.SHA_256.madeUpCredentials("x").getSalt(), ScramMechanism.SHA_256.madeUpCredentials("x").getSalt(),
+				"a made up salt is the same each time");
 	}
 
 	@Test
-	public void accessControlListsDontServeScramByDefault() throws Exception {
-		try (IAccessControlList none = new IAccessControlList() {
-			@Override
-			public void initialize(us.bringardner.parley.net.server.IServer server) {
-			}
-
-			@Override
-			public boolean checkPermission(IPrincipal user, IPermission action) {
-				return false;
-			}
-
-			@Override
-			public IPrincipal getPrincipal(String user) {
-				return null;
-			}
-
-			@Override
-			public boolean verifyPassword(IPrincipal user, byte[] credentials) {
-				return false;
-			}
-		}) {
-			assertFalse(none.supportsScram("SHA-256"));
-			assertFalse(none.supportsApop());
-			assertFalse(none.verifyApop(null, "<1@x>", "00"));
-			assertNull(none.getScramCredentials("bob", "SHA-256"));
-		}
-	}
-
-	@Test
-	public void fileBasedAclServesScramFromTheUserFile() throws Exception {
-		String field = FileBasedAcl.hashPasswordWithScram("s3cret".toCharArray());
-		assertTrue(field.startsWith(FileBasedAcl.HASH_PREFIX));
-		FileBasedAcl acl = (FileBasedAcl) ServerTestSupport.acl("carol, " + field + ", READ, maildrop=c");
-		assertTrue(acl.supportsScram("SHA-256"));
-		assertTrue(acl.supportsScram("SHA-1"));
-		assertFalse(acl.supportsScram("MD5"));
-		assertNull(acl.getScramCredentials("nobody", "SHA-256"));
+	public void fileUserRegistryServesScramFromTheUserFile() throws Exception {
+		String field = FileUserRegistry.hashPasswordWithScram("s3cret".toCharArray());
+		assertTrue(field.startsWith(FileUserRegistry.HASH_PREFIX));
+		FileUserRegistry registry = ServerTestSupport.registry("carol, " + field + ", READ, maildrop=c");
+		assertTrue(registry.supports(ProofCredential.class, StoredCredentialType.SCRAM_SHA_256));
+		assertTrue(registry.supports(ProofCredential.class, StoredCredentialType.SCRAM_SHA_1));
+		assertFalse(registry.supports(ProofCredential.class, StoredCredentialType.TSIG_SECRET));
+		assertFalse(registry.supports(ProofCredential.class, null));
+		assertNull(registry.findStoredCredential("nobody", StoredCredentialType.SCRAM_SHA_256));
 
 		// the password still works on its own: the SCRAM part isn't part of it
-		IPrincipal p = acl.getPrincipal("carol");
-		assertTrue(acl.verifyPassword(p, "s3cret".getBytes(StandardCharsets.UTF_8)));
-		assertFalse(acl.verifyPassword(p, "wrong".getBytes(StandardCharsets.UTF_8)));
-		assertFalse(acl.supportsApop(), "a hashed password can't serve APOP");
+		assertEquals(AuthenticationResult.Status.AUTHENTICATED, ServerTestSupport.login(registry, "carol", "s3cret").getStatus());
+		assertEquals(AuthenticationResult.Status.REFUSED, ServerTestSupport.login(registry, "carol", "wrong").getStatus());
+		assertFalse(registry.supports(ProofCredential.class, StoredCredentialType.PLAIN_TEXT), "a hashed password can't serve APOP");
 
 		Server svr = ServerTestSupport.create("SaslScram", ServerTestSupport.standardCommands(), null);
-		svr.setAccessControl(acl);
+		svr.setUserRegistry(registry);
 		for (ScramMechanism m : new ScramMechanism[] {ScramMechanism.SHA_256, ScramMechanism.SHA_1}) {
-			ServerSaslAuthenticator auth = new ServerSaslAuthenticator(svr);
+			Session session = new Session(svr);
+			ServerSaslAuthenticator auth = new ServerSaslAuthenticator(svr, session);
 			assertTrue(auth.supports(m.getName()));
 			SaslOutcome out = run(m, m.client("carol", "s3cret"), auth, true);
 			assertTrue(out.isSuccess(), m.getName() + " " + out);
-			assertNull(auth.getPrincipal(), "SCRAM checks no password here");
-			IPrincipal v = auth.verified(out.getUser());
-			assertNotNull(v);
-			assertEquals("carol", v.getName());
-			assertEquals(IPrincipal.State.Authenticated, v.getState());
-			assertEquals("c", v.getParameter("maildrop"));
-			assertTrue(svr.isAuthorized(v, new us.bringardner.parley.net.server.Permission("READ")));
-			assertThrows(UnsupportedOperationException.class, () -> v.setParameter("k", "v"));
+			assertNull(auth.getResult(), "SCRAM checks no password here");
+			assertNull(session.getPrincipal(), "and logs nobody in by itself");
+			AuthenticationResult v = auth.verified(out.getUser());
+			assertEquals(AuthenticationResult.Status.AUTHENTICATED, v.getStatus());
+			assertEquals(m.getStoredType().getName(), v.getMethod());
+			ParleyPrincipal carol = session.getPrincipal();
+			assertEquals("carol", carol.getName());
+			assertEquals("c", carol.getAttribute("maildrop"));
+			assertEquals(Arrays.asList(m.getStoredType().getName()), session.getRequester().getMethods());
+			assertTrue(session.checkPermission(new BasicParleyPermission("READ", null), null).isAllowed());
 
-			assertEquals(Status.FAILED, run(m, m.client("carol", "wrong"), new ServerSaslAuthenticator(svr), true).getStatus());
-			assertEquals(Status.FAILED, run(m, m.client("nobody", "s3cret"), new ServerSaslAuthenticator(svr), true).getStatus());
+			assertEquals(Status.FAILED, run(m, m.client("carol", "wrong"), new ServerSaslAuthenticator(svr, session), true).getStatus());
+			assertEquals(Status.FAILED, run(m, m.client("nobody", "s3cret"), new ServerSaslAuthenticator(svr, session), true).getStatus());
 		}
-		assertNull(svr.getVerifiedPrincipal("nobody"));
-		assertNull(svr.getVerifiedPrincipal(null));
-		acl.close(); // the test made it: the server leaves a list it was given alone
+		// verified() with no exchange for that user proves nothing
+		Session session = new Session(svr);
+		assertEquals(AuthenticationResult.Status.REFUSED, new ServerSaslAuthenticator(svr, session).verified("carol").getStatus());
+		assertEquals(AuthenticationResult.Status.REFUSED, new ServerSaslAuthenticator(svr, session).verified("nobody").getStatus());
+		assertEquals(AuthenticationResult.Status.REFUSED, new ServerSaslAuthenticator(svr, session).verified(null).getStatus());
+		assertNull(session.getPrincipal());
+		registry.close(); // the test made it: the server leaves a registry it was given alone
+	}
+
+	/** Credentials that change between the exchange and verified() (a new password) don't log in. */
+	@Test
+	public void changedCredentialsAreNotVerified() throws Exception {
+		Server svr = ServerTestSupport.create("SaslChanged", ServerTestSupport.standardCommands(), null);
+		svr.setUserRegistry(ServerTestSupport.registry("carol, " + FileUserRegistry.hashPasswordWithScram("one".toCharArray()) + ", READ"));
+		Session session = new Session(svr);
+		ServerSaslAuthenticator auth = new ServerSaslAuthenticator(svr, session);
+		SaslOutcome out = run(ScramMechanism.SHA_256, ScramMechanism.SHA_256.client("carol", "one"), auth, true);
+		assertTrue(out.isSuccess());
+		svr.setUserRegistry(ServerTestSupport.registry("carol, " + FileUserRegistry.hashPasswordWithScram("two".toCharArray()) + ", READ"));
+		assertEquals(AuthenticationResult.Status.REFUSED, auth.verified("carol").getStatus());
+		assertNull(session.getPrincipal());
 	}
 
 	@Test
 	public void scramIsOfferedOnlyWhenEveryUserCanUseIt() throws Exception {
-		String hashed = FileBasedAcl.hashPassword("pw".toCharArray());
-		FileBasedAcl mixed = (FileBasedAcl) ServerTestSupport.acl(
-				"carol, " + FileBasedAcl.hashPasswordWithScram("pw".toCharArray()) + ", READ",
+		String hashed = FileUserRegistry.hashPassword("pw".toCharArray());
+		FileUserRegistry mixed = ServerTestSupport.registry(
+				"carol, " + FileUserRegistry.hashPasswordWithScram("pw".toCharArray()) + ", READ",
 				"dave, " + hashed + ", READ");
-		assertFalse(mixed.supportsScram("SHA-256"), "dave has no SCRAM credentials");
-		assertNotNull(mixed.getScramCredentials("carol", "SHA-256"));
-		assertNull(mixed.getScramCredentials("dave", "SHA-256"));
+		assertFalse(mixed.supports(ProofCredential.class, StoredCredentialType.SCRAM_SHA_256), "dave has no SCRAM credentials");
+		assertNotNull(mixed.findStoredCredential("carol", StoredCredentialType.SCRAM_SHA_256));
+		assertNull(mixed.findStoredCredential("dave", StoredCredentialType.SCRAM_SHA_256));
 		Server svr = ServerTestSupport.create("SaslMixed", ServerTestSupport.standardCommands(), null);
-		svr.setAccessControl(mixed);
-		assertEquals(Arrays.asList("PLAIN", "LOGIN"), SaslMechanisms.standard("h").offered(new ServerSaslAuthenticator(svr), true));
+		svr.setUserRegistry(mixed);
+		assertEquals(Arrays.asList("PLAIN", "LOGIN"), SaslMechanisms.standard("h").offered(new ServerSaslAuthenticator(svr, ServerTestSupport.requester()), true));
 
 		// only SHA-256 kept: SHA-1 isn't offered
-		String sha256Only = hashed + ";" + FileBasedAcl.SCRAM_SHA_256_PREFIX + ScramMechanism.SHA_256.newCredentials("pw").format();
-		FileBasedAcl one = (FileBasedAcl) ServerTestSupport.acl("erin, " + sha256Only + ", READ");
-		assertTrue(one.supportsScram("SHA-256"));
-		assertFalse(one.supportsScram("SHA-1"));
+		String sha256Only = hashed + ";" + FileUserRegistry.SCRAM_SHA_256_PREFIX + ScramMechanism.SHA_256.newCredentials("pw").format();
+		FileUserRegistry one = ServerTestSupport.registry("erin, " + sha256Only + ", READ");
+		assertTrue(one.supports(ProofCredential.class, StoredCredentialType.SCRAM_SHA_256));
+		assertFalse(one.supports(ProofCredential.class, StoredCredentialType.SCRAM_SHA_1));
 
 		// malformed SCRAM credentials are ignored, the password still works
-		FileBasedAcl bad = (FileBasedAcl) ServerTestSupport.acl("fred, " + hashed + ";" + FileBasedAcl.SCRAM_SHA_256_PREFIX + "junk, READ");
-		assertFalse(bad.supportsScram("SHA-256"));
-		assertTrue(bad.verifyPassword(bad.getPrincipal("fred"), "pw".getBytes(StandardCharsets.UTF_8)));
+		FileUserRegistry bad = ServerTestSupport.registry("fred, " + hashed + ";" + FileUserRegistry.SCRAM_SHA_256_PREFIX + "junk, READ");
+		assertFalse(bad.supports(ProofCredential.class, StoredCredentialType.SCRAM_SHA_256));
+		assertEquals(AuthenticationResult.Status.AUTHENTICATED, ServerTestSupport.login(bad, "fred", "pw").getStatus());
 
-		assertFalse(((FileBasedAcl) ServerTestSupport.acl()).supportsScram("SHA-256"), "no users");
+		assertFalse(ServerTestSupport.registry().supports(ProofCredential.class, StoredCredentialType.SCRAM_SHA_256), "no users");
 	}
 
 	@Test
 	public void plainTextPasswordsServeScramWithAStableSalt() throws Exception {
-		FileBasedAcl acl = (FileBasedAcl) ServerTestSupport.acl("bob, pass;word, READ");
-		assertTrue(acl.supportsScram("SHA-256"));
-		ScramCredentials first = acl.getScramCredentials("bob", "SHA-256");
+		FileUserRegistry registry = ServerTestSupport.registry("bob, pass;word, READ");
+		assertTrue(registry.supports(ProofCredential.class, StoredCredentialType.SCRAM_SHA_256));
+		ScramCredentials first = scram(registry, "bob", StoredCredentialType.SCRAM_SHA_256);
 		assertNotNull(first);
-		assertArrayEquals(first.getSalt(), acl.getScramCredentials("bob", "sha-256").getSalt(),
+		assertArrayEquals(first.getSalt(), scram(registry, "bob", StoredCredentialType.SCRAM_SHA_256).getSalt(),
 				"the same salt each time, so it doesn't tell a real user from an unknown one");
-		FileBasedAcl reloaded = (FileBasedAcl) ServerTestSupport.acl("bob, pass;word, READ");
-		assertArrayEquals(first.getSalt(), reloaded.getScramCredentials("bob", "SHA-256").getSalt(), "and after the file is read again");
-		assertTrue(acl.verifyPassword(acl.getPrincipal("bob"), "pass;word".getBytes(StandardCharsets.UTF_8)),
+		FileUserRegistry reloaded = ServerTestSupport.registry("bob, pass;word, READ");
+		assertArrayEquals(first.getSalt(), scram(reloaded, "bob", StoredCredentialType.SCRAM_SHA_256).getSalt(), "and after the file is read again");
+		assertEquals(AuthenticationResult.Status.AUTHENTICATED, ServerTestSupport.login(registry, "bob", "pass;word").getStatus(),
 				"a ; in a plain text password is part of it");
 		Server svr = ServerTestSupport.create("SaslPlainText", ServerTestSupport.standardCommands(), null);
-		svr.setAccessControl(acl);
-		SaslOutcome out = run(ScramMechanism.SHA_1, ScramMechanism.SHA_1.client("bob", "pass;word"), new ServerSaslAuthenticator(svr), false);
+		svr.setUserRegistry(registry);
+		ServerSaslAuthenticator auth = new ServerSaslAuthenticator(svr, ServerTestSupport.requester());
+		assertEquals(first.format(), auth.getScramCredentials("bob", "sha-256").format(), "the hash in any case");
+		SaslOutcome out = run(ScramMechanism.SHA_1, ScramMechanism.SHA_1.client("bob", "pass;word"), new ServerSaslAuthenticator(svr, ServerTestSupport.requester()), false);
 		assertTrue(out.isSuccess(), out.toString());
 	}
 
-	/** A list whose store is down: every lookup throws. */
-	private static IAccessControlList down() {
-		return new IAccessControlList() {
-			@Override
-			public void initialize(us.bringardner.parley.net.server.IServer server) {
-			}
+	private static ScramCredentials scram(UserRegistry registry, String user, StoredCredentialType type) throws Exception {
+		StoredCredential stored = registry.findStoredCredential(user, type);
+		return stored == null ? null : (ScramCredentials) stored.getValue();
+	}
 
+	/** A registry whose store is down: every lookup throws. */
+	static UserRegistry down() {
+		return new UserRegistry() {
 			@Override
-			public boolean checkPermission(IPrincipal user, IPermission action) {
-				return false;
-			}
-
-			@Override
-			public IPrincipal getPrincipal(String user) {
-				return null;
-			}
-
-			@Override
-			public IPrincipal findPrincipal(String user) throws AccessControlUnavailableException {
-				throw new AccessControlUnavailableException("the database is down");
-			}
-
-			@Override
-			public boolean verifyPassword(IPrincipal user, byte[] credentials) throws AccessControlUnavailableException {
-				throw new AccessControlUnavailableException("the database is down");
-			}
-
-			@Override
-			public boolean supportsScram(String hash) {
+			public boolean supports(Class<? extends Credential> kind, StoredCredentialType stored) {
 				return true;
 			}
 
 			@Override
-			public ScramCredentials getScramCredentials(String user, String hash) throws AccessControlUnavailableException {
-				throw new AccessControlUnavailableException("the database is down");
+			public AuthenticationResult authenticate(Credential credential) {
+				return AuthenticationResult.unavailable("the database is down");
+			}
+
+			@Override
+			public StoredCredential findStoredCredential(String user, StoredCredentialType type) throws UserRegistryUnavailableException {
+				throw new UserRegistryUnavailableException("the database is down");
+			}
+
+			@Override
+			public ParleyPrincipal findPrincipal(String name) throws UserRegistryUnavailableException {
+				throw new UserRegistryUnavailableException("the database is down");
+			}
+
+			@Override
+			public ParleyPrincipal findPrincipal(EntityId id) throws UserRegistryUnavailableException {
+				throw new UserRegistryUnavailableException("the database is down");
+			}
+
+			@Override
+			public java.util.Set<ParleyPrincipal> findGroups(ParleyPrincipal principal) throws UserRegistryUnavailableException {
+				throw new UserRegistryUnavailableException("the database is down");
+			}
+
+			@Override
+			public java.util.Collection<ParleyPermission> findPermissions(Requester requester, ParleyPrincipal holder,
+					ProtectedResource resource) throws UserRegistryUnavailableException {
+				throw new UserRegistryUnavailableException("the database is down");
 			}
 		};
 	}
 
 	@Test
-	public void anAccessControlListThatCantAnswerIsNotAWrongPassword() throws Exception {
+	public void aRegistryThatCantAnswerIsNotAWrongPassword() throws Exception {
 		Server svr = ServerTestSupport.create("SaslDown", ServerTestSupport.standardCommands(), null);
 		svr.getLogger().setLevel(us.bringardner.parley.core.ILogger.Level.NONE);
-		svr.setAccessControl(down());
-		assertNull(svr.authenticate("bob", "pw".getBytes(StandardCharsets.UTF_8)), "the old method can only say no");
-		assertThrows(AccessControlUnavailableException.class, () -> svr.checkLogin("bob", "pw".getBytes(StandardCharsets.UTF_8)));
-		assertThrows(AccessControlUnavailableException.class, () -> svr.getVerifiedPrincipal("bob"));
+		svr.setUserRegistry(down());
+		assertEquals(AuthenticationResult.Status.UNAVAILABLE, ServerTestSupport.login(svr, "bob", "pw").getStatus());
 
-		ServerSaslAuthenticator plain = new ServerSaslAuthenticator(svr);
+		ServerSaslAuthenticator plain = new ServerSaslAuthenticator(svr, ServerTestSupport.requester());
 		assertEquals(Status.FAILED, run(new PlainMechanism(), PlainMechanism.client("bob", "pw"), plain, true).getStatus());
 		assertTrue(plain.isUnavailable());
 
-		ServerSaslAuthenticator scram = new ServerSaslAuthenticator(svr);
+		ServerSaslAuthenticator scram = new ServerSaslAuthenticator(svr, ServerTestSupport.requester());
 		assertEquals(Status.FAILED, run(ScramMechanism.SHA_256, ScramMechanism.SHA_256.client("bob", "pw"), scram, true).getStatus());
 		assertTrue(scram.isUnavailable());
-		assertThrows(AccessControlUnavailableException.class, () -> scram.verified("bob"));
+		assertEquals(AuthenticationResult.Status.UNAVAILABLE, scram.verified("bob").getStatus());
 
-		// a list that can answer: a wrong password isn't "unavailable"
-		svr.setAccessControl(ServerTestSupport.acl("bob, pw, READ"));
-		ServerSaslAuthenticator wrong = new ServerSaslAuthenticator(svr);
+		// a registry that can answer: a wrong password isn't "unavailable"
+		svr.setUserRegistry(ServerTestSupport.registry("bob, pw, READ"));
+		ServerSaslAuthenticator wrong = new ServerSaslAuthenticator(svr, ServerTestSupport.requester());
 		assertEquals(Status.FAILED, run(new PlainMechanism(), PlainMechanism.client("bob", "x"), wrong, true).getStatus());
 		assertFalse(wrong.isUnavailable());
-		assertNotNull(svr.checkLogin("bob", "pw".getBytes(StandardCharsets.UTF_8)));
-		assertNull(svr.checkLogin("bob", "x".getBytes(StandardCharsets.UTF_8)));
-		assertNull(svr.checkLogin("nobody", "pw".getBytes(StandardCharsets.UTF_8)));
+		assertEquals(AuthenticationResult.Status.AUTHENTICATED, ServerTestSupport.login(svr, "bob", "pw").getStatus());
+		assertEquals(AuthenticationResult.Status.REFUSED, ServerTestSupport.login(svr, "bob", "x").getStatus());
+		assertEquals(AuthenticationResult.Status.REFUSED, ServerTestSupport.login(svr, "nobody", "pw").getStatus());
 	}
 }

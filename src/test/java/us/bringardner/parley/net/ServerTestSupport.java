@@ -18,17 +18,20 @@ import javax.net.ssl.SSLContext;
 import javax.net.ssl.TrustManager;
 import javax.net.ssl.TrustManagerFactory;
 
+import us.bringardner.parley.iam.AuthenticationResult;
+import us.bringardner.parley.iam.BasicParleyPermission;
+import us.bringardner.parley.iam.ParleyPermission;
+import us.bringardner.parley.iam.PasswordCredential;
+import us.bringardner.parley.iam.Requester;
+import us.bringardner.parley.iam.UserRegistry;
 import us.bringardner.parley.net.client.CommandClient;
 import us.bringardner.parley.net.server.AbstractCommandProcessor;
-import us.bringardner.parley.net.server.FileBasedAcl;
-import us.bringardner.parley.net.server.IAccessControlList;
+import us.bringardner.parley.net.server.FileUserRegistry;
+import us.bringardner.parley.net.server.IBaseServer;
 import us.bringardner.parley.net.server.ICommand;
 import us.bringardner.parley.net.server.ICommandFactory;
 import us.bringardner.parley.net.server.ICommandProcessor;
-import us.bringardner.parley.net.server.IPermission;
-import us.bringardner.parley.net.server.IPrincipal;
 import us.bringardner.parley.net.server.IRequestContext;
-import us.bringardner.parley.net.server.Permission;
 import us.bringardner.parley.net.server.Server;
 
 /**
@@ -93,8 +96,8 @@ public class ServerTestSupport {
 			}
 
 			@Override
-			public IPermission getPermission() {
-				return new Permission(name);
+			public ParleyPermission getPermission() {
+				return new BasicParleyPermission(name, null);
 			}
 
 			@Override
@@ -126,9 +129,8 @@ public class ServerTestSupport {
 				p.reply(IGenericResponseCode.REPLY_500_GENERIC_ERROR, "Not enough parameters");
 				return;
 			}
-			IPrincipal principal = p.getServer().authenticate(user, password.getBytes());
-			p.setPrincipal(principal);
-			if( principal == null ) {
+			AuthenticationResult result = p.authenticate(new PasswordCredential(user, password.toCharArray(), p.getRequester()));
+			if( result.getStatus() != AuthenticationResult.Status.AUTHENTICATED ) {
 				p.reply(IGenericResponseCode.REPLY_400_GENERIC_TEMPORARY_ERROR, "User not identified");
 			} else {
 				p.reply(IGenericResponseCode.REPLY_200_GENERIC_OK, "Ok");
@@ -191,16 +193,38 @@ public class ServerTestSupport {
 	}
 
 	/**
-	 * An ACL built from user file lines, e.g. "alice, pw, Echo|Secret".
+	 * A user registry built from user file lines, e.g. "alice, pw, Echo|Secret".
 	 */
-	public static IAccessControlList acl(String... lines) {
-		return new FileBasedAcl() {
+	public static FileUserRegistry registry(String... lines) {
+		return new FileUserRegistry() {
 			{
-				for (String line : lines) {
-					parseLine(line);
-				}
+				load(java.util.Arrays.asList(lines));
 			}
 		};
+	}
+
+	/** A requester for tests: no address, nobody logged in. */
+	public static Requester requester() {
+		return Requester.connected(null, 0, false, Requester.Transport.TCP, "test");
+	}
+
+	/** A password login through the server's door. */
+	public static AuthenticationResult login(IBaseServer server, String user, String password) {
+		return server.authenticate(new PasswordCredential(user, password.toCharArray(), requester()));
+	}
+
+	/** A password login straight to the registry. */
+	public static AuthenticationResult login(UserRegistry registry, String user, String password) {
+		return registry.authenticate(new PasswordCredential(user, password.toCharArray(), requester()));
+	}
+
+	/** @return the names of the permissions, in order */
+	public static java.util.List<String> names(java.util.Collection<ParleyPermission> permissions) {
+		java.util.List<String> ret = new java.util.ArrayList<String>();
+		for (ParleyPermission permission : permissions) {
+			ret.add(permission.getName());
+		}
+		return ret;
 	}
 
 	public static CommandClient connect(Server svr) throws IOException {

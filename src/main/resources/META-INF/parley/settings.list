@@ -11,7 +11,7 @@ parley.net.lock.provider
 # clients: the file of approved server certificates (DynamicTrustManager)
 parley.net.client.trustFile
 
-# Every server's, under its prefix (Server, NioServer, IBaseServer, FileBasedAcl)
+# Every server's, under its prefix (Server, NioServer, IBaseServer, FileUserRegistry)
 <server>.frameTimeout
 <server>.virtualThreads
 <server>.authenticationProvider

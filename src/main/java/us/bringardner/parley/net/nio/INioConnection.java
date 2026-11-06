@@ -33,8 +33,10 @@ import java.util.Map;
 
 import javax.net.ssl.SSLSession;
 
-import us.bringardner.parley.net.server.IPermission;
-import us.bringardner.parley.net.server.IPrincipal;
+import us.bringardner.parley.iam.AuthorizationResult;
+import us.bringardner.parley.iam.ParleyPermission;
+import us.bringardner.parley.iam.ProtectedResource;
+import us.bringardner.parley.net.server.ILoginSession;
 
 /**
  * A non-blocking connection, the NIO counterpart of the framework's IConnection.
@@ -45,7 +47,7 @@ import us.bringardner.parley.net.server.IPrincipal;
  *
  * @author Tony Bringardner
  */
-public interface INioConnection extends Closeable {
+public interface INioConnection extends Closeable, ILoginSession {
 
 	/**
 	 * @return a number unique to this connection within the JVM
@@ -169,22 +171,16 @@ public interface INioConnection extends Closeable {
 	public void setDecoder(IFrameDecoder decoder);
 
 	/**
-	 * @return the logged in user, null until authenticated
+	 * Asks the server ({@link NioServer#checkPermission}) with {@link #getRequester()}. A client
+	 * connection has no server, so it is DENIED.
 	 */
-	public IPrincipal getPrincipal();
-
-	/**
-	 * @param principal the logged in user, e.g. from {@link NioServer#authenticate(String, byte[])}
-	 */
-	public void setPrincipal(IPrincipal principal);
-
-	/**
-	 * @return true if the logged in user may do the action (false if not logged in, 
-	 * a client connection, or the server has no access control)
-	 */
-	public default boolean isAuthorized(IPermission action) {
+	@Override
+	public default AuthorizationResult checkPermission(ParleyPermission needed, ProtectedResource resource) {
 		NioServer server = getServer();
-		return server != null && server.isAuthorized(getPrincipal(), action);
+		if( server == null ) {
+			return AuthorizationResult.denied("a client connection");
+		}
+		return server.checkPermission(getRequester(), needed, resource);
 	}
 
 	public Object getAttribute(String name);

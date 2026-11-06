@@ -4,26 +4,24 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
-import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import java.util.Arrays;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 
 import org.junit.jupiter.api.Test;
 
-import us.bringardner.parley.net.server.FileBasedAcl;
-import us.bringardner.parley.net.server.FileBasedAcl.FileBasedPrincipal;
-import us.bringardner.parley.net.server.IPermission;
-import us.bringardner.parley.net.server.IPrincipal;
-import us.bringardner.parley.net.server.IPrincipal.State;
-import us.bringardner.parley.net.server.Permission;
+import us.bringardner.parley.iam.AuthenticationResult;
+import us.bringardner.parley.iam.AuthorizationResult;
+import us.bringardner.parley.iam.BasicParleyPermission;
+import us.bringardner.parley.iam.ParleyPermission;
+import us.bringardner.parley.iam.ParleyPrincipal;
+import us.bringardner.parley.iam.Requester;
+import us.bringardner.parley.net.server.FileUserRegistry;
 import us.bringardner.parley.net.server.Server;
 
 /**
- * AbstractPrincipal permissions / parameters, Server runtime values, authentication and authorization.
+ * Server runtime values, and logging in and authorizing through a server.
  *
  * <PRE>
  * Copyright 1998-2026 <A href="http://bringardner.us/tony">Tony Bringardner</A>
@@ -44,84 +42,8 @@ import us.bringardner.parley.net.server.Server;
  */
 public class TestPrincipalsAndValues {
 
-	private static final IPermission A = new Permission("A");
-	private static final IPermission B = new Permission("B");
-
-	@Test
-	public void testDuplicatesAndRevoke() {
-		FileBasedPrincipal p = new FileBasedPrincipal("user");
-		p.add(A);
-		p.add(new Permission("A"));
-		assertEquals(1, p.getPermissions().size());
-		assertTrue(p.remove(A));
-		assertFalse(p.hasPermission(A), "a removed permission must be revoked");
-		assertFalse(p.remove(A));
-	}
-
-	@Test
-	public void testMatchesByNameAcrossImplementations() {
-		FileBasedPrincipal p = new FileBasedPrincipal("user");
-		p.add(A);
-		IPermission other = () -> "A";
-		assertTrue(p.hasPermission(other));
-		assertFalse(p.hasPermission(() -> "Z"));
-	}
-
-	@Test
-	public void testNullsIgnored() {
-		FileBasedPrincipal p = new FileBasedPrincipal("user");
-		p.add(null);
-		assertTrue(p.getPermissions().isEmpty());
-		assertFalse(p.hasPermission(null));
-		assertFalse(p.remove(null));
-	}
-
-	@Test
-	public void testSetPermissionsReplacesAndKeepsOrder() {
-		FileBasedPrincipal p = new FileBasedPrincipal("user");
-		p.add(new Permission("old"));
-		p.setPermissions(Arrays.asList(B, A, null, new Permission("B")));
-		List<IPermission> perms = p.getPermissions();
-		assertEquals(2, perms.size());
-		assertEquals("B", perms.get(0).getName());
-		assertEquals("A", perms.get(1).getName());
-		assertFalse(p.hasPermission(new Permission("old")));
-		p.setPermissions(null);
-		assertTrue(p.getPermissions().isEmpty());
-	}
-
-	@Test
-	public void testSetParameters() {
-		FileBasedPrincipal p = new FileBasedPrincipal("user");
-		p.setParameter("old", "x");
-		Map<Object, Object> params = new HashMap<>();
-		params.put("k", "v");
-		p.setParameters(params);
-		assertEquals("v", p.getParameter("k"));
-		assertNull(p.getParameter("old"));
-		assertEquals(1, params.size(), "the caller's map must not be cleared");
-		assertEquals("v", p.removeParameter("k"));
-		assertNull(p.getParameter("k"));
-	}
-
-	@Test
-	public void testState() {
-		FileBasedPrincipal p = new FileBasedPrincipal("user");
-		assertEquals(State.Unvalidated, p.getState());
-		p.setState(State.Authenticated);
-		assertEquals(State.Authenticated, p.getState());
-	}
-
-	@Test
-	@SuppressWarnings("unlikely-arg-type") // equals() with a String must be false
-	public void testPermissionValueObject() {
-		assertEquals(A, new Permission("A"));
-		assertEquals(A.hashCode(), new Permission("A").hashCode());
-		assertFalse(A.equals(B));
-		assertFalse(A.equals("A"));
-		assertEquals("A", A.toString());
-		assertTrue(A.compareTo(B) < 0);
-	}
+	private static final ParleyPermission A = new BasicParleyPermission("A", null);
+	private static final ParleyPermission B = new BasicParleyPermission("B", null);
 
 	@Test
 	public void testRuntimeValues() {
@@ -149,34 +71,37 @@ public class TestPrincipalsAndValues {
 
 	@Test
 	public void testAuthenticateAndAuthorize() {
-		String hash = FileBasedAcl.hashPassword("pw".toCharArray());
+		String hash = FileUserRegistry.hashPassword("pw".toCharArray());
 		Server svr = new Server(0, "AuthServer");
-		svr.setAccessControl(ServerTestSupport.acl("hashed, " + hash + ", A", "plain, plainpw, B"));
+		svr.setUserRegistry(ServerTestSupport.registry("hashed, " + hash + ", A", "plain, plainpw, B"));
 
-		IPrincipal hashed = svr.authenticate("hashed", "pw".getBytes());
-		assertNotNull(hashed);
-		assertEquals(State.Authenticated, hashed.getState());
+		AuthenticationResult in = ServerTestSupport.login(svr, "hashed", "pw");
+		assertEquals(AuthenticationResult.Status.AUTHENTICATED, in.getStatus());
+		ParleyPrincipal hashed = in.getPrincipal();
 		assertEquals("hashed", hashed.getName());
-		assertNotNull(svr.authenticate("plain", "plainpw".getBytes()));
+		assertEquals(AuthenticationResult.Status.AUTHENTICATED, ServerTestSupport.login(svr, "plain", "plainpw").getStatus());
 
-		assertNull(svr.authenticate("hashed", "wrong".getBytes()));
-		assertNull(svr.authenticate("nobody", "pw".getBytes()), "unknown user");
-		assertNull(svr.authenticate("nobody", null));
+		assertEquals(AuthenticationResult.Status.REFUSED, ServerTestSupport.login(svr, "hashed", "wrong").getStatus());
+		assertEquals(AuthenticationResult.Status.REFUSED, ServerTestSupport.login(svr, "nobody", "pw").getStatus(), "unknown user");
 
-		assertTrue(svr.isAuthorized(hashed, A));
-		assertFalse(svr.isAuthorized(hashed, B));
-		assertFalse(svr.isAuthorized(null, A), "not logged in");
-
-		// The server hands out a read only view
-		assertThrows(UnsupportedOperationException.class, () -> hashed.add(B));
-		assertThrows(UnsupportedOperationException.class, () -> hashed.setParameter("k", "v"));
-		assertThrows(UnsupportedOperationException.class, () -> hashed.getPermissions().add(B));
+		Requester nobody = ServerTestSupport.requester();
+		Requester requester = nobody.loggedIn(in);
+		assertTrue(svr.checkPermission(requester, A, null).isAllowed());
+		assertFalse(svr.checkPermission(requester, B, null).isAllowed());
+		assertFalse(svr.checkPermission(nobody, A, null).isAllowed(), "not logged in");
+		assertEquals(1, requester.getMethods().size());
+		assertEquals(FileUserRegistry.PASSWORD_METHOD, requester.getMethods().get(0));
 	}
 
 	@Test
-	public void testNoAccessControl() {
+	public void testNoUserRegistry() {
 		Server svr = new Server(0, "NoAclServer-" + System.nanoTime());
-		assertNull(svr.authenticate("anyone", "pw".getBytes()));
-		assertFalse(svr.isAuthorized(new FileBasedPrincipal("anyone"), A));
+		AuthenticationResult result = ServerTestSupport.login(svr, "anyone", "pw");
+		assertEquals(AuthenticationResult.Status.UNSUPPORTED, result.getStatus());
+		assertEquals("no user registry", result.getReason());
+		AuthorizationResult check = svr.checkPermission(ServerTestSupport.requester(), A, null);
+		assertEquals(AuthorizationResult.Status.DENIED, check.getStatus());
+		assertEquals("no user registry", check.getReason());
+		assertNull(svr.getUserRegistry());
 	}
 }

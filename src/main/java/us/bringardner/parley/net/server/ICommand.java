@@ -26,6 +26,7 @@ package us.bringardner.parley.net.server;
 
 import java.io.IOException;
 
+import us.bringardner.parley.iam.ParleyPermission;
 import us.bringardner.parley.net.IGenericResponseCode;
 
 
@@ -35,7 +36,11 @@ public interface ICommand extends IGenericResponseCode {
 	
 	public String getName();
 	public void execute(ICommandProcessor processor,IRequestContext context) throws IOException;
-	public IPermission getPermission() ;
+	/**
+	 * @return the permission a session needs to run this command, on the server as a whole;
+	 * null names none, which the server denies. Asked only when {@link #requiresAuthorization()} is true.
+	 */
+	public ParleyPermission getPermission() ;
 	default String getHelp() {
 		return "No help available";
 	}

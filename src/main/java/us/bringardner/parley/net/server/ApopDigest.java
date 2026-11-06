@@ -9,7 +9,7 @@ import us.bringardner.parley.core.util.Hex;
 import us.bringardner.parley.net.sasl.SaslPrep;
 
 /**
- * The APOP check (RFC 1939 section 7) for access control lists that keep plain text
+ * The APOP check (RFC 1939 section 7) for user registries that keep plain text
  * passwords: MD5(timestamp + secret), with the secret prepared by SASLprep (RFC 6856
  * section 2.2), compared in constant time.
  *

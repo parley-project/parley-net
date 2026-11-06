@@ -27,8 +27,10 @@ package us.bringardner.parley.net;
 
 import java.util.Map;
 
-import us.bringardner.parley.net.server.IPermission;
-import us.bringardner.parley.net.server.IPrincipal;
+import us.bringardner.parley.iam.AuthorizationResult;
+import us.bringardner.parley.iam.ParleyPermission;
+import us.bringardner.parley.iam.ProtectedResource;
+import us.bringardner.parley.net.server.ILoginSession;
 import us.bringardner.parley.net.server.IServer;
 
 
@@ -43,7 +45,7 @@ import us.bringardner.parley.net.server.IServer;
  * 
  * @author: Tony Bringardner
  */
-public interface IProcessor extends IManagedThread {
+public interface IProcessor extends IManagedThread, ILoginSession {
 	
 	/**
 	 * Set the Server that accepted this connection.
@@ -80,10 +82,11 @@ public interface IProcessor extends IManagedThread {
 	public void setServerRuntimeValue(String name, Object value) ;
 	public Object getServerRuntimeValue(String name);
 
-	public IPrincipal getPrincipal();
-	public void setPrincipal(IPrincipal  user);
-	
-	public boolean isAuthorized(IPermission action);
+	/** Asks the server ({@link IServer#checkPermission}) with {@link #getRequester()}. */
+	@Override
+	public default AuthorizationResult checkPermission(ParleyPermission needed, ProtectedResource resource) {
+		return getServer().checkPermission(getRequester(), needed, resource);
+	}
 	
 	
 }

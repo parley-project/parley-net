@@ -35,8 +35,9 @@ import java.util.function.Function;
  * <p>
  * A server makes its list from a class name (a public constructor with no arguments), calls
  * {@link #initialize(Function)} once, and then {@link #reloadIfChanged()} whenever it wants to
- * see changes (e.g. before answering, or on a timer). Like {@link IAccessControlList}, a list
- * that can't be read throws {@link DomainListUnavailableException}; the server keeps what it had.
+ * see changes (e.g. before answering, or on a timer). A list that can't be read throws
+ * {@link DomainListUnavailableException} (as a user registry that can't answer throws
+ * {@link us.bringardner.parley.iam.UserRegistryUnavailableException}); the server keeps what it had.
  * <p>
  * Names are lower case, without a trailing dot. The list holds names only: what a server does
  * with a domain is up to the server.
