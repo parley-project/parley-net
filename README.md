@@ -265,11 +265,15 @@ A user's groups are a `groups=` parameter, separated by `;`
 this file groups grant nothing and don't nest: a user holds only the permissions on its own line. A
 group with no members is kept on a line of its own, `group: sales@bringardner.us`.
 
-`FileUserRegistry` is a parley-iam `GroupManager`: `createGroup`, `deleteGroup`, `addMember` and
-`removeMember` rewrite the file (through a temporary file, keeping its other lines, comments,
-permissions and group), and every registry reading the file sees the change at its next check. Only
-users can be members. Users read from a class path resource can't be changed
-(`UnsupportedOperationException`).
+`FileUserRegistry` is a parley-iam `PrincipalManager`: `createUser`, `createGroup`, `deletePrincipal`,
+`setAttribute`, `addMember`, `removeMember`, `setPassword`, `removePassword` and `setEnabled` rewrite the
+file (through a temporary file, keeping its other lines, comments, permissions and group), and every
+registry reading the file sees the change at its next check. `setPassword` writes a `{PBKDF2}` hash with
+SCRAM credentials; an empty password field means no password. `enabled=false` on a user's line turns it
+off: it can't log in, holds nothing and isn't found, except by `findPrincipals`. A group's attributes go
+on its own line (`group: sales@bringardner.us , key=val`). Only users can be members. The parameters
+`groups` and `enabled` are the file's own, not attributes. Users read from a class path resource can't
+be changed (`UnsupportedOperationException`).
 
 A principal holds no secrets: the registry checks passwords, and hands out a stored secret only for a
 proof the server runs (SCRAM credentials, and the plain text password for POP3's APOP, which works

@@ -22,11 +22,16 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.function.Executable;
 import org.junit.jupiter.api.io.TempDir;
 
-import us.bringardner.parley.iam.GroupManager;
+import us.bringardner.parley.iam.AuthenticationResult;
+import us.bringardner.parley.iam.PasswordCredential;
+import us.bringardner.parley.iam.PrincipalManager;
+import us.bringardner.parley.iam.Requester;
+import us.bringardner.parley.iam.StoredCredentialType;
+import us.bringardner.parley.iam.ProofCredential;
 import us.bringardner.parley.iam.ParleyPrincipal;
 
-/** A user file's groups found and changed through GroupManager. */
-public class FileUserRegistryGroupsTest {
+/** A user file's users and groups found and managed through PrincipalManager. */
+public class FileUserRegistryManagerTest {
 
 	@TempDir
 	File dir;
@@ -72,7 +77,7 @@ public class FileUserRegistryGroupsTest {
 	public void aNewGroupIsKeptOnItsOwnLine() throws Exception {
 		File f = users(FILE);
 		try (FileUserRegistry registry = open(f)) {
-			GroupManager groups = registry;
+			PrincipalManager groups = registry;
 			ParleyPrincipal support = groups.createGroup("support@bringardner.us");
 			assertTrue(support.isGroup());
 			assertEquals(0, registry.findMembers(support).size());
@@ -120,21 +125,19 @@ public class FileUserRegistryGroupsTest {
 		File f = users(FILE + "dave , fourth , READ , groups=sales;support\ngroup: sales\n");
 		try (FileUserRegistry registry = open(f)) {
 			ParleyPrincipal sales = registry.findPrincipal("sales");
-			assertTrue(registry.deleteGroup(sales));
-			assertFalse(registry.deleteGroup(sales));
+			assertTrue(registry.deletePrincipal(sales));
+			assertFalse(registry.deletePrincipal(sales));
 			assertNull(registry.findPrincipal("sales"));
 			String text = read(f);
 			assertFalse(text.contains("sales"), text);
 			assertTrue(text.contains("dave , fourth , READ , groups=support\n"), text);
-			assertFalse(registry.deleteGroup(registry.findPrincipal("carol")), "a user isn't deleted as a group");
-			assertNotNull(registry.findPrincipal("carol"));
 		}
 	}
 
 	@Test
 	public void changesThatCantWorkAreRefused() throws Exception {
 		try (FileUserRegistry registry = open(users(FILE))) {
-			final GroupManager groups = registry;
+			final PrincipalManager groups = registry;
 			final ParleyPrincipal sales = registry.findPrincipal("sales");
 			final ParleyPrincipal alice = registry.findPrincipal("alice");
 			final ParleyPrincipal support = registry.createGroup("support");
@@ -182,7 +185,7 @@ public class FileUserRegistryGroupsTest {
 			assertThrows(UnsupportedOperationException.class, new Executable() {
 				@Override
 				public void execute() throws Throwable {
-					registry.deleteGroup(sales);
+					registry.deletePrincipal(sales);
 				}
 			});
 		}
@@ -213,6 +216,137 @@ public class FileUserRegistryGroupsTest {
 		assertEquals("a , p , READ , m=1", FileUserRegistry.withGroups("a , p , READ , groups=x|m=1", none));
 		assertEquals("a , p , READ", FileUserRegistry.withGroups("a , p , READ , groups=x", none));
 		assertEquals("a , p , READ , , extra", FileUserRegistry.withGroups("a , p , READ , groups=x, extra", none));
+	}
+
+	private static AuthenticationResult.Status login(FileUserRegistry registry, String user, String password) {
+		Requester r = Requester.connected(null, 110, true, Requester.Transport.TCP, "pop3");
+		return registry.authenticate(new PasswordCredential(user, password.toCharArray(), r)).getStatus();
+	}
+
+	@Test
+	public void usersAreManagedThroughTheFile() throws Exception {
+		File f = users(FILE);
+		try (FileUserRegistry registry = open(f)) {
+			PrincipalManager manager = registry;
+			ParleyPrincipal jose = manager.createUser("jose@bringardner.us");
+			assertTrue(read(f).endsWith("jose@bringardner.us , , \n"), read(f));
+			assertEquals(AuthenticationResult.Status.REFUSED, login(registry, "jose@bringardner.us", ""), "no password: no login, not even an empty one");
+
+			manager.setPassword(jose, "pw".toCharArray());
+			assertTrue(read(f).contains("jose@bringardner.us , {PBKDF2}"), read(f));
+			assertEquals(AuthenticationResult.Status.AUTHENTICATED, login(registry, "jose@bringardner.us", "pw"));
+
+			ParleyPrincipal changed = manager.setAttribute(jose, "maildrop", "jose");
+			assertEquals("jose", changed.getAttribute("maildrop"));
+			assertEquals(jose, changed);
+			assertEquals(null, manager.setAttribute(jose, "maildrop", null).getAttribute("maildrop"));
+
+			assertTrue(manager.removePassword(jose));
+			assertFalse(manager.removePassword(jose));
+			assertEquals(AuthenticationResult.Status.REFUSED, login(registry, "jose@bringardner.us", "pw"));
+
+			assertTrue(manager.deletePrincipal(jose));
+			assertFalse(read(f).contains("jose"), read(f));
+			assertNull(registry.findPrincipal("jose@bringardner.us"));
+		}
+	}
+
+	@Test
+	public void aNewUserDoesntTurnScramOff() throws Exception {
+		File f = users("a , " + FileUserRegistry.hashPasswordWithScram("pw".toCharArray()) + " , READ\n");
+		try (FileUserRegistry registry = open(f)) {
+			assertTrue(registry.supports(ProofCredential.class, StoredCredentialType.SCRAM_SHA_256));
+			registry.createUser("b");
+			assertTrue(registry.supports(ProofCredential.class, StoredCredentialType.SCRAM_SHA_256), "b has no password, so it doesn't count");
+		}
+	}
+
+	@Test
+	public void aTurnedOffUserIsAsIfGone() throws Exception {
+		File f = users(FILE);
+		try (FileUserRegistry registry = open(f)) {
+			ParleyPrincipal bob = registry.findPrincipal("bob");
+			ParleyPrincipal sales = registry.findPrincipal("sales");
+			registry.setEnabled(bob, false);
+			assertTrue(read(f).contains("bob , other , READ , groups=sales|enabled=false\n"), read(f));
+			assertFalse(registry.isEnabled(bob));
+			assertTrue(registry.isEnabled(sales), "a group is always on");
+			assertEquals(AuthenticationResult.Status.REFUSED, login(registry, "bob", "other"));
+			assertNull(registry.findPrincipal("bob"));
+			assertNull(registry.findPrincipal(bob.getId()));
+			assertEquals(0, registry.findMembers(sales).size());
+			assertEquals(java.util.List.of(bob), registry.findPrincipals("b", PrincipalManager.Kind.USER, 0), "listed, so it can be turned on");
+			assertEquals(null, bob.getAttribute("enabled"), "not an attribute");
+
+			registry.setEnabled(bob, true);
+			assertTrue(read(f).contains("bob , other , READ , groups=sales\n"), read(f));
+			assertEquals(AuthenticationResult.Status.AUTHENTICATED, login(registry, "bob", "other"));
+		}
+	}
+
+	@Test
+	public void groupsHaveAttributesOnTheirOwnLine() throws Exception {
+		File f = users(FILE);
+		try (FileUserRegistry registry = open(f)) {
+			ParleyPrincipal sales = registry.findPrincipal("sales");
+			ParleyPrincipal changed = registry.setAttribute(sales, "mailbox", "Sales");
+			assertEquals("Sales", changed.getAttribute("mailbox"));
+			assertTrue(read(f).endsWith("group: sales , mailbox=Sales\n"), read(f));
+			ParleyPrincipal bob = registry.findPrincipal("bob");
+			assertEquals("Sales", registry.findGroups(bob).iterator().next().getAttribute("mailbox"), "found through a member too");
+			registry.setAttribute(sales, "mailbox", "S2");
+			assertTrue(read(f).endsWith("group: sales , mailbox=S2\n"), read(f));
+			registry.setAttribute(sales, "mailbox", null);
+			assertTrue(read(f).endsWith("group: sales\n"), read(f));
+			assertNotNull(registry.findPrincipal("sales"));
+		}
+	}
+
+	@Test
+	public void principalsAreListedByName() throws Exception {
+		try (FileUserRegistry registry = open(users(FILE + "group: support\n"))) {
+			assertEquals(java.util.List.of("alice", "bob", "carol", "sales", "support"),
+					names(registry.findPrincipals(null, PrincipalManager.Kind.ANY, 0)));
+			assertEquals(java.util.List.of("sales", "support"), names(registry.findPrincipals("", PrincipalManager.Kind.GROUP, 0)));
+			assertEquals(java.util.List.of("sales"), names(registry.findPrincipals("s", PrincipalManager.Kind.ANY, 1)), "the limit");
+			assertEquals(0, registry.findPrincipals("S", PrincipalManager.Kind.ANY, 0).size(), "case counts here");
+		}
+	}
+
+	@Test
+	public void attributesTheFileCantHoldAreRefused() throws Exception {
+		try (FileUserRegistry registry = open(users(FILE))) {
+			final ParleyPrincipal alice = registry.findPrincipal("alice");
+			for (final String[] bad : new String[][] { { "groups", "x" }, { "enabled", "false" }, { "a", "b,c" }, { "a", "b|c" },
+					{ "a", "b=c" }, { "a", "" }, { "a b ", "c" } }) {
+				assertRefused(new Executable() {
+					@Override
+					public void execute() throws Throwable {
+						registry.setAttribute(alice, bad[0], bad[1]);
+					}
+				}, bad[0] + "=" + bad[1]);
+			}
+			assertRefused(new Executable() {
+				@Override
+				public void execute() throws Throwable {
+					registry.setPassword(registry.findPrincipal("sales"), "pw".toCharArray());
+				}
+			}, "a group doesn't log in");
+			assertRefused(new Executable() {
+				@Override
+				public void execute() throws Throwable {
+					registry.createUser("sales");
+				}
+			}, "the name of a group");
+		}
+	}
+
+	private static List<String> names(List<ParleyPrincipal> principals) {
+		List<String> ret = new ArrayList<String>();
+		for (ParleyPrincipal p : principals) {
+			ret.add(p.getName());
+		}
+		return ret;
 	}
 
 	private static void assertRefused(Executable change, String why) {
