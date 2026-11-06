@@ -261,8 +261,15 @@ the users it had.
 
 A user's groups are a `groups=` parameter, separated by `;`
 (`tony@bringardner.us, {PBKDF2}..., READ|WRITE, groups=sales@bringardner.us;support@bringardner.us`);
-`FileUserRegistry.findGroups(principal)` returns them. In this file groups grant nothing: a user holds
-only the permissions on its own line.
+`findGroups(principal)` returns them, and `findMembers(group)` the users whose lines name a group. In
+this file groups grant nothing and don't nest: a user holds only the permissions on its own line. A
+group with no members is kept on a line of its own, `group: sales@bringardner.us`.
+
+`FileUserRegistry` is a parley-iam `GroupManager`: `createGroup`, `deleteGroup`, `addMember` and
+`removeMember` rewrite the file (through a temporary file, keeping its other lines, comments,
+permissions and group), and every registry reading the file sees the change at its next check. Only
+users can be members. Users read from a class path resource can't be changed
+(`UnsupportedOperationException`).
 
 A principal holds no secrets: the registry checks passwords, and hands out a stored secret only for a
 proof the server runs (SCRAM credentials, and the plain text password for POP3's APOP, which works

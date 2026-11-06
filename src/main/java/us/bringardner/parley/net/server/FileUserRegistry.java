@@ -5,6 +5,11 @@ import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
+import java.nio.file.attribute.PosixFileAttributeView;
+import java.nio.file.attribute.PosixFileAttributes;
 import java.security.GeneralSecurityException;
 import java.security.MessageDigest;
 import java.security.SecureRandom;
@@ -32,6 +37,7 @@ import us.bringardner.parley.iam.AuthorizationResult;
 import us.bringardner.parley.iam.BasicParleyPermission;
 import us.bringardner.parley.iam.BasicParleyPrincipal;
 import us.bringardner.parley.iam.Credential;
+import us.bringardner.parley.iam.GroupManager;
 import us.bringardner.parley.iam.EntityId;
 import us.bringardner.parley.iam.ParleyPermission;
 import us.bringardner.parley.iam.ParleyPrincipal;
@@ -42,6 +48,7 @@ import us.bringardner.parley.iam.Requester;
 import us.bringardner.parley.iam.StoredCredential;
 import us.bringardner.parley.iam.StoredCredentialType;
 import us.bringardner.parley.iam.UserRegistry;
+import us.bringardner.parley.iam.UserRegistryUnavailableException;
 import us.bringardner.parley.io.IoUtils;
 import us.bringardner.parley.net.sasl.ScramCredentials;
 import us.bringardner.parley.net.sasl.ScramMechanism;
@@ -55,7 +62,17 @@ import us.bringardner.parley.net.sasl.ScramMechanism;
  * The permissions are held on the server as a whole (no resource). The parameters become the
  * principal's attributes, except {@code groups}, which lists the user's groups separated by
  * {@code ;} ({@code groups=sales@bringardner.us;support@bringardner.us}). Each group name seen
- * is a group principal; groups hold no permissions and don't nest.
+ * is a group principal; groups hold no permissions and don't nest. A group with no members is
+ * kept on a line of its own:
+ * <pre>
+ * group: sales@bringardner.us
+ * </pre>
+ * <p>
+ * Groups can be changed through {@link GroupManager} ({@link #createGroup}, {@link #deleteGroup},
+ * {@link #addMember}, {@link #removeMember}) when the users were read from a file (not a class
+ * path resource). A change rewrites the file, keeping its other lines, comments, permissions and
+ * group, and every registry reading the file sees it at its next check. Only users can be
+ * members, since groups don't nest here.
  * <p>
  * The file has no ids, so a user's id is {@code user:} followed by its name, and a group's is
  * {@code group:} followed by its name. Renaming a user or group in the file therefore makes a
@@ -106,7 +123,7 @@ import us.bringardner.parley.net.sasl.ScramMechanism;
  *   limitations under the License.
  *  </PRE>
  */
-public class FileUserRegistry extends BaseObject implements UserRegistry {
+public class FileUserRegistry extends BaseObject implements GroupManager {
 
 	/** Setting (prefix.userFile) naming the user file, a path or a class path resource */
 	public static final String PROP_FILE_NAME = "userFile";
@@ -124,6 +141,8 @@ public class FileUserRegistry extends BaseObject implements UserRegistry {
 	public static final String USER_ID_PREFIX = "user:";
 	/** Starts the id of a group: {@code group:} and the name. @since 2.0.0 */
 	public static final String GROUP_ID_PREFIX = "group:";
+	/** Starts a line that keeps a group, members or not: {@code group: sales@bringardner.us}. @since 2.0.0 */
+	public static final String GROUP_LINE_PREFIX = "group:";
 
 	private static final String HASH_ALGORITHM = "PBKDF2WithHmacSHA256";
 	private static final int HASH_ITERATIONS = 210000;
@@ -588,9 +607,18 @@ public class FileUserRegistry extends BaseObject implements UserRegistry {
 	 * Add the user on one line of the user file. While a file is read the user goes with the
 	 * others read from it; otherwise it is added to the users in use (for setting a registry up).
 	 *
-	 * @param line {@code name , password , perm1|perm2 , key=val|key=val}
+	 * @param line {@code name , password , perm1|perm2 , key=val|key=val}, or a group's
+	 *            {@code group: name}
 	 */
 	protected synchronized void parseLine(String line) {
+
+		if( line.startsWith(GROUP_LINE_PREFIX)) {
+			String group = line.substring(GROUP_LINE_PREFIX.length()).trim();
+			if( !group.isEmpty()) {
+				(loading != null ? loading : users).group(group);
+			}
+			return;
+		}
 
 		String parts[] = line.split("[,]");
 		// need at least name and credentials
@@ -811,13 +839,338 @@ public class FileUserRegistry extends BaseObject implements UserRegistry {
 		return AuthorizationResult.denied(principal.getName()+" holds nothing that covers "+needed);
 	}
 
-	/** The groups the user's line names, in order; groups don't nest. */
+	/** The groups the user's line names, in order; groups don't nest, so a group is in none. */
+	@Override
 	public Set<ParleyPrincipal> findGroups(ParleyPrincipal principal) {
+		reloadIfChanged();
 		FileUser user = principal == null ? null : users.byId.get(principal.getId());
 		if( user == null ) {
 			return new LinkedHashSet<ParleyPrincipal>();
 		}
 		return new LinkedHashSet<ParleyPrincipal>(user.groups);
+	}
+
+	/** The users whose lines name this group, in the file's order. */
+	@Override
+	public Set<ParleyPrincipal> findMembers(ParleyPrincipal group) {
+		reloadIfChanged();
+		Users u = users;
+		Set<ParleyPrincipal> ret = new LinkedHashSet<ParleyPrincipal>();
+		if( group == null || !u.groupsById.containsKey(group.getId())) {
+			return ret;
+		}
+		for (FileUser user : u.byName.values()) {
+			for (ParleyPrincipal g : user.groups) {
+				if( g.getId().equals(group.getId())) {
+					ret.add(user.principal);
+				}
+			}
+		}
+		return ret;
+	}
+
+	// ------------------------------------------------------------------ GroupManager
+
+	/**
+	 * Adds a {@code group: name} line.
+	 *
+	 * @throws IllegalArgumentException also for a name with a character the file uses to
+	 *             separate fields ({@code , ; | =}), a line break, or space at either end
+	 */
+	@Override
+	public synchronized ParleyPrincipal createGroup(String name) throws UserRegistryUnavailableException {
+		checkGroupName(name);
+		List<String> lines = readForChange();
+		Users u = users;
+		if( u.byName.containsKey(name) || u.groupsByName.containsKey(name)) {
+			throw new IllegalArgumentException("The name "+name+" is taken");
+		}
+		lines.add(GROUP_LINE_PREFIX+" "+name);
+		writeChange(lines);
+		return users.groupsByName.get(name);
+	}
+
+	/** Removes the group's {@code group:} lines and its name from every user's line. */
+	@Override
+	public synchronized boolean deleteGroup(ParleyPrincipal group) throws UserRegistryUnavailableException {
+		if( group == null ) {
+			return false;
+		}
+		List<String> lines = readForChange();
+		ParleyPrincipal stored = users.groupsById.get(group.getId());
+		if( stored == null ) {
+			return false;
+		}
+		String name = stored.getName();
+		List<String> changed = new ArrayList<String>();
+		for (String line : lines) {
+			String t = line.trim();
+			if( isGroupLine(t, name)) {
+				continue;
+			}
+			List<String> groups = isUserLine(t) ? groupsOn(t) : null;
+			if( groups != null && groups.remove(name)) {
+				changed.add(withGroups(line, groups));
+			} else {
+				changed.add(line);
+			}
+		}
+		writeChange(changed);
+		return true;
+	}
+
+	/** Adds the group's name to the user's line (the last line with that name, the one in use). */
+	@Override
+	public synchronized boolean addMember(ParleyPrincipal group, ParleyPrincipal member) throws UserRegistryUnavailableException {
+		if( group == null || member == null ) {
+			throw new IllegalArgumentException("A group and a member are needed");
+		}
+		List<String> lines = readForChange();
+		Users u = users;
+		ParleyPrincipal storedGroup = u.groupsById.get(group.getId());
+		if( storedGroup == null ) {
+			throw new IllegalArgumentException("No group "+group.getName()+" in "+sourceFile);
+		}
+		FileUser user = u.byId.get(member.getId());
+		if( user == null ) {
+			if( u.groupsById.containsKey(member.getId())) {
+				throw new IllegalArgumentException("Groups don't nest in a user file: "+member.getName()+" is a group");
+			}
+			throw new IllegalArgumentException("No user "+member.getName()+" in "+sourceFile);
+		}
+		if( user.groups.contains(storedGroup)) {
+			return false;
+		}
+		int index = lineOf(lines, user.principal.getName());
+		List<String> groups = groupsOn(lines.get(index).trim());
+		groups.add(storedGroup.getName());
+		lines.set(index, withGroups(lines.get(index), groups));
+		writeChange(lines);
+		return true;
+	}
+
+	/**
+	 * Takes the group's name off the user's line. When that leaves a group with no members and
+	 * no {@code group:} line, one is added, so the group stays.
+	 */
+	@Override
+	public synchronized boolean removeMember(ParleyPrincipal group, ParleyPrincipal member) throws UserRegistryUnavailableException {
+		if( group == null || member == null ) {
+			return false;
+		}
+		List<String> lines = readForChange();
+		Users u = users;
+		ParleyPrincipal storedGroup = u.groupsById.get(group.getId());
+		FileUser user = u.byId.get(member.getId());
+		if( storedGroup == null || user == null || !user.groups.contains(storedGroup)) {
+			return false;
+		}
+		String name = storedGroup.getName();
+		int index = lineOf(lines, user.principal.getName());
+		List<String> groups = groupsOn(lines.get(index).trim());
+		groups.remove(name);
+		lines.set(index, withGroups(lines.get(index), groups));
+		boolean kept = false;
+		for (String line : lines) {
+			String t = line.trim();
+			if( isGroupLine(t, name) || (isUserLine(t) && groupsOn(t).contains(name))) {
+				kept = true;
+				break;
+			}
+		}
+		if( !kept ) {
+			lines.add(GROUP_LINE_PREFIX+" "+name);
+		}
+		writeChange(lines);
+		return true;
+	}
+
+	private static void checkGroupName(String name) {
+		if( name == null || name.trim().isEmpty()) {
+			throw new IllegalArgumentException("A group needs a name");
+		}
+		if( !name.equals(name.trim()) || name.startsWith("#")) {
+			throw new IllegalArgumentException("A group's name can't start with # or space, or end with space: '"+name+"'");
+		}
+		for (char c : name.toCharArray()) {
+			if( c == ',' || c == ';' || c == '|' || c == '=' || c == '\n' || c == '\r') {
+				throw new IllegalArgumentException("A group's name can't hold '"+c+"' in a user file: "+name);
+			}
+		}
+	}
+
+	/** @return true for a {@code group: name} line of this group (trimmed line) */
+	private static boolean isGroupLine(String trimmed, String name) {
+		return trimmed.startsWith(GROUP_LINE_PREFIX)
+				&& trimmed.substring(GROUP_LINE_PREFIX.length()).trim().equals(name);
+	}
+
+	/** @return true for a line parseLine reads as a user (trimmed line) */
+	private static boolean isUserLine(String trimmed) {
+		return !trimmed.isEmpty() && !trimmed.startsWith("#") && !trimmed.startsWith(GROUP_LINE_PREFIX)
+				&& trimmed.split("[,]").length >= 3;
+	}
+
+	/** @return the index of the last user line with this name, the one in use */
+	private static int lineOf(List<String> lines, String user) throws UserRegistryUnavailableException {
+		for (int idx = lines.size()-1; idx >= 0; idx--) {
+			String t = lines.get(idx).trim();
+			if( isUserLine(t) && t.split("[,]")[0].trim().equals(user)) {
+				return idx;
+			}
+		}
+		// the file changed under us between reading it and now
+		throw new UserRegistryUnavailableException("The user file no longer has a line for "+user);
+	}
+
+	/** @return the groups a user line names, in order, in a list that may be changed */
+	private static List<String> groupsOn(String trimmed) {
+		List<String> ret = new ArrayList<String>();
+		String parts[] = trimmed.split("[,]");
+		if( parts.length > 3 ) {
+			for (String a1 : parts[3].split("[|]")) {
+				String a2[] = a1.split("[=]");
+				if( a2.length == 2 && a2[0].trim().equals(PARAMETER_GROUPS)) {
+					for (String g : a2[1].split(";")) {
+						g = g.trim();
+						if( !g.isEmpty() && !ret.contains(g)) {
+							ret.add(g);
+						}
+					}
+				}
+			}
+		}
+		return ret;
+	}
+
+	/**
+	 * @return the user line with its {@code groups} parameter set to these groups (removed when
+	 * there are none); the other fields and parameters are kept as they are
+	 */
+	static String withGroups(String line, List<String> groups) {
+		String parts[] = line.split("[,]", -1);
+		StringBuilder params = new StringBuilder();
+		if( parts.length > 3 ) {
+			for (String a1 : parts[3].split("[|]")) {
+				String a2[] = a1.split("[=]");
+				if( a1.trim().isEmpty() || (a2.length >= 1 && a2[0].trim().equals(PARAMETER_GROUPS))) {
+					continue;
+				}
+				if( params.length() > 0 ) {
+					params.append("|");
+				}
+				params.append(a1.trim());
+			}
+		}
+		if( !groups.isEmpty()) {
+			if( params.length() > 0 ) {
+				params.append("|");
+			}
+			params.append(PARAMETER_GROUPS).append("=").append(String.join(";", groups));
+		}
+		StringBuilder ret = new StringBuilder();
+		for (int idx = 0; idx < 3; idx++) {
+			if( idx > 0 ) {
+				ret.append(",");
+			}
+			ret.append(parts[idx]);
+		}
+		// the third field ends where its text does, then the file's " , " before the parameters
+		String fields = ret.toString().replaceAll("\\s+$", "");
+		ret.setLength(0);
+		ret.append(fields);
+		if( params.length() > 0 || parts.length > 4 ) {
+			// a field after the parameters keeps its place, so an empty parameters field stays
+			ret.append(" , ").append(params);
+		}
+		for (int idx = 4; idx < parts.length; idx++) {
+			ret.append(",").append(parts[idx]);
+		}
+		return ret.toString();
+	}
+
+	/**
+	 * Reads the user file again if it changed, then returns its lines as they are, for a change.
+	 *
+	 * @throws UnsupportedOperationException when the users weren't read from a file
+	 */
+	private List<String> readForChange() throws UserRegistryUnavailableException {
+		File f = sourceFile;
+		if( f == null ) {
+			throw new UnsupportedOperationException("The users weren't read from a file (a class path resource), so they can't be changed");
+		}
+		reload(f, System.currentTimeMillis());
+		try {
+			String text = new String(Files.readAllBytes(f.toPath()), StandardCharsets.UTF_8);
+			List<String> lines = new ArrayList<String>();
+			for (String line : text.split("\r?\n", -1)) {
+				lines.add(line);
+			}
+			// split leaves one empty string after the last line break
+			if( !lines.isEmpty() && lines.get(lines.size()-1).isEmpty()) {
+				lines.remove(lines.size()-1);
+			}
+			return lines;
+		} catch (IOException e) {
+			throw new UserRegistryUnavailableException("Can't read the user file "+f, e);
+		}
+	}
+
+	/**
+	 * Writes the lines through a temporary file in the same folder, giving it the old file's
+	 * permissions and group first, then reads the file again.
+	 */
+	private void writeChange(List<String> lines) throws UserRegistryUnavailableException {
+		File f = sourceFile;
+		StringBuilder text = new StringBuilder();
+		for (String line : lines) {
+			text.append(line).append('\n');
+		}
+		Path target = f.toPath().toAbsolutePath();
+		Path folder = target.getParent();
+		if( folder == null ) {
+			throw new UserRegistryUnavailableException("The user file "+f+" has no folder to write in");
+		}
+		try {
+			// a name of its own, so another writer of the file (an application's own page) can't collide
+			Path tmp = Files.createTempFile(folder, "."+f.getName()+".", ".tmp");
+			try {
+				Files.write(tmp, text.toString().getBytes(StandardCharsets.UTF_8));
+				copyPermissions(target, tmp);
+				try {
+					Files.move(tmp, target, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+				} catch (IOException e) {
+					Files.move(tmp, target, StandardCopyOption.REPLACE_EXISTING);
+				}
+			} finally {
+				Files.deleteIfExists(tmp);
+			}
+		} catch (IOException e) {
+			throw new UserRegistryUnavailableException("Can't change the user file "+f, e);
+		}
+		// read it now, whatever the time stamps say (a change within the same second, same length)
+		synchronized (this) {
+			sourceModified = -1;
+		}
+		reload(f, System.currentTimeMillis());
+	}
+
+	/** Gives the new file the old one's permissions and group, where the file system has them. */
+	private void copyPermissions(Path original, Path copy) {
+		PosixFileAttributeView from = Files.getFileAttributeView(original, PosixFileAttributeView.class);
+		PosixFileAttributeView to = Files.getFileAttributeView(copy, PosixFileAttributeView.class);
+		if( from == null || to == null ) {
+			return; // Windows: the folder's permissions apply to the new file
+		}
+		try {
+			PosixFileAttributes a = from.readAttributes();
+			to.setPermissions(a.permissions());
+			if( !a.group().equals(to.readAttributes().group())) {
+				to.setGroup(a.group());
+			}
+		} catch (IOException | SecurityException e) {
+			logError("Can't give the changed user file "+original+" its permissions or group again: "+e.getMessage());
+		}
 	}
 
 	/**

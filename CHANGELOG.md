@@ -2,6 +2,15 @@
 
 ## parley-net 2.0.0 (unreleased)
 
+### Changed (2026-11-06: groups found and managed through parley-iam)
+
+- **`FileUserRegistry` finds groups both ways**: `findGroups(principal)` (now parley-iam's `UserRegistry` method) and
+  the new `findMembers(group)`.
+- **`FileUserRegistry` is a `GroupManager`**: `createGroup`, `deleteGroup`, `addMember` and `removeMember` change the
+  user file it was read from (rewritten through a temporary file, keeping its other lines, comments, permissions and
+  group). A group with no members is kept on a new kind of line, `group: <name>` (`GROUP_LINE_PREFIX`). Only users
+  can be members (groups don't nest in this file).
+
 ### Changed (2026-11-06: the authorization rules of the parley-iam design)
 
 - **The registry answers the permission check** (rule 5): `checkPermission` asks `UserRegistry.checkPermission`.
