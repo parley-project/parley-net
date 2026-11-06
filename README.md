@@ -42,7 +42,7 @@ protocols. It is on Maven Central, so no extra repository is needed:
 | `IConnectionFactory` → `Connection` | Wraps each socket; reads and writes lines (CR LF or LF). |
 | `IProcessorFactory` → `AbstractCommandProcessor` | Reads a line, finds the command, checks permission, runs it. |
 | `ICommandFactory` → `ICommand` | Your protocol: one `ICommand` per command. |
-| `IAccessControlList` (`FileBasedAcl`, `PropertyAuthenticator`) | Users, passwords and permissions. |
+| parley-iam's `UserRegistry` (`FileUserRegistry`, `PropertiesUserRegistry`) and `Authorizer` | Users, passwords, groups and permissions. |
 
 | Client side | |
 |---|---|
@@ -141,55 +141,73 @@ certificate must match the host name. For self-signed certificates either
 
 ## Authentication and permissions
 
-Set an `IAccessControlList` with `server.setAccessControl(...)`, or name the class in the
-`authenticationProvider` property (`IServer.AUTHENTICATION_PROVIDER_PROPERTY`).
-`FileBasedAcl` reads users from the file named by the `<property prefix>.userFile` property (for example
-`parley.mail.pop3.userFile`); `PropertyAuthenticator` reads them from `<property prefix>.user0`, `.user1`, ...
-properties. The prefix is the server's `getPropertyPrefix()`: the name given to `new Server(port, name)`
-(or `NioServer`), or the one a Parley server sets, such as `parley.mail.pop3`.
-Each user is one line:
+Users, credentials and permissions are parley-iam's types (`UserRegistry`, `Credential`,
+`ParleyPrincipal`, `ParleyPermission`, `Requester`, `Authorizer`). Give a server a registry with
+`server.setUserRegistry(...)`, or name the class in the `authenticationProvider` property
+(`IBaseServer.AUTHENTICATION_PROVIDER_PROPERTY`). The server makes it with the class's public
+constructor that takes an `IBaseServer` when it has one (so it can read the server's settings),
+otherwise with the no-argument one. `FileUserRegistry` reads users from the file named by the
+`<property prefix>.userFile` property (for example `parley.mail.pop3.userFile`); `PropertiesUserRegistry`
+reads them from `<property prefix>.user0`, `.user1`, ... properties. The prefix is the server's
+`getPropertyPrefix()`: the name given to `new Server(port, name)` (or `NioServer`), or the one a Parley
+server sets, such as `parley.mail.pop3`. Each user is one line:
 
 ```
 # name,  password,         permissions,   parameters
 alice,   {PBKDF2}210000:..., ECHO|LOGIN,  home=/home/alice
 ```
 
+The permissions are held on the server as a whole; the parameters are the principal's attributes.
+The file has no ids, so a user's id is `user:` and its name (a group's, `group:` and its name):
+renaming someone in the file makes a new principal.
+
 Store hashed passwords rather than plain text. Create the hash with
 
 ```
-java -cp parley-net-1.0.0.jar:parley-core-1.0.0.jar us.bringardner.parley.net.server.FileBasedAcl 'the password'
+java -cp parley-net-2.0.0.jar:parley-core-2.0.0.jar:parley-iam-2.0.0.jar us.bringardner.parley.net.server.FileUserRegistry 'the password'
 ```
 
-For SCRAM logins, `FileBasedAcl --scram 'the password'` prints the hash followed by SCRAM
+For SCRAM logins, `FileUserRegistry --scram 'the password'` prints the hash followed by SCRAM
 credentials (`{PBKDF2}...;{SCRAM-SHA-256}...;{SCRAM-SHA-1}...`); paste the whole value into the
 password field (and replace the whole field when the password changes: SCRAM credentials left from
-the old password would still let it in). A plain text password serves SCRAM as it is. The list offers SCRAM
-(`supportsScram`) only when every user in the file can use it, because a client that picks SCRAM
-can't fall back to a password for a user who has no SCRAM credentials.
+the old password would still let it in). A plain text password serves SCRAM as it is. The registry offers
+SCRAM (`supports(ProofCredential.class, StoredCredentialType.SCRAM_SHA_256)`) only when every user in the
+file can use it, because a client that picks SCRAM can't fall back to a password for a user who has no
+SCRAM credentials.
 
-`FileBasedAcl` notices when its file changes (`initialize(File)` reads a file without a property naming it) (checked at most every 15 seconds, set by
-`parley.net.acl.reloadInterval`, a duration such as `15s`; 0 turns it off) and reads it again, so users added or
-removed take effect without a restart. A file that can't be read keeps the users it had.
+`FileUserRegistry` notices when its file changes (`initialize(File)` reads a file without a property naming it)
+(checked at most every 15 seconds, set by `parley.net.acl.reloadInterval`, a duration such as `15s`; 0 turns it
+off) and reads it again, so users added or removed take effect without a restart. A file that can't be read keeps
+the users it had.
 
 A user's groups are a `groups=` parameter, separated by `;`
 (`tony@bringardner.us, {PBKDF2}..., READ|WRITE, groups=sales@bringardner.us;support@bringardner.us`);
-`IPrincipal.getGroups()` returns them (mail servers match them against mailbox ACLs).
+`registry.findGroups(principal)` returns them.
 
-A principal holds no secrets: the list checks them (`verifyPassword`, and `verifyApop` for POP3's APOP,
-which works only for users whose password is kept in plain text).
+A principal holds no secrets: the registry checks passwords, and hands out a stored secret only for a
+proof the server runs (SCRAM credentials, and the plain text password for POP3's APOP, which works
+only for users whose password is kept in plain text).
 
-A list is closed by whoever made it (`IAccessControlList` is `Closeable`; the default `close()` does nothing): a
-server closes the list it made from `authenticationProvider` when it stops, and makes a new one if it starts again; a
-list given with `setAccessControl` is yours to close once the server is done with it.
+A registry is closed by whoever made it (`UserRegistry` is `Closeable`; the default `close()` does nothing): a
+server closes the registry it made from `authenticationProvider` when it stops, and makes a new one if it starts
+again; a registry given with `setUserRegistry` is yours to close once the server is done with it.
 
-To keep users in a database instead, see parley-net-acl-jdbc.
+A session logs in only through `processor.authenticate(credential)` (`INioConnection.authenticate` for NIO),
+with a credential made with `processor.getRequester()`:
 
-A login command calls `processor.getServer().authenticate(user, password)` and
-`processor.setPrincipal(...)`. An access control list whose store can fail (a database) throws
-`AccessControlUnavailableException` from `findPrincipal`; call `server.checkLogin(user, password)`
-instead of `authenticate` to tell that from a wrong password and answer "try again later" (without
-counting a failed login). Commands whose `requiresAuthorization()` is true then run only
-if the principal has the command's permission; otherwise the client gets "not authorized".
+```java
+AuthenticationResult result = processor.authenticate(
+    new PasswordCredential(user, password.toCharArray(), processor.getRequester()));
+```
+
+The result is AUTHENTICATED (the session is now logged in), REFUSED, UNSUPPORTED, or UNAVAILABLE when the
+registry can't answer now (answer "try again later", without counting a failed login). `logout()` logs the
+session out. A challenge and response (APOP, SSH keys) is a `ProofCredential` with the protocol's
+`ProofVerifier` (`ApopVerifier` for APOP); the server gets the stored secret, runs the verifier without
+holding the registry, looks the principal up and tells the registry the outcome. Commands whose
+`requiresAuthorization()` is true run only when `checkPermission(command.getPermission(), null)` allows it
+(the server's `Authorizer`, by default a `BasicAuthorizer` over the registry; with no registry nothing is
+allowed); otherwise the client gets "not authorized".
 
 ## Session state, capabilities and SASL
 
@@ -223,12 +241,11 @@ SaslOutcome out = SaslServerDriver.authenticate(mech, authenticator, initialResp
 if (out.isSuccess()) { /* out.getUser() is who it is */ }
 ```
 
-`ServerSaslAuthenticator` checks PLAIN and LOGIN against the server's access control list, and
-serves SCRAM-SHA-1 and SCRAM-SHA-256 when the list keeps SCRAM credentials
-(`IAccessControlList.supportsScram` and `getScramCredentials`; `FileBasedAcl` and
-parley-net-acl-jdbc do). SCRAM proves the user without a password check, so on success call
-`authenticator.verified(out.getUser())` (or `server.getVerifiedPrincipal(user)`) for the
-principal. Make SCRAM credentials once with `ScramMechanism.SHA_256.newCredentials(password)` and
+`ServerSaslAuthenticator` checks PLAIN and LOGIN against the server's user registry, and
+serves SCRAM-SHA-1 and SCRAM-SHA-256 when the registry keeps SCRAM credentials for every user. Make it
+with the session (`new ServerSaslAuthenticator(server, processor)`) and it logs the session in through
+the session's `authenticate`. SCRAM proves the user without a password check, so on success call
+`authenticator.verified(out.getUser())`, which goes through the same door. Make SCRAM credentials once with `ScramMechanism.SHA_256.newCredentials(password)` and
 keep `credentials.format()`; `ScramCredentials.parse` reads it back. CRAM-MD5 needs the clear
 password, which a hash can't give: implement `ISaslAuthenticator` over your own store for it.
 Clients use the mechanism's `client(...)` factory and `evaluateChallenge` for each server
@@ -381,7 +398,7 @@ it, decides that).
   `PARLEY_CONF` names. It exits with 1 when the settings can't be read or a server can't start, and
   when the last running server stops by itself, so a service manager can restart it.
 Running several servers of different protocols together, choosing which run, what they share (a
-user list given to each with `setAccessControl`) and how a failure is handled, is an application's
+user registry given to each with `setUserRegistry`) and how a failure is handled, is an application's
 job, not the framework's. For an example that does (providers found at run time, `parley.servers`,
 JMX management, one server never stopping another), see parley-mail-admin.
 

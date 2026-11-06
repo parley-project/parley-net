@@ -2,6 +2,28 @@
 
 ## parley-net 2.0.0 (unreleased)
 
+### Changed (2026-11-05: users, logins and permissions come from parley-iam)
+
+- **parley-net uses parley-iam** for who users are and what they may do. Removed: `IAccessControlList`,
+  `IPrincipal`, `IPermission`, `Permission`, `AbstractPrincipal`, `ImmutablePrincipal`,
+  `AccessControlUnavailableException` (use parley-iam's `UserRegistryUnavailableException`), and the server
+  methods `authenticate(String, byte[])`, `checkLogin`, `checkApopLogin`, `getVerifiedPrincipal`, `isAuthorized`,
+  `getAccessControl` and `setAccessControl`.
+- **`IBaseServer`**: `getUserRegistry` / `setUserRegistry` (same ownership as before: a registry the server made
+  from `authenticationProvider` is closed when it stops; one given to it is the caller's), `getAuthorizer` /
+  `setAuthorizer` (default `BasicAuthorizer`), `authenticate(Credential)`, `probe(Credential)`,
+  `makeUpStoredCredential` and `checkPermission(Requester, ParleyPermission, ProtectedResource)`. The setting
+  `authenticationProvider` keeps its name and now names a `UserRegistry` class, made with its `IBaseServer`
+  constructor when it has one.
+- **Sessions** (`IProcessor`, `INioConnection`, both an `ILoginSession`): `getRequester`, `getPrincipal`,
+  `authenticate(Credential)` (the only way a session logs in; `setPrincipal` is gone), `logout` and
+  `checkPermission`. `ICommand.getPermission()` returns a `ParleyPermission`.
+- **`FileBasedAcl` is `FileUserRegistry`, `PropertyAuthenticator` is `PropertiesUserRegistry`**: the same user file
+  and settings. Ids are `user:<name>` and `group:<name>`. Permission names now ignore case (`ADMIN` is `admin`).
+- **`ServerSaslAuthenticator(server, session)`** logs the session in; `(server, requester)` only reports.
+  `verified(user)` returns an `AuthenticationResult`; `getResult()` replaces `getPrincipal()`.
+- Added `ApopVerifier`, and `ScramMechanism.getStoredType`, `forStoredType` and `madeUpCredentials`.
+
 
 ### Changed (2026-11-03: ServerContext leaves the framework, To-Do 15.3)
 
