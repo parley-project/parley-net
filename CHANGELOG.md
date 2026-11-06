@@ -2,6 +2,18 @@
 
 ## parley-net 2.0.0 (unreleased)
 
+### Changed (2026-11-06: users and groups found and managed through parley-iam)
+
+- **`FileUserRegistry` finds groups both ways**: `findGroups(principal)` (now parley-iam's `UserRegistry` method) and
+  the new `findMembers(group)`.
+- **`FileUserRegistry` is a parley-iam `PrincipalManager`**: users and groups are created, changed and deleted, members
+  added and removed, passwords set and removed and users turned off and on, by rewriting the user file it was read
+  from (through a temporary file, keeping its other lines, comments, permissions and group). New in the file: a
+  `group: <name>` line (`GROUP_LINE_PREFIX`) keeps a group with no members, and its attributes after a comma;
+  `enabled=false` (`PARAMETER_ENABLED`) turns a user off. Only users can be members (groups don't nest in this file).
+- **An empty password field means no password** (it used to be an empty plain text password). SCRAM is offered when
+  every user who can log in with a password can use it (users with no password, or turned off, don't count).
+
 ### Changed (2026-11-06: the authorization rules of the parley-iam design)
 
 - **The registry answers the permission check** (rule 5): `checkPermission` asks `UserRegistry.checkPermission`.
