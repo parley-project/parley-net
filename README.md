@@ -12,20 +12,23 @@ connection, such as SSH), the `nio` package has a non-blocking server and client
 [Non-blocking (NIO)](#non-blocking-nio).
 
 - Java 11 or later
-- Depends on [`parley-core`](https://github.com/parley-project/parley-core) and
-  [`parley-io`](https://github.com/parley-project/parley-io)
+- Depends on [`parley-core`](https://github.com/parley-project/parley-core),
+  [`parley-io`](https://github.com/parley-project/parley-io),
+  [`parley-files`](https://github.com/parley-project/parley-files) and
+  [`parley-iam`](https://github.com/parley-project/parley-iam)
 - Apache License 2.0
 
 ## Installation
 
 parley-net is part of **Parley**, a family of Java libraries for implementing internet
-protocols. It is on Maven Central, so no extra repository is needed:
+protocols. Released versions are on Maven Central, so no extra repository is needed. This
+README describes 2.0.0 (not released yet):
 
 ```xml
 <dependency>
     <groupId>us.bringardner.parley</groupId>
     <artifactId>parley-net</artifactId>
-    <version>1.0.0</version>
+    <version>2.0.0</version>
 </dependency>
 ```
 
@@ -57,33 +60,106 @@ protocols. It is on Maven Central, so no extra repository is needed:
 
 ## A minimal echo server and client
 
+The server below has two commands. `LOGIN user password` logs the session in; `ECHO text`
+answers with the text, and only a logged-in user who holds the permission `echo` may use it.
+
 ```java
+// LOGIN user password: needs no permission, so anyone may try
+ICommand login = new ICommand() {
+    public String getName() {
+        return "LOGIN";
+    }
+
+    public ParleyPermission getPermission() {
+        return null;
+    }
+
+    public boolean requiresAuthorization() {
+        return false;
+    }
+
+    public void execute(ICommandProcessor processor, IRequestContext context) throws IOException {
+        String user = context.getNextToken();
+        String password = context.getNextToken();
+        if (user == null || password == null) {
+            processor.reply(REPLY_500_GENERIC_ERROR, "LOGIN user password");
+            return;
+        }
+        // The one way a session logs in: the session's authenticate
+        AuthenticationResult result = processor.authenticate(
+                new PasswordCredential(user, password.toCharArray(), processor.getRequester()));
+        if (result.getStatus() == AuthenticationResult.Status.AUTHENTICATED) {
+            processor.reply(REPLY_200_GENERIC_OK, "Logged in as " + processor.getPrincipal().getName());
+        } else if (result.getStatus() == AuthenticationResult.Status.UNAVAILABLE) {
+            processor.reply(REPLY_400_GENERIC_TEMPORARY_ERROR, "Try again later");
+        } else {
+            // the framework has already counted the failure and waited the delay
+            processor.reply(REPLY_500_GENERIC_ERROR, "Login failed");
+        }
+    }
+};
+
+// ECHO text: needs the permission "echo" (requiresAuthorization() is true by default)
 ICommand echo = new ICommand() {
-    public String getName()            { return "ECHO"; }
-    public IPermission getPermission() { return new Permission("ECHO"); }
-    public boolean requiresAuthorization() { return false; }
+    public String getName() {
+        return "ECHO";
+    }
+
+    public ParleyPermission getPermission() {
+        return new BasicParleyPermission("echo", null);
+    }
+
     public void execute(ICommandProcessor processor, IRequestContext context) throws IOException {
         processor.reply(REPLY_200_GENERIC_OK, context.getRemainingTokens());
     }
 };
 
+// The users: the application makes and fills the registry; the framework only reads it
+BasicUserRegistry users = new BasicUserRegistry();
+EntityId aliceId = EntityId.random();
+users.addPrincipal(BasicParleyPrincipal.user(aliceId, "alice"));
+users.setPassword(aliceId, "secret".toCharArray());
+users.grant(aliceId, new BasicParleyPermission("echo", null));
+
 Server server = new Server(2525, "EchoServer");
 server.setServerGreeting("220 Echo server ready");
-server.setConnectionFactory(socket -> new Connection(socket, true) {   // true = CR LF lines
-    @Override
-    public SSLContext getSSLContext(String protocol) throws IOException {
-        return null;   // no STARTTLS in this example
+server.setUserRegistry(users);
+
+server.setConnectionFactory(new IConnectionFactory() {
+    public IConnection getConnection(Socket socket) throws IOException {
+        return new Connection(socket, true) {   // true = CR LF lines
+            @Override
+            public SSLContext getSSLContext(String protocol) throws IOException {
+                return null;   // no STARTTLS in this example
+            }
+        };
     }
 });
-server.setProcessorFactory(() -> new AbstractCommandProcessor() {
-    @Override
-    public String translateResponseCode(int code) {
-        return String.valueOf(code);
-    }
 
-    @Override
-    public ICommandFactory getCommandFactory() {
-        return context -> "ECHO".equalsIgnoreCase(context.getNextToken()) ? echo : null;
+server.setProcessorFactory(new IProcessorFactory() {
+    public IProcessor getProcessor() {
+        return new AbstractCommandProcessor() {
+            @Override
+            public String translateResponseCode(int code) {
+                return String.valueOf(code);
+            }
+
+            @Override
+            public ICommandFactory getCommandFactory() {
+                return new ICommandFactory() {
+                    public ICommand getCommand(IRequestContext context) {
+                        String name = context.getNextToken();
+                        if ("LOGIN".equalsIgnoreCase(name)) {
+                            return login;
+                        }
+                        if ("ECHO".equalsIgnoreCase(name)) {
+                            return echo;
+                        }
+                        return null;   // unknown command: the framework replies 500
+                    }
+                };
+            }
+        };
     }
 });
 server.startAndWait(5000);   // throws if the server can't start (port in use, bad key store...)
@@ -94,16 +170,19 @@ try (CommandClient client = new CommandClient("localhost", 2525)) {
     if (!client.connect()) {
         throw client.getLastConnectError();
     }
-    System.out.println(client.readLine());               // the greeting
+    System.out.println(client.readLine());                        // the greeting
+    client.executeCommand("ECHO", "hello");                       // 500 ECHO not authorized
+    client.executeCommand("LOGIN", "alice", "secret");            // 200 Logged in as alice
     ICommandResponse reply = client.executeCommand("ECHO", "hello", "world");
     if (reply.isPositive()) {
-        System.out.println(reply.getResponseText());     // hello world
+        System.out.println(reply.getResponseText());              // hello world
     }
 }
 ```
 
-`TestNetFramework` and `TestNetFrameworkWithPropertyAuth` in `src/test` are complete,
-runnable versions of this, the second with a login command and permissions.
+`TestNetFramework` and `TestNetFrameworkWithPropertyAuth` in `src/test` are complete, runnable
+servers of this kind: the first a plain echo server, the second with a login command and its users
+read from properties (`PropertiesUserRegistry`).
 
 Unknown commands get a `500` reply, and so does a command that throws a `RuntimeException`;
 the session carries on. Only an I/O error ends a session.
@@ -182,7 +261,8 @@ the users it had.
 
 A user's groups are a `groups=` parameter, separated by `;`
 (`tony@bringardner.us, {PBKDF2}..., READ|WRITE, groups=sales@bringardner.us;support@bringardner.us`);
-`registry.findGroups(principal)` returns them.
+`FileUserRegistry.findGroups(principal)` returns them. In this file groups grant nothing: a user holds
+only the permissions on its own line.
 
 A principal holds no secrets: the registry checks passwords, and hands out a stored secret only for a
 proof the server runs (SCRAM credentials, and the plain text password for POP3's APOP, which works
@@ -268,9 +348,9 @@ queued.
 
 | | |
 |---|---|
-| `NioServer` | Accepts on a non-blocking channel and hands connections to its `NioReactor`s. An `AbstractCoreServer`, so the usual properties (port, maxConnections, key store...) configure it. Like `Server` it is an `IBaseServer` (property prefix, port, life cycle, access control), so code such as `ServerMain.service` takes either one. |
+| `NioServer` | Accepts on a non-blocking channel and hands connections to its `NioReactor`s. An `AbstractCoreServer`, so the usual properties (port, maxConnections, key store...) configure it. Like `Server` it is an `IBaseServer` (property prefix, port, life cycle, user registry), so code such as `ServerMain.service` takes either one. |
 | `NioClient` | Non-blocking connects (`connect` returns a `CompletableFuture`, or `connectAndWait`). |
-| `INioHandlerFactory` → `INioHandler` | Your protocol: `onConnect`, `onMessage`, `onIdle`, `onError`, `onClose`. One call at a time per connection. |
+| `INioHandlerFactory` → `INioHandler` | Your protocol: `onConnect`, `onMessage`, `onIdle`, `onDeadline`, `onTooManyLoginFailures`, `onError`, `onClose`. One call at a time per connection. |
 | `IFrameDecoder` | Splits the input: `LineFrameDecoder`, `LengthFieldFrameDecoder`, `RawFrameDecoder`, or your own. A handler can switch decoders between frames. |
 | `INioConnection` | `write`, `closeAfterFlush`, `startTls`, `pauseReading` / `resumeReading`, the logged in principal, attributes. |
 
@@ -285,13 +365,16 @@ server.startAndWait(5000);
 Handlers run on the reactor threads, so they must not block; give the server a handler executor
 (`setHandlerExecutor`) when they do (file I/O, password hashing...). TLS uses the same
 `SecureBaseObject` settings as `Server`: `setSecure(true)` for TLS from the first byte, or
-`connection.startTls()` after a STARTTLS style command. `NioServer.authenticate()` uses the same
-access control list as `Server`.
+`connection.startTls()` after a STARTTLS style command. A connection logs in with
+`connection.authenticate(credential)` and checks with `connection.checkPermission(...)`, against the server's
+user registry, with the same login limits as `Server`: after a refused login the connection holds the reply
+and stops reading for the delay instead of sleeping.
 
 **Time limits.** The idle time (`setMaxIdleTime`) closes connections with no traffic, but any byte
 resets it, so it can't stop a client that sends a frame one byte at a time. `setFrameTimeout(ms)`
-does: once a frame has started it must arrive within that time (for TLS, also each record and the handshake). Time the connection spends waiting on its own handler (reading paused, input buffer full) doesn't count. For anything else that must happen
-in time whatever the traffic (logging in, say), a handler sets `connection.setDeadline(ms)`;
+does: once a frame has started it must arrive within that time (for TLS, also each record and the handshake). Time the connection spends waiting on its own handler (reading paused, input buffer full) doesn't count. `loginTimeLimit` closes a
+connection nobody has logged in to in time. For anything else that must happen
+in time whatever the traffic, a handler sets `connection.setDeadline(ms)`;
 `onDeadline` is called when it passes (the default closes the connection) and `clearDeadline()`
 cancels it. Both are checked about once a second.
 
@@ -396,7 +479,7 @@ it, decides that).
   reads only that (and its classes' defaults), never the system properties or another server's
   settings, so nothing changes when it shares a process with other servers: two servers can have
   different values for the same name. parley-core's `BaseObject.setConfiguration` / `makeWith` give
-  an object its settings (a server's processors and access control list read the same ones); an
+  an object its settings (a server's processors and user registry read the same ones); an
   object with no configuration reads the system properties, as when it is alone in its JVM.
 - **One process for one protocol's servers.** `ServerMain.run(name, args, configProperty,
   defaultFile, factory)` runs the servers a `main` makes (`ServerMain.service(server, name)` adapts
@@ -427,6 +510,9 @@ JMX management, one server never stopping another), see parley-mail-admin.
 | TCP_NODELAY | on | `setTcpNoDelay(false)` on `Server` or `Client` |
 | SO_REUSEADDR | on | `Server.setReuseAddress(false)` |
 | Listen address | every address | `setBindAddr(address)` or the `bindAddress` property (`Server` and `NioServer`) |
+| Failed logins before the connection is closed | 3 | `setMaxLoginAttempts(n)` or the `maxLoginAttempts` property (`Server` and `NioServer`) |
+| Wait before answering a refused login | 1 s | `setLoginFailureDelay(ms)` or the `loginFailureDelay` property (a duration, `1s`) |
+| Time allowed to log in | none | `setLoginTimeLimit(ms)` or the `loginTimeLimit` property (a duration, `2m`) |
 | Reply to a too-long line | `500 Line too long` | override `AbstractCommandProcessor.replyLineTooLong(max)` for the protocol's own reply; the session then ends |
 
 Each property name in the table is read with the object's property prefix in front of it
