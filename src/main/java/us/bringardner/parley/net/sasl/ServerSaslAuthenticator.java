@@ -159,9 +159,9 @@ public class ServerSaslAuthenticator implements ISaslAuthenticator {
 	/** The SCRAM credentials from the user registry; null (and {@link #isUnavailable()}) if it can't answer. */
 	@Override
 	public ScramCredentials getScramCredentials(String user, String hash) {
-		UserRegistry registry = server.getUserRegistry();
+		UserRegistry registry = server.requireUserRegistry();
 		StoredCredentialType type = storedType(hash);
-		if( registry == null || user == null || type == null ) {
+		if( user == null || type == null ) {
 			return null;
 		}
 		StoredCredential stored;

@@ -27,6 +27,7 @@ package us.bringardner.parley.net;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.IOException;
@@ -165,8 +166,9 @@ public class TestServerAuthenticate {
 	@Test
 	public void outagesAndMissingRegistries() {
 		Server svr = new Server(0, "Outage-" + System.nanoTime());
-		assertEquals(AuthenticationResult.Status.UNSUPPORTED, svr.authenticate(proof("x", StoredCredentialType.PLAIN_TEXT, new CountingVerifier(Boolean.TRUE))).getStatus());
-		assertEquals(AuthenticationResult.Status.UNSUPPORTED, svr.probe(proof("x", StoredCredentialType.PLAIN_TEXT, new CountingVerifier(Boolean.TRUE))).getStatus());
+		// rule 9: no registry is an error, not UNSUPPORTED
+		assertThrows(IllegalStateException.class, () -> svr.authenticate(proof("x", StoredCredentialType.PLAIN_TEXT, new CountingVerifier(Boolean.TRUE))));
+		assertThrows(IllegalStateException.class, () -> svr.probe(proof("x", StoredCredentialType.PLAIN_TEXT, new CountingVerifier(Boolean.TRUE))));
 		svr.setUserRegistry(TestSasl.down());
 		CountingVerifier verifier = new CountingVerifier(Boolean.TRUE);
 		assertEquals(AuthenticationResult.Status.UNAVAILABLE, svr.authenticate(proof("x", StoredCredentialType.PLAIN_TEXT, verifier)).getStatus());

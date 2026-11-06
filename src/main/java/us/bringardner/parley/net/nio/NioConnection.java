@@ -56,6 +56,7 @@ import us.bringardner.parley.iam.Credential;
 import us.bringardner.parley.iam.ParleyPrincipal;
 import us.bringardner.parley.iam.Requester;
 import us.bringardner.parley.io.IoUtils;
+import us.bringardner.parley.net.server.LoginFailures;
 import us.bringardner.parley.net.server.Server;
 
 /**
@@ -129,6 +130,14 @@ public class NioConnection extends BaseObject implements INioConnection {
 	private volatile boolean closeAfterFlush;
 	private volatile boolean connected;
 	private volatile boolean readingPaused;
+	/** This connection's failed logins; null for a client connection, which has no server */
+	private final LoginFailures loginFailures;
+	/** After a refused login: nothing is sent until the failure delay has passed */
+	private volatile boolean outputHeld;
+	/** After a refused login: nothing is read until the delay has passed (for good once too many) */
+	private volatile boolean inputHeld;
+	/** Which hold is the latest; an older hold's end is ignored. Changed on the dispatcher. */
+	private volatile int holdGeneration;
 	private volatile boolean idleNotified;
 	//  setDeadline: when it passes (0 = none); each set or clear is a new generation, so an
 	//  onDeadline already queued for an older deadline is dropped
@@ -173,6 +182,7 @@ public class NioConnection extends BaseObject implements INioConnection {
 		this.handler = Objects.requireNonNull(handler, "handler");
 		this.decoder = Objects.requireNonNull(decoder, "decoder");
 		this.server = server;
+		this.loginFailures = server == null ? null : new LoginFailures(server);
 		this.dispatcher = new SerialExecutor(handlerExecutor);
 		this.maxInputBuffer = Math.max(1, maxInputBuffer);
 		this.in = ByteBuffer.allocate(Math.max(1, Math.min(initialInputBuffer, this.maxInputBuffer)));
@@ -403,7 +413,7 @@ public class NioConnection extends BaseObject implements INioConnection {
 
 	/** Made on first use; says the connection is secure once TLS has started. */
 	@Override
-	public Requester getRequester() {
+	public final Requester getRequester() {
 		synchronized (requesterLock) {
 			boolean secure = isSecure();
 			if( requester == null ) {
@@ -426,11 +436,15 @@ public class NioConnection extends BaseObject implements INioConnection {
 		}
 	}
 
-	/** Not logged in until the principal is known; a client connection has no server to ask. */
+	/**
+	 * Logs in through the server, the one door (rule 1); counts a refusal and holds the reply
+	 * for the failure delay (rule 8).
+	 * @throws IllegalStateException for a client connection, which has no server to ask
+	 */
 	@Override
-	public AuthenticationResult authenticate(Credential credential) {
+	public final AuthenticationResult authenticate(Credential credential) {
 		if( server == null ) {
-			return AuthenticationResult.unsupported("a client connection");
+			throw new IllegalStateException("A client connection has no server to log in to");
 		}
 		AuthenticationResult result = server.authenticate(credential);
 		if( result.getStatus() == AuthenticationResult.Status.AUTHENTICATED ) {
@@ -438,11 +452,63 @@ public class NioConnection extends BaseObject implements INioConnection {
 				requester = getRequester().loggedIn(result);
 			}
 		}
+		if( loginFailures.record(result) ) {
+			holdAfterFailedLogin();
+		}
 		return result;
 	}
 
+	/**
+	 * @return true once this connection has had as many failed logins as the application
+	 * allows; it is closed after the reply to the last one
+	 * @since 2.0.0
+	 */
+	public boolean isTooManyLoginFailures() {
+		return loginFailures != null && loginFailures.isTooMany();
+	}
+
+	/**
+	 * A login was refused. A non-blocking connection can't sleep, so instead the reply the
+	 * protocol is about to write is held: nothing is sent or read until the application's
+	 * failure delay has passed. After too many failed logins the protocol may add a closing
+	 * line ({@link INioHandler#onTooManyLoginFailures}) and the connection is closed once
+	 * everything is sent.
+	 */
+	private void holdAfterFailedLogin() {
+		boolean tooMany = loginFailures.isTooMany();
+		int generation = ++holdGeneration;
+		outputHeld = true;
+		inputHeld = true;
+		reactor.execute(this::updateInterest);
+		reactor.schedule(() -> endLoginHold(generation, tooMany), loginFailures.getDelayMillis());
+	}
+
+	/** The failure delay has passed. Reactor thread. */
+	private void endLoginHold(int generation, boolean tooMany) {
+		if( generation != holdGeneration ) {
+			// a later refusal holds the connection longer
+			return;
+		}
+		outputHeld = false;
+		if( tooMany ) {
+			// the protocol's reply goes out first; its closing line, if any, after it
+			dispatch(() -> {
+				logInfo("Too many failed logins, closing "+this);
+				handler.onTooManyLoginFailures(this);
+				closeAfterFlush();
+			});
+		} else {
+			inputHeld = false;
+			restartFrameTimer();
+			updateInterest();
+			// lines that arrived during the hold are handled now, one login at a time
+			scheduleProcess();
+		}
+		flush();
+	}
+
 	@Override
-	public void logout() {
+	public final void logout() {
 		synchronized (requesterLock) {
 			if( requester != null ) {
 				requester = requester.loggedOut();
@@ -452,7 +518,7 @@ public class NioConnection extends BaseObject implements INioConnection {
 
 	/** Doesn't make a requester just to say nobody is logged in. */
 	@Override
-	public ParleyPrincipal getPrincipal() {
+	public final ParleyPrincipal getPrincipal() {
 		synchronized (requesterLock) {
 			return requester == null ? null : requester.getPrincipal();
 		}
@@ -681,7 +747,7 @@ public class NioConnection extends BaseObject implements INioConnection {
 		long ft = frameTimeout;
 		//  Only while we are waiting for the peer: not while reading is paused, the input
 		//  buffer is full, or the handler hasn't taken what is already here
-		if( ft > 0 && !readingPaused && !inputFull && !processScheduled.get() ) {
+		if( ft > 0 && !readingPaused && !inputHeld && !inputFull && !processScheduled.get() ) {
 			long since = earliest(partialSince, tlsPartialSince);
 			if( tls != null && !appConnected ) {
 				//  the TLS handshake must be done in time too
@@ -748,7 +814,7 @@ public class NioConnection extends BaseObject implements INioConnection {
 			} finally {
 				inLock.unlock();
 			}
-			if( !readingPaused && !full && !inputShutdown ) {
+			if( !readingPaused && !inputHeld && !full && !inputShutdown ) {
 				ops |= SelectionKey.OP_READ;
 			}
 			if( wantWrite() ) {
@@ -768,6 +834,9 @@ public class NioConnection extends BaseObject implements INioConnection {
 	 * True if flush() has something it can send now. Reactor thread only.
 	 */
 	private boolean wantWrite() {
+		if( outputHeld ) {
+			return false;
+		}
 		TlsLayer t = tls;
 		if( !outputTls || t == null ) {
 			return !out.isEmpty();
@@ -791,6 +860,11 @@ public class NioConnection extends BaseObject implements INioConnection {
 		flushScheduled.set(false);
 		if( closed.get() || !connected ) {
 			// a client still connecting flushes from fireConnected
+			return;
+		}
+		if( outputHeld ) {
+			// the reply to a refused login waits; endLoginHold flushes
+			updateInterest();
 			return;
 		}
 		try {
@@ -1144,7 +1218,7 @@ public class NioConnection extends BaseObject implements INioConnection {
 	 */
 	private void process() throws Exception {
 		processScheduled.set(false);
-		while( !closed.get() ) {
+		while( !closed.get() && !inputHeld ) {
 			ByteBuffer frame;
 			boolean resume = false;
 			inLock.lock();

@@ -73,6 +73,16 @@ public interface INioHandler {
 	}
 
 	/**
+	 * The client has had as many failed logins as the application allows
+	 * ({@code maxLoginAttempts}). Called after the reply to the last one has been sent; the
+	 * connection is closed once what is written here has been sent too. The default writes
+	 * nothing; a protocol overrides it for a closing line of its own (SMTP 421 ...).
+	 * @since 2.0.0
+	 */
+	public default void onTooManyLoginFailures(INioConnection connection) throws Exception {
+	}
+
+	/**
 	 * Something failed (I/O, decoding or a handler method). The connection is closed after this.
 	 */
 	public default void onError(INioConnection connection, Throwable error) {

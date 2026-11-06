@@ -32,6 +32,8 @@ import java.nio.channels.Selector;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Objects;
+import java.util.PriorityQueue;
 import java.util.Queue;
 import java.util.concurrent.ConcurrentLinkedQueue;
 
@@ -56,6 +58,10 @@ public class NioReactor extends BaseThread implements IManagedThread {
 
 	private final Selector selector;
 	private final Queue<Runnable> tasks = new ConcurrentLinkedQueue<Runnable>();
+	/** Tasks waiting for their time, earliest first. Reactor thread only. */
+	private final PriorityQueue<TimedTask> timed = new PriorityQueue<TimedTask>();
+	/** Keeps tasks due at the same time in the order they were scheduled. Reactor thread only. */
+	private long timedCount;
 	private volatile Thread reactorThread;
 	private volatile long idleCheckInterval = DEFAULT_IDLE_CHECK_INTERVAL;
 
@@ -81,6 +87,22 @@ public class NioReactor extends BaseThread implements IManagedThread {
 		if( !inReactorThread() ) {
 			wakeup();
 		}
+	}
+
+	/**
+	 * Run a task on the reactor thread once a delay has passed, for example to hold a reply
+	 * without blocking a thread. Tasks must not block. A task still waiting when the reactor
+	 * stops is dropped.
+	 *
+	 * @param task the task
+	 * @param delayMillis how long to wait first, in milliseconds; 0 or less runs it as soon as
+	 * the tasks already queued have run
+	 * @since 2.0.0
+	 */
+	public void schedule(Runnable task, long delayMillis) {
+		Objects.requireNonNull(task, "task");
+		long due = System.currentTimeMillis()+Math.max(0, delayMillis);
+		execute(() -> timed.add(new TimedTask(due, timedCount++, task)));
 	}
 
 	void wakeup() {
@@ -144,7 +166,12 @@ public class NioReactor extends BaseThread implements IManagedThread {
 		try {
 			while( !stopping ) {
 				runTasks();
-				long wait = nextIdleCheck-System.currentTimeMillis();
+				long next = nextIdleCheck;
+				TimedTask first = timed.peek();
+				if( first != null && first.due < next ) {
+					next = first.due;
+				}
+				long wait = next-System.currentTimeMillis();
 				if( wait > 0 && tasks.isEmpty() ) {
 					selector.select(wait);
 				} else {
@@ -157,6 +184,7 @@ public class NioReactor extends BaseThread implements IManagedThread {
 					handle(key);
 				}
 				long now = System.currentTimeMillis();
+				runDueTasks(now);
 				if( now >= nextIdleCheck ) {
 					checkIdle(now);
 					nextIdleCheck = now+idleCheckInterval;
@@ -183,6 +211,40 @@ public class NioReactor extends BaseThread implements IManagedThread {
 			} catch (RuntimeException e) {
 				logError("Error in reactor task", e);
 			}
+		}
+	}
+
+	/** Run the timed tasks whose time has come. */
+	private void runDueTasks(long now) {
+		TimedTask first;
+		while( (first = timed.peek()) != null && first.due <= now ) {
+			timed.poll();
+			try {
+				first.task.run();
+			} catch (RuntimeException e) {
+				logError("Error in timed reactor task", e);
+			}
+		}
+	}
+
+	/** A task for {@link #schedule(Runnable, long)}: when it is due, and its place in line. */
+	private static final class TimedTask implements Comparable<TimedTask> {
+		private final long due;
+		private final long order;
+		private final Runnable task;
+
+		TimedTask(long due, long order, Runnable task) {
+			this.due = due;
+			this.order = order;
+			this.task = task;
+		}
+
+		@Override
+		public int compareTo(TimedTask other) {
+			if( due != other.due ) {
+				return due < other.due ? -1 : 1;
+			}
+			return Long.compare(order, other.order);
 		}
 	}
 

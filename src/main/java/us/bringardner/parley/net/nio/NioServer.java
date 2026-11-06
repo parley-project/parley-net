@@ -391,6 +391,7 @@ public class NioServer extends AbstractCoreServer implements IBaseServer {
 			NioConnection accepted = conn;
 			logDebug(() -> "Accepted "+accepted);
 			reactor.register(conn, true);
+			startLoginTimer(conn, reactor);
 		} catch (Exception e) {
 			logError("Can't start connection for "+sc, e);
 			if( conn != null ) {
@@ -620,6 +621,32 @@ public class NioServer extends AbstractCoreServer implements IBaseServer {
 
 	public Supplier<IFrameDecoder> getDecoderFactory() {
 		return decoderFactory;
+	}
+
+	/**
+	 * @return true if every connection must log in, so the loginTimeLimit applies to it (the
+	 * default); false for a protocol that can be used without logging in
+	 * @since 2.0.0
+	 */
+	protected boolean isLoginRequired() {
+		return true;
+	}
+
+	/**
+	 * With a loginTimeLimit, close the connection if nobody has logged in (it has no
+	 * principal) by then. Runs on the connection's reactor, so no thread waits.
+	 */
+	private void startLoginTimer(NioConnection conn, NioReactor reactor) {
+		int limit = getLoginTimeLimit();
+		if( limit <= 0 || !isLoginRequired() ) {
+			return;
+		}
+		reactor.schedule(() -> {
+			if( conn.isOpen() && conn.getPrincipal() == null ) {
+				logInfo("Login time limit reached, closing "+conn);
+				conn.close();
+			}
+		}, limit);
 	}
 
 	/**

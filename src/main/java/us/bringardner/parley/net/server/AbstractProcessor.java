@@ -30,6 +30,7 @@ import java.util.HashMap;
 import java.util.Map;
 
 import us.bringardner.parley.core.BaseThread;
+import us.bringardner.parley.core.util.AbstractCoreServer;
 import us.bringardner.parley.iam.AuthenticationResult;
 import us.bringardner.parley.iam.Credential;
 import us.bringardner.parley.iam.ParleyPrincipal;
@@ -47,6 +48,8 @@ public abstract class AbstractProcessor extends BaseThread implements IProcessor
 	private Requester requester;
 	private final Object requesterLock = new Object();
 	private volatile String pendingGreeting;
+	/** This connection's failed logins; made on first use, guarded by requesterLock */
+	private LoginFailures loginFailures;
 	
 	public AbstractProcessor() {
 		getLogger().setLevel(Server.getDefaultLogLevel());
@@ -61,7 +64,7 @@ public abstract class AbstractProcessor extends BaseThread implements IProcessor
 	
 	/** Made on first use from the connection; says the connection is secure once TLS has started. */
 	@Override
-	public Requester getRequester() {
+	public final Requester getRequester() {
 		synchronized (requesterLock) {
 			IConnection con = getConnection();
 			boolean secure = con != null && con.isSecure();
@@ -81,17 +84,17 @@ public abstract class AbstractProcessor extends BaseThread implements IProcessor
 
 	/** Doesn't make a requester just to say nobody is logged in. */
 	@Override
-	public ParleyPrincipal getPrincipal() {
+	public final ParleyPrincipal getPrincipal() {
 		synchronized (requesterLock) {
 			return requester == null ? null : requester.getPrincipal();
 		}
 	}
 
 	@Override
-	public AuthenticationResult authenticate(Credential credential) {
+	public final AuthenticationResult authenticate(Credential credential) {
 		IServer svr = getServer();
 		if( svr == null ) {
-			return AuthenticationResult.unsupported("no server");
+			throw new IllegalStateException("No server: a session logs in through its server");
 		}
 		AuthenticationResult result = svr.authenticate(credential);
 		if( result.getStatus() == AuthenticationResult.Status.AUTHENTICATED ) {
@@ -99,11 +102,46 @@ public abstract class AbstractProcessor extends BaseThread implements IProcessor
 				requester = getRequester().loggedIn(result);
 			}
 		}
+		LoginFailures failures = getLoginFailures();
+		if( failures != null && failures.record(result) ) {
+			// a refused login: wait before the protocol answers, to slow down password guessing
+			waitMillis(failures.getDelayMillis());
+		}
 		return result;
 	}
 
+	/**
+	 * @return this connection's failed logins, or null when the server has no login limits
+	 * (it isn't an {@link AbstractCoreServer})
+	 */
+	protected LoginFailures getLoginFailures() {
+		synchronized (requesterLock) {
+			if( loginFailures == null && getServer() instanceof AbstractCoreServer ) {
+				loginFailures = new LoginFailures((AbstractCoreServer) getServer());
+			}
+			return loginFailures;
+		}
+	}
+
+	/** @return true once this connection has had as many failed logins as the application allows */
+	public boolean isTooManyLoginFailures() {
+		LoginFailures failures = getLoginFailures();
+		return failures != null && failures.isTooMany();
+	}
+
+	private static void waitMillis(int millis) {
+		if( millis <= 0 ) {
+			return;
+		}
+		try {
+			Thread.sleep(millis);
+		} catch (InterruptedException e) {
+			Thread.currentThread().interrupt();
+		}
+	}
+
 	@Override
-	public void logout() {
+	public final void logout() {
 		synchronized (requesterLock) {
 			if( requester != null ) {
 				requester = requester.loggedOut();
@@ -125,6 +163,7 @@ public abstract class AbstractProcessor extends BaseThread implements IProcessor
 		this.connection = connection;
 		synchronized (requesterLock) {
 			requester = null;
+			loginFailures = null;
 		}
 	}
 

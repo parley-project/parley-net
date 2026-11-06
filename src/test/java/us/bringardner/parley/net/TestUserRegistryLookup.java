@@ -5,13 +5,13 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.concurrent.atomic.AtomicInteger;
 
 import org.junit.jupiter.api.Test;
 
-import us.bringardner.parley.iam.AuthenticationResult;
 import us.bringardner.parley.iam.AuthorizationResult;
 import us.bringardner.parley.iam.Authorizer;
 import us.bringardner.parley.iam.BasicParleyPermission;
@@ -69,11 +69,11 @@ public class TestUserRegistryLookup {
 		CountingServer svr = new CountingServer();
 		ParleyPermission read = new BasicParleyPermission("read", null);
 		for (int i = 0; i < 1000; i++) {
-			assertFalse(svr.checkPermission(ServerTestSupport.requester(), read, null).isAllowed());
+			assertThrows(IllegalStateException.class, () -> svr.checkPermission(ServerTestSupport.requester(), read, null));
 		}
 		assertNull(svr.getUserRegistry());
 		assertNull(svr.getAuthorizer());
-		assertEquals(AuthenticationResult.Status.UNSUPPORTED, ServerTestSupport.login(svr, "u", "pw").getStatus());
+		assertThrows(IllegalStateException.class, () -> ServerTestSupport.login(svr, "u", "pw"));
 		assertEquals(1, svr.lookups.get(), "provider property lookups");
 
 		// setting a registry is used at once, with a default authorizer for it
@@ -106,7 +106,7 @@ public class TestUserRegistryLookup {
 		assertTrue(svr.checkPermission(ServerTestSupport.requester(), new BasicParleyPermission("x", null), null).isAllowed());
 		svr.setAuthorizer(null);
 		assertNull(svr.getAuthorizer(), "no registry, no default");
-		assertEquals(AuthorizationResult.Status.DENIED,
-				svr.checkPermission(ServerTestSupport.requester(), new BasicParleyPermission("x", null), null).getStatus());
+		assertThrows(IllegalStateException.class,
+				() -> svr.checkPermission(ServerTestSupport.requester(), new BasicParleyPermission("x", null), null));
 	}
 }

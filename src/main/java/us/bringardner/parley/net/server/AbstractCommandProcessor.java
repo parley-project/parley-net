@@ -34,7 +34,7 @@ import java.net.SocketTimeoutException;
 import java.util.Map;
 import java.util.TreeMap;
 
-import us.bringardner.parley.iam.ParleyPermission;
+import us.bringardner.parley.iam.AuthorizationResult;
 import us.bringardner.parley.net.IConnection;
 import us.bringardner.parley.net.IGenericResponseCode;
 
@@ -128,6 +128,12 @@ public abstract  class AbstractCommandProcessor extends AbstractProcessor implem
 
 			try {
 				processLine(line, cmdUsed);
+				if( isTooManyLoginFailures() ) {
+					// the protocol has answered the last failed login; say goodbye and close
+					logInfo("Too many failed logins, closing "+con.getSocket());
+					replyTooManyLoginFailures();
+					break;
+				}
 			} catch(IOException e) {
 				//  Can't talk to the client any more
 				if( isTlsHandshakeFailure(e) ) {
@@ -191,17 +197,39 @@ public abstract  class AbstractCommandProcessor extends AbstractProcessor implem
 					&& command instanceof IStatefulCommand 
 					&& !states.isValid((IStatefulCommand<?>) command)) {
 				replyInvalidState(command, states);
-			} else if(!command.requiresAuthorization() || isAllowed(command.getPermission())){
+			} else if( !command.requiresAuthorization() ) {
 				command.execute(this,context);
 			} else {
-				reply(IGenericResponseCode.REPLY_500_GENERIC_ERROR, command.getName()+" not authorized");
+				AuthorizationResult allowed = checkPermission(command.getPermission(), null);
+				if( allowed.getStatus() == AuthorizationResult.Status.ALLOWED ) {
+					command.execute(this,context);
+				} else if( allowed.getStatus() == AuthorizationResult.Status.UNAVAILABLE ) {
+					logError(command.getName()+" not checked: "+allowed.getReason());
+					replyPermissionUnavailable(command);
+				} else {
+					replyNotAuthorized(command);
+				}
 			}
 		}
 	}
 
-	/** @return true when this session holds the permission on the server as a whole */
-	private boolean isAllowed(ParleyPermission needed) {
-		return checkPermission(needed, null).isAllowed();
+	/**
+	 * Answer a command the session isn't allowed to run. The default is a generic 500
+	 * "not authorized"; a protocol overrides it for its own reply.
+	 */
+	protected void replyNotAuthorized(ICommand command) throws IOException {
+		reply(IGenericResponseCode.REPLY_500_GENERIC_ERROR, command.getName()+" not authorized");
+	}
+
+	/**
+	 * Answer a command whose permission couldn't be checked because the user registry can't
+	 * answer now (UNAVAILABLE). It must not say "not authorized" (rule 6): the default is a
+	 * generic temporary error (400), so the client may try again later; a protocol overrides
+	 * it for its own reply (SMTP 451, IMAP NO [UNAVAILABLE], POP3 -ERR [SYS/TEMP]).
+	 */
+	protected void replyPermissionUnavailable(ICommand command) throws IOException {
+		reply(IGenericResponseCode.REPLY_400_GENERIC_TEMPORARY_ERROR,
+				command.getName()+" can't be checked now, try again later");
 	}
 
 	/**
@@ -281,18 +309,11 @@ public abstract  class AbstractCommandProcessor extends AbstractProcessor implem
 
 
 	/**
-	 * Wait before replying to a failed login, to slow down password guessing (see
-	 * {@link Server#setLoginFailureDelay(int)}).
+	 * Called once, when the connection is about to be closed because the client has had as many
+	 * failed logins as the application allows, after the protocol's answer to the last one. The
+	 * default sends nothing; a protocol overrides it for a closing line of its own (SMTP 421 ...).
 	 */
-	public void loginFailedDelay() {
-		int delay = getServer() instanceof Server ? ((Server) getServer()).getLoginFailureDelay() : 0;
-		if (delay > 0) {
-			try {
-				Thread.sleep(delay);
-			} catch (InterruptedException e) {
-				Thread.currentThread().interrupt();
-			}
-		}
+	protected void replyTooManyLoginFailures() throws IOException {
 	}
 
 	/** True if the connection uses TLS (implicit, or after STARTTLS). */

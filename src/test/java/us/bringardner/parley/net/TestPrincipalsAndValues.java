@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.HashMap;
@@ -12,7 +13,6 @@ import java.util.Map;
 import org.junit.jupiter.api.Test;
 
 import us.bringardner.parley.iam.AuthenticationResult;
-import us.bringardner.parley.iam.AuthorizationResult;
 import us.bringardner.parley.iam.BasicParleyPermission;
 import us.bringardner.parley.iam.ParleyPermission;
 import us.bringardner.parley.iam.ParleyPrincipal;
@@ -96,12 +96,12 @@ public class TestPrincipalsAndValues {
 	@Test
 	public void testNoUserRegistry() {
 		Server svr = new Server(0, "NoAclServer-" + System.nanoTime());
-		AuthenticationResult result = ServerTestSupport.login(svr, "anyone", "pw");
-		assertEquals(AuthenticationResult.Status.UNSUPPORTED, result.getStatus());
-		assertEquals("no user registry", result.getReason());
-		AuthorizationResult check = svr.checkPermission(ServerTestSupport.requester(), A, null);
-		assertEquals(AuthorizationResult.Status.DENIED, check.getStatus());
-		assertEquals("no user registry", check.getReason());
+		// rule 9: using a part that needs a registry with none is an error naming the setting
+		IllegalStateException login = assertThrows(IllegalStateException.class,
+				() -> ServerTestSupport.login(svr, "anyone", "pw"));
+		assertTrue(login.getMessage().contains(svr.getPropertyPrefix()+".authenticationProvider"), login.getMessage());
+		assertThrows(IllegalStateException.class,
+				() -> svr.checkPermission(ServerTestSupport.requester(), A, null));
 		assertNull(svr.getUserRegistry());
 	}
 }

@@ -530,9 +530,9 @@ public class TestSasl {
 		ServerSaslAuthenticator auth = new ServerSaslAuthenticator(svr, ServerTestSupport.requester());
 		assertFalse(auth.supports("PLAIN"));
 		assertFalse(auth.supports("SCRAM-SHA-256"));
-		assertNull(auth.getScramCredentials("bob", "SHA-256"));
-		assertFalse(auth.checkPassword("bob", "pw"));
-		assertEquals(AuthenticationResult.Status.UNSUPPORTED, auth.getResult().getStatus());
+		// rule 9: logging in with no registry is an error, not a refusal
+		assertThrows(IllegalStateException.class, () -> auth.getScramCredentials("bob", "SHA-256"));
+		assertThrows(IllegalStateException.class, () -> auth.checkPassword("bob", "pw"));
 		assertNull(new ServerSaslAuthenticator(svr, ServerTestSupport.requester()).getResult());
 	}
 

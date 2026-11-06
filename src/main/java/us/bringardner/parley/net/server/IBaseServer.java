@@ -151,14 +151,12 @@ public interface IBaseServer extends IManagedThread {
 	 *
 	 * @param credential what the client offered
 	 * @return AUTHENTICATED (for a proof, the method is the stored secret's kind), REFUSED,
-	 * UNSUPPORTED (also when there is no registry) or UNAVAILABLE (the registry can't answer now)
+	 * UNSUPPORTED or UNAVAILABLE (the registry can't answer now)
+	 * @throws IllegalStateException when there is no user registry ({@link #requireUserRegistry()})
 	 * @since 2.0.0
 	 */
 	default AuthenticationResult authenticate(Credential credential) {
-		UserRegistry registry = getUserRegistry();
-		if( registry == null ) {
-			return AuthenticationResult.unsupported("no user registry");
-		}
+		UserRegistry registry = requireUserRegistry();
 		try {
 			if( credential instanceof ProofCredential ) {
 				return checkProof(registry, (ProofCredential) credential, true);
@@ -179,10 +177,7 @@ public interface IBaseServer extends IManagedThread {
 	 * @since 2.0.0
 	 */
 	default AuthenticationResult probe(Credential credential) {
-		UserRegistry registry = getUserRegistry();
-		if( registry == null ) {
-			return AuthenticationResult.unsupported("no user registry");
-		}
+		UserRegistry registry = requireUserRegistry();
 		try {
 			if( credential instanceof ProofCredential ) {
 				return checkProof(registry, (ProofCredential) credential, false);
@@ -255,9 +250,9 @@ public interface IBaseServer extends IManagedThread {
 	}
 
 	/**
-	 * May the requester do something? Asks {@link #getAuthorizer()}. With no user registry
-	 * the answer is DENIED, so a server without users authorizes nothing, and so is a null
-	 * permission (a command that names none).
+	 * May the requester do something? Asks {@link #getAuthorizer()}. A null permission (a
+	 * command that names none) is DENIED. With no user registry this throws
+	 * ({@link #requireUserRegistry()}).
 	 *
 	 * @param requester who is asking
 	 * @param needed the permission needed, or null
@@ -271,9 +266,31 @@ public interface IBaseServer extends IManagedThread {
 		}
 		Authorizer authorizer = getAuthorizer();
 		if( authorizer == null ) {
-			return AuthorizationResult.denied("no user registry");
+			// nothing can decide: no registry, so this throws
+			requireUserRegistry();
 		}
 		return authorizer.check(requester, needed, resource);
+	}
+
+	/**
+	 * The user registry, for a part of the server that needs one (logging in, checking a
+	 * permission). Using such a part with no registry configured is a mistake in the
+	 * configuration, not a refused login or a denied permission (rule 9).
+	 *
+	 * @return the registry; never null
+	 * @throws IllegalStateException when no registry is set or configured, naming the setting
+	 * @since 2.0.0
+	 */
+	default UserRegistry requireUserRegistry() {
+		UserRegistry registry = getUserRegistry();
+		if( registry == null ) {
+			String prefix = getPropertyPrefix();
+			String setting = prefix == null || prefix.isEmpty() ? AUTHENTICATION_PROVIDER_PROPERTY
+					: prefix+"."+AUTHENTICATION_PROVIDER_PROPERTY;
+			throw new IllegalStateException("No user registry: set "+setting
+					+" (or call setUserRegistry) to log in or check permissions");
+		}
+		return registry;
 	}
 
 	/**
