@@ -15,8 +15,8 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import us.bringardner.parley.iam.AuthenticationResult;
-import us.bringardner.parley.iam.PasswordCredential;
 import us.bringardner.parley.iam.Requester;
+import us.bringardner.parley.iam.credential.PasswordCredential;
 
 /** A user file is read again when it changes, so users can change while a server runs. */
 public class FileUserRegistryReloadTest {

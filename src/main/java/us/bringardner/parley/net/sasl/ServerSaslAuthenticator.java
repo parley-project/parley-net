@@ -4,14 +4,14 @@ import java.io.IOException;
 
 import us.bringardner.parley.iam.AuthenticationResult;
 import us.bringardner.parley.iam.Credential;
-import us.bringardner.parley.iam.PasswordCredential;
-import us.bringardner.parley.iam.ProofCredential;
 import us.bringardner.parley.iam.ProofVerifier;
 import us.bringardner.parley.iam.Requester;
 import us.bringardner.parley.iam.StoredCredential;
 import us.bringardner.parley.iam.StoredCredentialType;
 import us.bringardner.parley.iam.UserRegistry;
 import us.bringardner.parley.iam.UserRegistryUnavailableException;
+import us.bringardner.parley.iam.credential.PasswordCredential;
+import us.bringardner.parley.iam.credential.ProofCredential;
 import us.bringardner.parley.net.server.IBaseServer;
 import us.bringardner.parley.net.server.ILoginSession;
 

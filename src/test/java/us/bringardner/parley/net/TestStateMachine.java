@@ -15,8 +15,8 @@ import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
-import us.bringardner.parley.iam.BasicParleyPermission;
 import us.bringardner.parley.iam.ParleyPermission;
+import us.bringardner.parley.iam.permission.BasicParleyPermission;
 import us.bringardner.parley.net.ServerTestSupport.TestServer;
 import us.bringardner.parley.net.client.CommandClient;
 import us.bringardner.parley.net.server.AbstractCommandProcessor;

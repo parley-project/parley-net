@@ -32,13 +32,13 @@ import us.bringardner.parley.iam.AuthorizationResult;
 import us.bringardner.parley.iam.Credential;
 import us.bringardner.parley.iam.ParleyPermission;
 import us.bringardner.parley.iam.ParleyPrincipal;
-import us.bringardner.parley.iam.ProofCredential;
 import us.bringardner.parley.iam.ProtectedResource;
 import us.bringardner.parley.iam.Requester;
 import us.bringardner.parley.iam.StoredCredential;
 import us.bringardner.parley.iam.StoredCredentialType;
 import us.bringardner.parley.iam.UserRegistry;
 import us.bringardner.parley.iam.UserRegistryUnavailableException;
+import us.bringardner.parley.iam.credential.ProofCredential;
 import us.bringardner.parley.net.IManagedThread;
 import us.bringardner.parley.net.sasl.ScramMechanism;
 

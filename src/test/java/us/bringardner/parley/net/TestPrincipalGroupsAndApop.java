@@ -12,11 +12,11 @@ import java.util.List;
 import org.junit.jupiter.api.Test;
 
 import us.bringardner.parley.iam.AuthenticationResult;
-import us.bringardner.parley.iam.BasicParleyPermission;
 import us.bringardner.parley.iam.ParleyPrincipal;
-import us.bringardner.parley.iam.ProofCredential;
 import us.bringardner.parley.iam.StoredCredential;
 import us.bringardner.parley.iam.StoredCredentialType;
+import us.bringardner.parley.iam.credential.ProofCredential;
+import us.bringardner.parley.iam.permission.BasicParleyPermission;
 import us.bringardner.parley.net.server.ApopDigest;
 import us.bringardner.parley.net.server.ApopVerifier;
 import us.bringardner.parley.net.server.FileUserRegistry;

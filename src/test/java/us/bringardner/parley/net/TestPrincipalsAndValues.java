@@ -13,10 +13,10 @@ import java.util.Map;
 import org.junit.jupiter.api.Test;
 
 import us.bringardner.parley.iam.AuthenticationResult;
-import us.bringardner.parley.iam.BasicParleyPermission;
 import us.bringardner.parley.iam.ParleyPermission;
 import us.bringardner.parley.iam.ParleyPrincipal;
 import us.bringardner.parley.iam.Requester;
+import us.bringardner.parley.iam.permission.BasicParleyPermission;
 import us.bringardner.parley.net.server.FileUserRegistry;
 import us.bringardner.parley.net.server.Server;
 

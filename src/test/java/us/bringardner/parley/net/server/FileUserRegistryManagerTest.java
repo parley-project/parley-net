@@ -23,17 +23,17 @@ import org.junit.jupiter.api.function.Executable;
 import org.junit.jupiter.api.io.TempDir;
 
 import us.bringardner.parley.iam.AuthenticationResult;
-import us.bringardner.parley.iam.PasswordCredential;
-import us.bringardner.parley.iam.BasicParleyPermission;
 import us.bringardner.parley.iam.EntityId;
 import us.bringardner.parley.iam.ParleyPermission;
+import us.bringardner.parley.iam.ParleyPrincipal;
 import us.bringardner.parley.iam.PermissionManager;
 import us.bringardner.parley.iam.PrincipalChanges;
 import us.bringardner.parley.iam.PrincipalManager;
 import us.bringardner.parley.iam.Requester;
 import us.bringardner.parley.iam.StoredCredentialType;
-import us.bringardner.parley.iam.ProofCredential;
-import us.bringardner.parley.iam.ParleyPrincipal;
+import us.bringardner.parley.iam.credential.PasswordCredential;
+import us.bringardner.parley.iam.credential.ProofCredential;
+import us.bringardner.parley.iam.permission.BasicParleyPermission;
 
 /** A user file's users and groups found and managed through PrincipalManager. */
 public class FileUserRegistryManagerTest {

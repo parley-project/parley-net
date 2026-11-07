@@ -41,12 +41,12 @@ import org.junit.jupiter.api.Test;
 
 import us.bringardner.parley.iam.AuthenticationResult;
 import us.bringardner.parley.iam.ParleyPrincipal;
-import us.bringardner.parley.iam.PasswordCredential;
-import us.bringardner.parley.iam.ProofCredential;
 import us.bringardner.parley.iam.ProofVerifier;
 import us.bringardner.parley.iam.Requester;
 import us.bringardner.parley.iam.StoredCredential;
 import us.bringardner.parley.iam.StoredCredentialType;
+import us.bringardner.parley.iam.credential.PasswordCredential;
+import us.bringardner.parley.iam.credential.ProofCredential;
 import us.bringardner.parley.net.ServerTestSupport.TestServer;
 import us.bringardner.parley.net.client.CommandClient;
 import us.bringardner.parley.net.client.ICommandResponse;

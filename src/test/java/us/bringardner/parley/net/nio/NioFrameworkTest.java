@@ -27,9 +27,9 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
 import us.bringardner.parley.iam.AuthenticationResult;
-import us.bringardner.parley.iam.BasicParleyPermission;
 import us.bringardner.parley.iam.ParleyPrincipal;
-import us.bringardner.parley.iam.PasswordCredential;
+import us.bringardner.parley.iam.credential.PasswordCredential;
+import us.bringardner.parley.iam.permission.BasicParleyPermission;
 import us.bringardner.parley.net.server.PropertiesUserRegistry;
 
 /**

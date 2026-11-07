@@ -24,10 +24,10 @@
  */
 package us.bringardner.parley.net.server;
 
-import us.bringardner.parley.iam.ProofCredential;
 import us.bringardner.parley.iam.ProofVerifier;
 import us.bringardner.parley.iam.StoredCredential;
 import us.bringardner.parley.iam.StoredCredentialType;
+import us.bringardner.parley.iam.credential.ProofCredential;
 
 /**
  * The APOP check (RFC 1939 section 7) as a {@link ProofVerifier}, for a POP3 server's
