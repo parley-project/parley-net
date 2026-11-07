@@ -42,6 +42,7 @@ import us.bringardner.parley.iam.EntityId;
 import us.bringardner.parley.iam.ParleyPermission;
 import us.bringardner.parley.iam.ParleyPrincipal;
 import us.bringardner.parley.iam.PasswordCredential;
+import us.bringardner.parley.iam.PermissionManager;
 import us.bringardner.parley.iam.ProofCredential;
 import us.bringardner.parley.iam.ProtectedResource;
 import us.bringardner.parley.iam.Requester;
@@ -73,7 +74,9 @@ import us.bringardner.parley.net.sasl.ScramMechanism;
  * file (not a class path resource). A change rewrites the file, keeping its other lines,
  * comments, permissions and group, and every registry reading the file sees it at its next
  * check. Only users can be members, since groups don't nest here. A turned-off user can't log in,
- * holds nothing and isn't found, except by {@link #findPrincipals}.
+ * holds nothing and isn't found, except by {@link #findPrincipals}. Grants are managed through
+ * {@link PermissionManager}: this file keeps grants to users about the whole server (the
+ * permissions field), not grants to groups or about one resource.
  * <p>
  * The file has no ids, so a user's id is {@code user:} followed by its name, and a group's is
  * {@code group:} followed by its name. Renaming a user or group in the file therefore makes a
@@ -124,7 +127,7 @@ import us.bringardner.parley.net.sasl.ScramMechanism;
  *   limitations under the License.
  *  </PRE>
  */
-public class FileUserRegistry extends BaseObject implements PrincipalManager {
+public class FileUserRegistry extends BaseObject implements PrincipalManager, PermissionManager {
 
 	/** Setting (prefix.userFile) naming the user file, a path or a class path resource */
 	public static final String PROP_FILE_NAME = "userFile";
@@ -912,6 +915,111 @@ public class FileUserRegistry extends BaseObject implements PrincipalManager {
 		return ret;
 	}
 
+	// ------------------------------------------------------------------ PermissionManager
+
+	/** Grants to users about the whole server only: the permissions field of a user's line. */
+	@Override
+	public boolean supportsGrant(boolean toGroup, boolean onResource) {
+		return !toGroup && !onResource;
+	}
+
+	/** Adds the permission's name to the user's permissions field. */
+	@Override
+	public synchronized boolean grant(ParleyPrincipal holder, ParleyPermission permission) throws UserRegistryUnavailableException {
+		if( permission == null ) {
+			throw new IllegalArgumentException("A permission is needed");
+		}
+		if( permission.getResourceId() != null ) {
+			throw new IllegalArgumentException("A user file keeps grants about the whole server only, not about "+permission.getResourceId());
+		}
+		checkParameter("permission name", permission.getName());
+		List<String> lines = readForChange();
+		FileUser user = grantHolder(holder, true);
+		List<String> names = permissionsOn(lines, user);
+		for (String name : names) {
+			if( name.equalsIgnoreCase(permission.getName())) {
+				return false;
+			}
+		}
+		names.add(permission.getName());
+		int index = lineOf(lines, user.principal.getName());
+		lines.set(index, withField(lines.get(index), 2, String.join("|", names)));
+		writeChange(lines);
+		return true;
+	}
+
+	/** Takes the permission's name off the user's permissions field (names ignore case). */
+	@Override
+	public synchronized boolean revoke(ParleyPrincipal holder, ParleyPermission permission) throws UserRegistryUnavailableException {
+		List<String> lines = readForChange();
+		FileUser user = grantHolder(holder, false);
+		if( user == null || permission == null || permission.getResourceId() != null ) {
+			return false; // a group, or a grant this file can't hold: never granted here
+		}
+		List<String> names = permissionsOn(lines, user);
+		boolean removed = false;
+		for (java.util.Iterator<String> it = names.iterator(); it.hasNext();) {
+			if( it.next().equalsIgnoreCase(permission.getName())) {
+				it.remove();
+				removed = true;
+			}
+		}
+		if( !removed ) {
+			return false;
+		}
+		int index = lineOf(lines, user.principal.getName());
+		lines.set(index, withField(lines.get(index), 2, String.join("|", names)));
+		writeChange(lines);
+		return true;
+	}
+
+	/** A user's permissions field (a turned-off user's too); a group holds none here. */
+	@Override
+	public Set<ParleyPermission> findGrants(ParleyPrincipal holder) {
+		reloadIfChanged();
+		FileUser user = grantHolder(holder, false);
+		Set<ParleyPermission> ret = new LinkedHashSet<ParleyPermission>();
+		if( user != null ) {
+			ret.addAll(user.permissions);
+		}
+		return ret;
+	}
+
+	/**
+	 * @param needUser true to refuse a group (for a grant)
+	 * @return the user (turned off or not), or null for a group of this file
+	 * @throws IllegalArgumentException for a principal that isn't in this file, or a group when a user is needed
+	 */
+	private FileUser grantHolder(ParleyPrincipal holder, boolean needUser) {
+		if( holder == null ) {
+			throw new IllegalArgumentException("A user or group is needed");
+		}
+		Users u = users;
+		FileUser user = u.byId.get(holder.getId());
+		if( user != null ) {
+			return user;
+		}
+		if( u.groupsById.containsKey(holder.getId())) {
+			if( needUser ) {
+				throw new IllegalArgumentException("A user file keeps no grants to groups: "+holder.getName()+" is a group");
+			}
+			return null;
+		}
+		throw new IllegalArgumentException("No user or group "+holder.getName()+" in this user file");
+	}
+
+	/** @return the permission names on the user's line, in order, in a list that may be changed */
+	private static List<String> permissionsOn(List<String> lines, FileUser user) throws UserRegistryUnavailableException {
+		String parts[] = lines.get(lineOf(lines, user.principal.getName())).trim().split("[,]", -1);
+		List<String> ret = new ArrayList<String>();
+		for (String p1 : parts[2].split("[|]")) {
+			if( !p1.trim().isEmpty()) {
+				ret.add(p1.trim());
+			}
+		}
+		return ret;
+	}
+
 	// ------------------------------------------------------------------ PrincipalManager
 
 	/**
@@ -1366,7 +1474,8 @@ public class FileUserRegistry extends BaseObject implements PrincipalManager {
 	/** @return the line with one field (0 for the first) replaced by this text */
 	static String withField(String line, int index, String text) {
 		String parts[] = line.split("[,]", -1);
-		parts[index] = text.isEmpty() ? " " : " "+text+" ";
+		boolean last = index == parts.length-1;
+		parts[index] = text.isEmpty() ? " " : " "+text+(last ? "" : " ");
 		return String.join(",", parts);
 	}
 

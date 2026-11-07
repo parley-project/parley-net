@@ -24,6 +24,10 @@ import org.junit.jupiter.api.io.TempDir;
 
 import us.bringardner.parley.iam.AuthenticationResult;
 import us.bringardner.parley.iam.PasswordCredential;
+import us.bringardner.parley.iam.BasicParleyPermission;
+import us.bringardner.parley.iam.EntityId;
+import us.bringardner.parley.iam.ParleyPermission;
+import us.bringardner.parley.iam.PermissionManager;
 import us.bringardner.parley.iam.PrincipalManager;
 import us.bringardner.parley.iam.Requester;
 import us.bringardner.parley.iam.StoredCredentialType;
@@ -338,6 +342,47 @@ public class FileUserRegistryManagerTest {
 					registry.createUser("sales");
 				}
 			}, "the name of a group");
+		}
+	}
+
+	@Test
+	public void grantsToUsersAreKeptInThePermissionsField() throws Exception {
+		File f = users(FILE);
+		try (FileUserRegistry registry = open(f)) {
+			final PermissionManager manager = registry;
+			final ParleyPrincipal carol = registry.findPrincipal("carol");
+			final ParleyPrincipal sales = registry.findPrincipal("sales");
+			ParleyPermission write = new BasicParleyPermission("write", null);
+			assertTrue(manager.supportsGrant(false, false));
+			assertFalse(manager.supportsGrant(true, false), "no grants to groups here");
+			assertFalse(manager.supportsGrant(false, true), "no grants about one resource here");
+
+			assertTrue(manager.grant(carol, write));
+			assertFalse(manager.grant(carol, new BasicParleyPermission("WRITE", null)), "names ignore case");
+			assertTrue(read(f).contains("carol , third , READ|write\n"), read(f));
+			assertEquals(2, manager.findGrants(carol).size());
+			assertEquals(0, manager.findGrants(sales).size(), "a group holds none here");
+
+			assertTrue(manager.revoke(carol, new BasicParleyPermission("Read", null)));
+			assertFalse(manager.revoke(carol, new BasicParleyPermission("read", null)));
+			assertTrue(read(f).contains("carol , third , write\n"), read(f));
+			assertTrue(manager.revoke(carol, write));
+			assertTrue(read(f).contains("carol , third , \n"), read(f));
+			assertEquals(0, manager.findGrants(carol).size());
+			assertNotNull(registry.findPrincipal("carol"), "a user with no permissions is still a user");
+
+			assertRefused(new Executable() {
+				@Override
+				public void execute() throws Throwable {
+					manager.grant(sales, new BasicParleyPermission("read", null));
+				}
+			}, "a grant to a group");
+			assertRefused(new Executable() {
+				@Override
+				public void execute() throws Throwable {
+					manager.grant(carol, new BasicParleyPermission("read", EntityId.of("mailbox:carol/INBOX")));
+				}
+			}, "a grant about one resource");
 		}
 	}
 
