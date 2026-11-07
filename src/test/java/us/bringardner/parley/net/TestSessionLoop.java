@@ -25,6 +25,9 @@ import us.bringardner.parley.net.server.IRequestContext;
  */
 public class TestSessionLoop {
 
+	/** Released at the end of a test, so a "Stuck" command returns. */
+	private static volatile java.util.concurrent.CountDownLatch stuck = new java.util.concurrent.CountDownLatch(1);
+
 	/** What the processors of one test server did, counted across their sessions. */
 	static class Counts {
 		final AtomicInteger requestsRead = new AtomicInteger();
@@ -38,6 +41,17 @@ public class TestSessionLoop {
 	 */
 	private static TestServer started(String name, Counts counts) {
 		Map<String, ICommand> commands = ServerTestSupport.standardCommands();
+		// a command that doesn't return until the test lets it (a session stuck in a command)
+		commands.put("Stuck", ServerTestSupport.command("Stuck", false, new ServerTestSupport.CommandBody() {
+			@Override
+			public void execute(us.bringardner.parley.net.server.ICommandProcessor processor, IRequestContext context) {
+				try {
+					stuck.await(10, java.util.concurrent.TimeUnit.SECONDS);
+				} catch (InterruptedException e) {
+					Thread.currentThread().interrupt();
+				}
+			}
+		}));
 		TestServer svr = ServerTestSupport.create(name, commands, null);
 		svr.setProcessorFactory(() -> new AbstractCommandProcessor() {
 			private static final long serialVersionUID = 1L;
@@ -173,5 +187,43 @@ public class TestSessionLoop {
 			ServerTestSupport.waitFor(() -> counts.sessionEnded.get() == 1, 5000, "sessionEnded not called");
 		}
 		assertEquals(1, counts.sessionEnded.get(), "sessionEnded runs once");
+	}
+
+	@Test
+	public void anIdleSessionEndsItselfWithoutTheAdminCheck() throws Exception {
+		Counts counts = new Counts();
+		TestServer svr = started("LoopIdleServer", counts);
+		try (CommandClient client = greeted(svr)) {
+			assertTrue(client.executeCommand(ServerTestSupport.ECHO, new String[] { "hi" }).isPositive());
+			// the admin check runs every 5 minutes; the session checks itself every second
+			svr.setMaxIdleConnection(200);
+			long start = System.currentTimeMillis();
+			assertNull(readOrNull(client), "the idle session was closed");
+			ServerTestSupport.waitFor(() -> counts.sessionEnded.get() == 1, 5000, "sessionEnded not called");
+			long took = System.currentTimeMillis() - start;
+			assertTrue(took < 3000, "closed after " + took + " ms");
+		} finally {
+			ServerTestSupport.stop(svr);
+		}
+	}
+
+	@Test
+	public void aSessionStuckInACommandIsClosedByTheAdminCheck() throws Exception {
+		stuck = new java.util.concurrent.CountDownLatch(1);
+		Counts counts = new Counts();
+		TestServer svr = started("LoopStuckServer", counts);
+		try (CommandClient client = greeted(svr)) {
+			client.writeLine("Stuck");
+			client.flush();
+			svr.setMaxIdleConnection(100);
+			Thread.sleep(1500);
+			// the session isn't waiting for a request, so it can't check itself: the server closes it
+			assertEquals(1, svr.getActiveClients().size(), "still open before the admin check");
+			svr.runAdmin();
+			assertNull(readOrNull(client), "the stuck session was closed");
+		} finally {
+			stuck.countDown();
+			ServerTestSupport.stop(svr);
+		}
 	}
 }

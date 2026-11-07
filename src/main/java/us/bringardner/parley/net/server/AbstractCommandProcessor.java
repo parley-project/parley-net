@@ -234,11 +234,13 @@ public abstract  class AbstractCommandProcessor extends AbstractProcessor implem
 	/**
 	 * Read the next request. The default reads one line and makes it a request with the
 	 * {@link #getRequestContextFactory() request context factory}; while the client sends nothing it
-	 * keeps waiting (the server closes sessions idle for too long). A line longer than the
+	 * keeps waiting, and once the session is {@link #isIdleTooLong() idle for too long} it says
+	 * goodbye ({@link #replyClosing(CloseReason) replyClosing(IDLE)}) and ends. A line longer than the
 	 * connection's limit is answered with {@link #replyLineTooLong(int)} and ends the session.
 	 * <p>
 	 * A protocol overrides it for its own framing (SMTP's byte lines, IMAP's literals). It may answer
-	 * a request it can't parse itself and read on.
+	 * a request it can't parse itself and read on. It checks {@link #isIdleTooLong()} while it waits,
+	 * and ends an idle session with replyClosing(IDLE), as the default does.
 	 *
 	 * @return the request, or null to end the session (the client closed the connection)
 	 * @throws IOException if the connection can't be used (the session ends)
@@ -246,12 +248,32 @@ public abstract  class AbstractCommandProcessor extends AbstractProcessor implem
 	 */
 	protected IRequestContext readRequest() throws IOException {
 		IConnection con = getConnection();
+		// wake every IDLE_POLL_MS to check for an idle session and a stopping server;
+		// the line reader keeps a part of a line read before a time-out
+		int timeout = con.getTimeout();
+		con.setTimeout(IDLE_POLL_MS);
+		try {
+			return readLine(con);
+		} finally {
+			con.setTimeout(timeout);
+		}
+	}
+
+	private IRequestContext readLine(IConnection con) throws IOException {
 		while( running && !stopping ) {
 			String line;
 			try {
 				line = con.readLine();
 			} catch(SocketTimeoutException e) {
-				// idle: keep waiting. Server.doAdmin closes connections that are idle too long.
+				if( stopping ) {
+					// the server says goodbye (replyClosing) when it stops
+					return null;
+				}
+				if( isIdleTooLong() ) {
+					logDebug("Idle for too long, closing the connection from "+clientAddressText());
+					replyClosing(CloseReason.IDLE);
+					return null;
+				}
 				continue;
 			} catch(us.bringardner.parley.io.LineTooLongException e) {
 				// the rest of the line can't be trusted: the session ends, after telling the client
@@ -366,6 +388,44 @@ public abstract  class AbstractCommandProcessor extends AbstractProcessor implem
 		if( isDebug() && name != null ) {
 			cmdUsed.put(name, name);
 		}
+	}
+
+	/**
+	 * How often (ms) a session waiting for a request wakes to check whether it is idle for too long
+	 * and whether the server is stopping.
+	 * @since 2.0.0
+	 */
+	public static final int IDLE_POLL_MS = 1000;
+
+	/**
+	 * @return true once the client has been quiet for longer than the server's idle limit
+	 * ({@link Server#getMaxIdleConnection()}, measured from {@link #getLastActivityTime()}), unless
+	 * the session has a task running (an FTP transfer): such a session isn't idle. A session checks
+	 * this itself while it waits for a request; the server's admin check leaves it alone.
+	 * @since 2.0.0
+	 */
+	public boolean isIdleTooLong() {
+		IServer server = getServer();
+		if( !(server instanceof Server) ) {
+			return false;
+		}
+		Server s = (Server) server;
+		long limit = s.getMaxIdleConnection();
+		if( limit <= 0 || System.currentTimeMillis() - getLastActivityTime() <= limit ) {
+			return false;
+		}
+		return !s.hasRunningTask(this);
+	}
+
+	/**
+	 * @return when (ms since the epoch) the client was last heard from, for {@link #isIdleTooLong()}.
+	 * The default: the connection's last read or write, whichever is later. A protocol that reads
+	 * the socket through its own streams returns their time instead (SMTP, IMAP).
+	 * @since 2.0.0
+	 */
+	protected long getLastActivityTime() {
+		IConnection con = getConnection();
+		return con == null ? System.currentTimeMillis() : Math.max(con.getLastReadTime(), con.getLastWriteTime());
 	}
 
 	/** The first word of a line (the command), or null. */

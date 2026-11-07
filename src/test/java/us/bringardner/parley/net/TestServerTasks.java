@@ -252,7 +252,7 @@ public class TestServerTasks {
 			assertTrue(client.executeCommand(ServerTestSupport.ECHO, "hi").isPositive());
 			svr.setMaxIdleConnection(100);
 			svr.setAdminFrequency(50);
-			// no runAdmin(): the scheduler closes the idle session
+			// no runAdmin(): the session closes itself (AbstractCommandProcessor.isIdleTooLong)
 			ServerTestSupport.waitFor(() -> svr.getActiveClients().isEmpty(), 5000, "idle session not closed by the scheduled check");
 		} finally {
 			ServerTestSupport.stop(svr);

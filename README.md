@@ -205,6 +205,15 @@ the connection. A protocol overrides only what differs:
 | `sessionEnded()` | nothing | releasing what the session holds (a mail transaction, a mailbox, a data connection) |
 | `replyCommandFailed(request)` | `500` | the protocol's reply to a command that failed unexpectedly (FTP `451`, IMAP tagged `NO [SERVERBUG]`) |
 
+**Idle sessions.** While it waits for a request, a session wakes every second
+(`IDLE_POLL_MS`) and ends itself once `isIdleTooLong()` says the client has been quiet for longer
+than the server's `maxIdleConnection`, after the protocol's goodbye (`replyClosing(IDLE)`). A
+session with a running task (an FTP transfer) isn't idle. `getLastActivityTime()` is the
+connection's last read or write; a protocol that reads through its own streams returns theirs
+(SMTP, IMAP), and its own reader checks `isIdleTooLong()` while it waits. The server's admin check
+(every 5 minutes) still closes a session that is idle while stuck in a command, such as a write to a
+client that stopped reading.
+
 A protocol that reads and writes the socket through its own streams wraps their I/O errors in
 `ConnectionLostException`, so a command's own error handling doesn't take a dropped connection for
 a failed operation.
@@ -541,7 +550,7 @@ JMX management, one server never stopping another), see parley-mail-admin.
 | Setting | Default | Where |
 |---|---|---|
 | Server read time-out | 60 s | `Server.setConnectionTimeout(ms)`, 0 = none |
-| Idle connections closed after | 24 h | `Server.setMaxIdleConnection(ms)` |
+| Idle connections closed after | 24 h | `Server.setMaxIdleConnection(ms)`; a session of the session loop checks it itself every second and says goodbye with `replyClosing(IDLE)`; the admin check (every 5 min) closes other processors, and a session stuck in a command |
 | Maximum concurrent clients | unlimited | `Server.setMaxClients(n)`, `setServerBusyMessage("421 ...")` |
 | Connections per client address | unlimited | `setMaxConnectionsPerClient(n)` or the `maxConnectionsPerClient` property (`Server` and `NioServer`) |
 | Client addresses allowed | everyone | `setAllowedClients("127.0.0.1 10.0.0.0/8")` or the `allowedClients` property; others are closed at once |

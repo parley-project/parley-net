@@ -855,7 +855,8 @@ public class Server extends AbstractCoreServer implements IServer {
 		return ret;
 	}
 
-	private boolean hasRunningTask(IProcessor owner) {
+	/** True if a task of this session is still running (an FTP transfer, say): the session isn't idle. */
+	boolean hasRunningTask(IProcessor owner) {
 		java.util.Set<BaseThread> tasks = sessionTasks.get(owner);
 		if( tasks != null ) {
 			for (BaseThread t : tasks) {
@@ -1113,7 +1114,8 @@ public class Server extends AbstractCoreServer implements IServer {
 	}
 
 	protected void doAdmin() {
-		//  Check for idle connections
+		//  Check for idle connections (sessions of the session loop check themselves while they wait
+		//  for a request; this catches one stuck in a command) and closed ones
 		lastAdmin = System.currentTimeMillis();
 		for (Iterator<Map.Entry<Socket, IProcessor>> it = activeClients.entrySet().iterator(); it.hasNext();) {
 			Map.Entry<Socket, IProcessor> entry = it.next();
@@ -1124,8 +1126,13 @@ public class Server extends AbstractCoreServer implements IServer {
 					// Already closed, the processor is exiting or failed to remove itself.
 					it.remove();
 					releaseClientOf(entry.getValue());
-				} else if((lastAdmin-con.getLastReadTime()) > maxIdleConnection  && (lastAdmin-con.getLastWriteTime()) > maxIdleConnection
+				} else if( entry.getValue() instanceof AbstractCommandProcessor
+						? ((AbstractCommandProcessor) entry.getValue()).isIdleTooLong()
+						: (lastAdmin-con.getLastReadTime()) > maxIdleConnection  && (lastAdmin-con.getLastWriteTime()) > maxIdleConnection
 						&& !hasRunningTask(entry.getValue())) {
+					// A session of the session loop closes itself within a second when it is idle while
+					// waiting for a request; one still idle here is stuck in a command (a write to a client
+					// that stopped reading, say), so it is closed by the server, as before.
 					logDebug("Closing idle connection "+sock);
 					it.remove();
 					releaseClientOf(entry.getValue());
@@ -1193,6 +1200,11 @@ public class Server extends AbstractCoreServer implements IServer {
 		this.serverBusyMessage = serverBusyMessage;
 	}
 
+	/**
+	 * @return how long (ms) a session may send nothing before it is closed. A session of the session
+	 * loop ({@link AbstractCommandProcessor}) checks this itself every second and says goodbye
+	 * (replyClosing(IDLE)); any other processor is closed by the admin check ({@link #setAdminFrequency(long)}).
+	 */
 	public long getMaxIdleConnection() {
 		return maxIdleConnection;
 	}
