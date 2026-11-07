@@ -105,6 +105,11 @@ public abstract  class AbstractCommandProcessor extends AbstractProcessor implem
 				stop();
 			}
 			running = false;
+			// a write that failed half way may have left the output lock held: a goodbye must not wait for it
+			java.util.concurrent.locks.ReentrantLock lock = getOutputLock();
+			while( lock.isHeldByCurrentThread() ) {
+				lock.unlock();
+			}
 			closeSession();
 		}
 	}
@@ -553,11 +558,17 @@ public abstract  class AbstractCommandProcessor extends AbstractProcessor implem
 		
 	}
 
+	/** One reply line, flushed, under the session's output lock ({@link #getOutputLock()}). */
 	public void reply(String text) throws IOException {
 		IConnection con = getConnection();
-		con.writeLine(text);
-		con.flush();
-		
+		java.util.concurrent.locks.ReentrantLock lock = getOutputLock();
+		lock.lock();
+		try {
+			con.writeLine(text);
+			con.flush();
+		} finally {
+			lock.unlock();
+		}
 	}
 
 	/**
@@ -567,7 +578,13 @@ public abstract  class AbstractCommandProcessor extends AbstractProcessor implem
 	 * @param lines the reply lines
 	 */
 	public void reply(java.util.List<String> lines) throws IOException {
-		getConnection().writeLines(lines);
+		java.util.concurrent.locks.ReentrantLock lock = getOutputLock();
+		lock.lock();
+		try {
+			getConnection().writeLines(lines);
+		} finally {
+			lock.unlock();
+		}
 	}
 
 	public void setDebug(boolean b) {

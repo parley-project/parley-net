@@ -55,6 +55,14 @@ public abstract class AbstractProcessor extends BaseThread implements IProcessor
 		getLogger().setLevel(Server.getDefaultLogLevel());
 	}
 
+	/** The session's output lock ({@link #getOutputLock()}) */
+	private final java.util.concurrent.locks.ReentrantLock outputLock = new java.util.concurrent.locks.ReentrantLock();
+
+	@Override
+	public final java.util.concurrent.locks.ReentrantLock getOutputLock() {
+		return outputLock;
+	}
+
 	
 	public IServer getServer() {
 		return server;
