@@ -52,7 +52,7 @@ import us.bringardner.parley.net.sasl.ScramMechanism;
 import us.bringardner.parley.net.sasl.ServerSaslAuthenticator;
 import us.bringardner.parley.net.sasl.XOAuth2Mechanism;
 import us.bringardner.parley.net.server.FileUserRegistry;
-import us.bringardner.parley.net.server.ILoginSession;
+import us.bringardner.parley.net.server.LoginSession;
 import us.bringardner.parley.net.server.Server;
 
 /**
@@ -461,7 +461,7 @@ public class TestSasl {
 	}
 
 	/** A session for these tests: logs in only through its server, as a real one does. */
-	private static final class Session implements ILoginSession {
+	private static final class Session implements LoginSession {
 		private final Server server;
 		private Requester requester = ServerTestSupport.requester();
 		int logins;
@@ -469,6 +469,16 @@ public class TestSasl {
 
 		Session(Server server) {
 			this.server = server;
+		}
+
+		@Override
+		public Server getServer() {
+			return server;
+		}
+
+		@Override
+		public boolean isTooManyLoginFailures() {
+			return false;
 		}
 
 		@Override

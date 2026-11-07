@@ -42,7 +42,15 @@ import us.bringardner.parley.iam.Requester;
  *
  * @since 2.0.0
  */
-public interface ILoginSession {
+public interface LoginSession {
+
+	/**
+	 * @return the server this session belongs to; {@link us.bringardner.parley.net.IProcessor}
+	 * narrows it to {@link IServer} and {@link us.bringardner.parley.net.nio.INioConnection} to
+	 * {@link us.bringardner.parley.net.nio.NioServer}
+	 * @since 2.0.0
+	 */
+	IBaseServer getServer();
 
 	/**
 	 * Who is asking: the logged-in principal, or nobody, and the facts about the connection
@@ -82,6 +90,13 @@ public interface ILoginSession {
 	 * @since 2.0.0
 	 */
 	AuthenticationResult refuseLogin(String reason);
+
+	/**
+	 * @return true once this session has had as many refused logins as the server allows
+	 * ({@code maxLoginAttempts}); the session is ended after the reply to the last one
+	 * @since 2.0.0
+	 */
+	boolean isTooManyLoginFailures();
 
 	/** Log the session out; nobody is logged in afterwards. */
 	void logout();

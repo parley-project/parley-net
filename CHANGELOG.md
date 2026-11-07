@@ -2,6 +2,13 @@
 
 ## parley-net 2.0.0 (unreleased)
 
+### Changed (2026-11-07: the login session)
+
+- **`ILoginSession` is renamed `LoginSession`** (the interfaces' naming rule: the plain role name, no `I` prefix).
+- **`LoginSession.isTooManyLoginFailures()` and `LoginSession.getServer()`**: a protocol asks the session whether it
+  has had too many refused logins, and which server it belongs to (an `IBaseServer`; `IProcessor` gives an
+  `IServer` and `INioConnection` a `NioServer`), without reaching for `NioConnection` or `AbstractProcessor`.
+
 ### Changed (2026-11-06: change sets)
 
 - **`FileUserRegistry.apply(PrincipalChanges)`** (parley-iam's `PrincipalManager`) makes every step of a change set
@@ -54,7 +61,7 @@
   `makeUpStoredCredential` and `checkPermission(Requester, ParleyPermission, ProtectedResource)`. The setting
   `authenticationProvider` keeps its name and now names a `UserRegistry` class, made with its `IBaseServer`
   constructor when it has one.
-- **Sessions** (`IProcessor`, `INioConnection`, both an `ILoginSession`): `getRequester`, `getPrincipal`,
+- **Sessions** (`IProcessor`, `INioConnection`, both a `LoginSession`): `getRequester`, `getPrincipal`,
   `authenticate(Credential)` (the only way a session logs in; `setPrincipal` is gone), `logout` and
   `checkPermission`. `ICommand.getPermission()` returns a `ParleyPermission`.
 - **`FileBasedAcl` is `FileUserRegistry`, `PropertyAuthenticator` is `PropertiesUserRegistry`**: the same user file

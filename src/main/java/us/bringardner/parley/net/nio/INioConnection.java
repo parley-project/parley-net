@@ -36,7 +36,7 @@ import javax.net.ssl.SSLSession;
 import us.bringardner.parley.iam.AuthorizationResult;
 import us.bringardner.parley.iam.ParleyPermission;
 import us.bringardner.parley.iam.ProtectedResource;
-import us.bringardner.parley.net.server.ILoginSession;
+import us.bringardner.parley.net.server.LoginSession;
 
 /**
  * A non-blocking connection, the NIO counterpart of the framework's IConnection.
@@ -47,7 +47,7 @@ import us.bringardner.parley.net.server.ILoginSession;
  *
  * @author Tony Bringardner
  */
-public interface INioConnection extends Closeable, ILoginSession {
+public interface INioConnection extends Closeable, LoginSession {
 
 	/**
 	 * @return a number unique to this connection within the JVM

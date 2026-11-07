@@ -30,7 +30,7 @@ import java.util.Map;
 import us.bringardner.parley.iam.AuthorizationResult;
 import us.bringardner.parley.iam.ParleyPermission;
 import us.bringardner.parley.iam.ProtectedResource;
-import us.bringardner.parley.net.server.ILoginSession;
+import us.bringardner.parley.net.server.LoginSession;
 import us.bringardner.parley.net.server.IServer;
 
 
@@ -45,7 +45,7 @@ import us.bringardner.parley.net.server.IServer;
  * 
  * @author: Tony Bringardner
  */
-public interface IProcessor extends IManagedThread, ILoginSession {
+public interface IProcessor extends IManagedThread, LoginSession {
 	
 	/**
 	 * Set the Server that accepted this connection.

@@ -135,6 +135,7 @@ public abstract class AbstractProcessor extends BaseThread implements IProcessor
 	}
 
 	/** @return true once this connection has had as many failed logins as the application allows */
+	@Override
 	public boolean isTooManyLoginFailures() {
 		LoginFailures failures = getLoginFailures();
 		return failures != null && failures.isTooMany();

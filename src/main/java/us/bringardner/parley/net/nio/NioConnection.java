@@ -476,6 +476,7 @@ public class NioConnection extends BaseObject implements INioConnection {
 	 * allows; it is closed after the reply to the last one
 	 * @since 2.0.0
 	 */
+	@Override
 	public boolean isTooManyLoginFailures() {
 		return loginFailures != null && loginFailures.isTooMany();
 	}

@@ -13,7 +13,7 @@ import us.bringardner.parley.iam.UserRegistryUnavailableException;
 import us.bringardner.parley.iam.credential.PasswordCredential;
 import us.bringardner.parley.iam.credential.ProofCredential;
 import us.bringardner.parley.net.server.IBaseServer;
-import us.bringardner.parley.net.server.ILoginSession;
+import us.bringardner.parley.net.server.LoginSession;
 
 /**
  * Checks SASL logins with the server's own user registry, so SASL logins and the protocol's
@@ -23,7 +23,7 @@ import us.bringardner.parley.net.server.ILoginSession;
  * CRAM-MD5, so it isn't served.
  * <p>
  * Create one per authentication. Made with the session, it logs the session in: every check
- * goes through {@link ILoginSession#authenticate}, the session's one way to log in. Made with
+ * goes through {@link LoginSession#authenticate}, the session's one way to log in. Made with
  * a requester only, it checks and reports, and logs nobody in.
  * <p>
  * {@link #authenticate(ISaslMechanism, String, ISaslChannel)} runs a whole exchange and returns
@@ -64,7 +64,7 @@ import us.bringardner.parley.net.server.ILoginSession;
 public class ServerSaslAuthenticator implements ISaslAuthenticator {
 
 	private final IBaseServer server;
-	private final ILoginSession session;
+	private final LoginSession session;
 	private final Requester requester;
 	private volatile AuthenticationResult result;
 	private volatile boolean unavailable;
@@ -81,7 +81,7 @@ public class ServerSaslAuthenticator implements ISaslAuthenticator {
 	 * @param session the session to log in
 	 * @since 2.0.0
 	 */
-	public ServerSaslAuthenticator(IBaseServer server, ILoginSession session) {
+	public ServerSaslAuthenticator(IBaseServer server, LoginSession session) {
 		this.server = server;
 		this.session = session;
 		this.requester = null;
@@ -124,7 +124,7 @@ public class ServerSaslAuthenticator implements ISaslAuthenticator {
 	 * counted by the session;</li>
 	 * <li>a failed exchange in which none was (a wrong SCRAM proof, an unknown SCRAM user):
 	 * UNAVAILABLE when the user registry couldn't answer, otherwise REFUSED, counted through
-	 * {@link ILoginSession#refuseLogin(String)} (made with a requester only, it isn't counted);</li>
+	 * {@link LoginSession#refuseLogin(String)} (made with a requester only, it isn't counted);</li>
 	 * <li>no login (the client cancelled, sent bad Base64 or went away): null, not counted;
 	 * {@link #getOutcome()} says which, for the protocol's reply.</li>
 	 * </ul>
