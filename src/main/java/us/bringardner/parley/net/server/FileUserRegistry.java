@@ -43,6 +43,7 @@ import us.bringardner.parley.iam.ParleyPermission;
 import us.bringardner.parley.iam.ParleyPrincipal;
 import us.bringardner.parley.iam.PasswordCredential;
 import us.bringardner.parley.iam.PermissionManager;
+import us.bringardner.parley.iam.PrincipalChanges;
 import us.bringardner.parley.iam.ProofCredential;
 import us.bringardner.parley.iam.ProtectedResource;
 import us.bringardner.parley.iam.Requester;
@@ -555,7 +556,13 @@ public class FileUserRegistry extends BaseObject implements PrincipalManager, Pe
 	 * @since 2.0.0
 	 */
 	protected synchronized void load(List<String> lines) {
+		users = parse(lines);
+	}
+
+	/** @return the users and groups on these lines, without putting them in use */
+	private synchronized Users parse(List<String> lines) {
 		Users read = new Users();
+		Users before = loading;
 		loading = read;
 		try {
 			for(String line : lines) {
@@ -564,9 +571,9 @@ public class FileUserRegistry extends BaseObject implements PrincipalManager, Pe
 					parseLine(line);
 				}
 			}
-			users = read;
+			return read;
 		} finally {
-			loading = null;
+			loading = before;
 		}
 	}
 
@@ -915,6 +922,126 @@ public class FileUserRegistry extends BaseObject implements PrincipalManager, Pe
 		return ret;
 	}
 
+	// ------------------------------------------------------------------ PrincipalManager.apply
+
+	/** The thread applying a change set (holding this registry's lock), or null; read by any thread in {@link #view} */
+	private volatile Thread editing;
+	/** The change set's lines and what they say, step by step; used only by {@link #editing} */
+	private List<String> editLines;
+	private volatile Users editView;
+	private boolean editChanged;
+
+	/** @return the users as a change set has them so far, for the thread applying it; otherwise those in use */
+	private Users view() {
+		Users e = editView;
+		return editing == Thread.currentThread() && e != null ? e : users;
+	}
+
+	/**
+	 * Works on the file's lines step by step, each step seeing what the earlier ones did, and
+	 * writes the file once at the end; when a step fails nothing is written.
+	 */
+	@Override
+	public synchronized void apply(PrincipalChanges changes) throws UserRegistryUnavailableException {
+		if( changes == null ) {
+			throw new IllegalArgumentException("No changes");
+		}
+		List<String> lines = readForChange();
+		editLines = lines;
+		editView = parse(lines);
+		editChanged = false;
+		editing = Thread.currentThread();
+		try {
+			for (PrincipalChanges.Step step : changes.getSteps()) {
+				try {
+					run(step);
+				} catch (IllegalArgumentException e) {
+					throw new IllegalArgumentException(step+": "+e.getMessage(), e);
+				}
+			}
+			lines = editLines;
+		} finally {
+			editing = null;
+			editLines = null;
+			editView = null;
+		}
+		if( editChanged ) {
+			writeFile(lines);
+		}
+	}
+
+	/** One step, through the single-step method of the same name; called while applying a change set. */
+	private void run(PrincipalChanges.Step step) throws UserRegistryUnavailableException {
+		switch (step.getAction()) {
+			case CREATE_USER:
+				createUser(step.getName());
+				return;
+			case CREATE_GROUP:
+				createGroup(step.getName());
+				return;
+			default:
+				break;
+		}
+		ParleyPrincipal principal = byName(step.getName());
+		switch (step.getAction()) {
+			case DELETE:
+				if( principal != null ) {
+					deletePrincipal(principal);
+				}
+				return;
+			case ADD_MEMBER:
+			case REMOVE_MEMBER: {
+				ParleyPrincipal member = byName(step.getMember());
+				if( principal == null || member == null ) {
+					throw new IllegalArgumentException("No principal "+(principal == null ? step.getName() : step.getMember()));
+				}
+				if( step.getAction() == PrincipalChanges.Action.ADD_MEMBER ) {
+					addMember(principal, member);
+				} else {
+					removeMember(principal, member);
+				}
+				return;
+			}
+			default:
+				break;
+		}
+		if( principal == null ) {
+			throw new IllegalArgumentException("No principal "+step.getName());
+		}
+		switch (step.getAction()) {
+			case SET_ATTRIBUTE:
+				setAttribute(principal, step.getAttribute(), step.getValue());
+				return;
+			case SET_PASSWORD:
+				setPassword(principal, step.getPassword());
+				return;
+			case REMOVE_PASSWORD:
+				removePassword(principal);
+				return;
+			case SET_ENABLED:
+				setEnabled(principal, step.isEnabled());
+				return;
+			case GRANT:
+				grant(principal, step.getPermission());
+				return;
+			case REVOKE:
+				revoke(principal, step.getPermission());
+				return;
+			default:
+				throw new IllegalArgumentException("Unknown step "+step.getAction());
+		}
+	}
+
+	/** @return the user (turned off or not) or group with this name, as the change set has them so far */
+	private ParleyPrincipal byName(String name) {
+		Users u = view();
+		FileUser user = name == null ? null : u.byName.get(name);
+		if( user != null ) {
+			return user.principal;
+		}
+		return name == null ? null : u.groupsByName.get(name);
+	}
+
 	// ------------------------------------------------------------------ PermissionManager
 
 	/** Grants to users about the whole server only: the permissions field of a user's line. */
@@ -994,7 +1121,7 @@ public class FileUserRegistry extends BaseObject implements PrincipalManager, Pe
 		if( holder == null ) {
 			throw new IllegalArgumentException("A user or group is needed");
 		}
-		Users u = users;
+		Users u = view();
 		FileUser user = u.byId.get(holder.getId());
 		if( user != null ) {
 			return user;
@@ -1036,7 +1163,7 @@ public class FileUserRegistry extends BaseObject implements PrincipalManager, Pe
 		checkFree(name);
 		lines.add(name+" , , ");
 		writeChange(lines);
-		return users.byName.get(name).principal;
+		return view().byName.get(name).principal;
 	}
 
 	/**
@@ -1053,7 +1180,7 @@ public class FileUserRegistry extends BaseObject implements PrincipalManager, Pe
 		checkFree(name);
 		lines.add(GROUP_LINE_PREFIX+" "+name);
 		writeChange(lines);
-		return users.groupsByName.get(name);
+		return view().groupsByName.get(name);
 	}
 
 	/**
@@ -1066,7 +1193,7 @@ public class FileUserRegistry extends BaseObject implements PrincipalManager, Pe
 			return false;
 		}
 		List<String> lines = readForChange();
-		Users u = users;
+		Users u = view();
 		FileUser user = u.byId.get(principal.getId());
 		ParleyPrincipal group = u.groupsById.get(principal.getId());
 		if( user == null && group == null ) {
@@ -1114,7 +1241,7 @@ public class FileUserRegistry extends BaseObject implements PrincipalManager, Pe
 			throw new IllegalArgumentException("A principal is needed");
 		}
 		List<String> lines = readForChange();
-		Users u = users;
+		Users u = view();
 		FileUser user = u.byId.get(principal.getId());
 		ParleyPrincipal group = u.groupsById.get(principal.getId());
 		if( user != null ) {
@@ -1133,7 +1260,7 @@ public class FileUserRegistry extends BaseObject implements PrincipalManager, Pe
 			throw new IllegalArgumentException("No principal "+principal.getName()+" in "+sourceFile);
 		}
 		writeChange(lines);
-		return user != null ? users.byId.get(principal.getId()).principal : users.groupsById.get(principal.getId());
+		return user != null ? view().byId.get(principal.getId()).principal : view().groupsById.get(principal.getId());
 	}
 
 	/** Puts the user's name in the group's members: the group's name on the user's line. */
@@ -1143,7 +1270,7 @@ public class FileUserRegistry extends BaseObject implements PrincipalManager, Pe
 			throw new IllegalArgumentException("A group and a member are needed");
 		}
 		List<String> lines = readForChange();
-		Users u = users;
+		Users u = view();
 		ParleyPrincipal storedGroup = u.groupsById.get(group.getId());
 		if( storedGroup == null ) {
 			throw new IllegalArgumentException("No group "+group.getName()+" in "+sourceFile);
@@ -1176,7 +1303,7 @@ public class FileUserRegistry extends BaseObject implements PrincipalManager, Pe
 			return false;
 		}
 		List<String> lines = readForChange();
-		Users u = users;
+		Users u = view();
 		ParleyPrincipal storedGroup = u.groupsById.get(group.getId());
 		FileUser user = u.byId.get(member.getId());
 		if( storedGroup == null || user == null || !user.groups.contains(storedGroup)) {
@@ -1249,7 +1376,7 @@ public class FileUserRegistry extends BaseObject implements PrincipalManager, Pe
 			throw new IllegalArgumentException("A user is needed");
 		}
 		reloadIfChanged();
-		Users u = users;
+		Users u = view();
 		FileUser stored = u.byId.get(user.getId());
 		if( stored != null ) {
 			return stored.enabled;
@@ -1264,7 +1391,7 @@ public class FileUserRegistry extends BaseObject implements PrincipalManager, Pe
 	@Override
 	public List<ParleyPrincipal> findPrincipals(String prefix, Kind kind, int limit) {
 		reloadIfChanged();
-		Users u = users;
+		Users u = view();
 		String start = prefix == null ? "" : prefix;
 		List<ParleyPrincipal> found = new ArrayList<ParleyPrincipal>();
 		if( kind != Kind.GROUP ) {
@@ -1298,7 +1425,7 @@ public class FileUserRegistry extends BaseObject implements PrincipalManager, Pe
 		if( user == null ) {
 			throw new IllegalArgumentException("A user is needed");
 		}
-		Users u = users;
+		Users u = view();
 		FileUser stored = u.byId.get(user.getId());
 		if( stored == null ) {
 			if( u.groupsById.containsKey(user.getId())) {
@@ -1311,7 +1438,7 @@ public class FileUserRegistry extends BaseObject implements PrincipalManager, Pe
 
 	/** Refuses a name a user or group already has; called after readForChange. */
 	private void checkFree(String name) {
-		Users u = users;
+		Users u = view();
 		if( u.byName.containsKey(name) || u.groupsByName.containsKey(name)) {
 			throw new IllegalArgumentException("The name "+name+" is taken");
 		}
@@ -1485,6 +1612,9 @@ public class FileUserRegistry extends BaseObject implements PrincipalManager, Pe
 	 * @throws UnsupportedOperationException when the users weren't read from a file
 	 */
 	private List<String> readForChange() throws UserRegistryUnavailableException {
+		if( editing == Thread.currentThread() ) {
+			return new ArrayList<String>(editLines);
+		}
 		File f = sourceFile;
 		if( f == null ) {
 			throw new UnsupportedOperationException("The users weren't read from a file (a class path resource), so they can't be changed");
@@ -1511,6 +1641,18 @@ public class FileUserRegistry extends BaseObject implements PrincipalManager, Pe
 	 * permissions and group first, then reads the file again.
 	 */
 	private void writeChange(List<String> lines) throws UserRegistryUnavailableException {
+		if( editing == Thread.currentThread() ) {
+			// in a change set: the next step works on these lines; the file is written once, at the end
+			editLines = lines;
+			editView = parse(lines);
+			editChanged = true;
+			return;
+		}
+		writeFile(lines);
+	}
+
+	/** Write the lines to the user file, then read it again. */
+	private void writeFile(List<String> lines) throws UserRegistryUnavailableException {
 		File f = sourceFile;
 		StringBuilder text = new StringBuilder();
 		for (String line : lines) {

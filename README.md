@@ -275,6 +275,10 @@ on its own line (`group: sales@bringardner.us , key=val`). Only users can be mem
 `groups` and `enabled` are the file's own, not attributes. Users read from a class path resource can't
 be changed (`UnsupportedOperationException`).
 
+`apply(PrincipalChanges)` makes a whole change set (a user with its password, attributes, groups and grants,
+say) in one rewrite of the file: each step works on what the earlier ones did, and when a step fails nothing
+is written. Each single-step method is one rewrite.
+
 `FileUserRegistry` is also a parley-iam `PermissionManager`: `grant` and `revoke` change a user's permissions
 field, and `findGrants` lists it. The file keeps grants to users about the whole server only, so
 `supportsGrant(toGroup, onResource)` is true only for `(false, false)`, and other grants are refused

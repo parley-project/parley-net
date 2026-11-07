@@ -28,6 +28,7 @@ import us.bringardner.parley.iam.BasicParleyPermission;
 import us.bringardner.parley.iam.EntityId;
 import us.bringardner.parley.iam.ParleyPermission;
 import us.bringardner.parley.iam.PermissionManager;
+import us.bringardner.parley.iam.PrincipalChanges;
 import us.bringardner.parley.iam.PrincipalManager;
 import us.bringardner.parley.iam.Requester;
 import us.bringardner.parley.iam.StoredCredentialType;
@@ -383,6 +384,54 @@ public class FileUserRegistryManagerTest {
 					manager.grant(carol, new BasicParleyPermission("read", EntityId.of("mailbox:carol/INBOX")));
 				}
 			}, "a grant about one resource");
+		}
+	}
+
+	@Test
+	public void aChangeSetIsOneChangeToTheFile() throws Exception {
+		File f = users(FILE);
+		try (FileUserRegistry registry = open(f)) {
+			PrincipalChanges changes = new PrincipalChanges()
+					.createUser("jose@bringardner.us")
+					.setPassword("jose@bringardner.us", "pw".toCharArray())
+					.setAttribute("jose@bringardner.us", "maildrop", "jose")
+					.createGroup("support")
+					.addMember("support", "jose@bringardner.us")
+					.addMember("sales", "jose@bringardner.us")
+					.grant("jose@bringardner.us", new BasicParleyPermission("read", null));
+			registry.apply(changes);
+			changes.clear();
+			String text = read(f);
+			assertTrue(text.contains("jose@bringardner.us , {PBKDF2}"), text);
+			assertTrue(text.contains(" , read , maildrop=jose|groups=support;sales\n"), text);
+			assertTrue(text.contains("group: support\n"), text);
+			ParleyPrincipal jose = registry.findPrincipal("jose@bringardner.us");
+			assertEquals("jose", jose.getAttribute("maildrop"));
+			assertEquals(2, registry.findGroups(jose).size());
+			assertEquals(AuthenticationResult.Status.AUTHENTICATED, login(registry, "jose@bringardner.us", "pw"));
+		}
+	}
+
+	@Test
+	public void aChangeSetThatFailsLeavesTheFileAsItWas() throws Exception {
+		File f = users(FILE);
+		try (final FileUserRegistry registry = open(f)) {
+			final PrincipalChanges changes = new PrincipalChanges()
+					.createUser("jose@bringardner.us")
+					.setPassword("jose@bringardner.us", "pw".toCharArray())
+					.addMember("sales", "jose@bringardner.us")
+					.setAttribute("alice", "maildrop", "elsewhere")
+					.grant("sales", new BasicParleyPermission("read", null)); // a user file keeps no grants to groups
+			IllegalArgumentException e = assertThrows(IllegalArgumentException.class, new Executable() {
+				@Override
+				public void execute() throws Throwable {
+					registry.apply(changes);
+				}
+			});
+			assertTrue(e.getMessage().startsWith("GRANT"), e.getMessage());
+			assertEquals(FILE, read(f), "nothing written");
+			assertNull(registry.findPrincipal("jose@bringardner.us"));
+			assertEquals("alice", registry.findPrincipal("alice").getAttribute("maildrop"));
 		}
 	}
 
