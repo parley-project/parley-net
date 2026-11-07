@@ -148,7 +148,7 @@ public abstract  class AbstractCommandProcessor extends AbstractProcessor implem
 				//  A failed command should not end the session
 				logError("Error processing command "+firstToken(line),e);
 				try {
-					reply(REPLY_500_GENERIC_ERROR, "An error occured processing the request.");
+					replyCommandFailed(firstToken(line));
 				} catch(IOException ex) {
 					break;
 				}
@@ -241,6 +241,18 @@ public abstract  class AbstractCommandProcessor extends AbstractProcessor implem
 		java.net.InetAddress from = getRequester().getClientAddress();
 		logWarn(command+" refused: "+text+"; client "+(from == null ? "unknown" : from.getHostAddress()));
 		return text;
+	}
+
+	/**
+	 * A command failed with an unexpected error (a RuntimeException, already logged); the session
+	 * goes on. The default is a generic 500, as before; a protocol overrides it for its own reply
+	 * (FTP 451, POP3 -ERR [SYS/TEMP]): 500 means a syntax error to most protocols.
+	 *
+	 * @param command the command's name, as the client sent it (null for an empty line)
+	 * @since 2.0.0
+	 */
+	protected void replyCommandFailed(String command) throws IOException {
+		reply(REPLY_500_GENERIC_ERROR, "An error occured processing the request.");
 	}
 
 	/**

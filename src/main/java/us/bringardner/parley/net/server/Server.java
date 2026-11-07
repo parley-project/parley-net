@@ -758,6 +758,21 @@ public class Server extends AbstractCoreServer implements IServer {
 	 * @param svr
 	 */
 	private void close(ServerSocket svr) {
+		// every session says goodbye at once; together they get at most GOODBYE_WAIT_MS
+		java.util.List<Thread> closing = new java.util.ArrayList<Thread>();
+		for (IProcessor element : activeClients.values()) {
+			closing.add(closeSession(element, CloseReason.SERVER_STOPPING));
+		}
+		long until = System.currentTimeMillis()+GOODBYE_WAIT_MS+500;
+		for (Thread t : closing) {
+			try {
+				t.join(Math.max(1, until-System.currentTimeMillis()));
+			} catch (InterruptedException e) {
+				Thread.currentThread().interrupt();
+				break;
+			}
+		}
+		// anything still open is closed now
 		for (IProcessor element : activeClients.values()) {
 			IoUtils.closeQuietly(element.getConnection());
 		}
@@ -1039,12 +1054,62 @@ public class Server extends AbstractCoreServer implements IServer {
 				if( loginTimers.remove(proc) != null && proc.getPrincipal() == null ) {
 					IConnection con = proc.getConnection();
 					logInfo("Login time limit reached, closing "+(con == null ? proc : con.getSocket()));
-					IoUtils.closeQuietly(con);
+					closeSession(proc, CloseReason.LOGIN_TIME_LIMIT);
 				}
 			}, limit, TimeUnit.MILLISECONDS));
 		} catch (IllegalStateException e) {
 			// Stopping: the session is closed with the server
 		}
+	}
+
+	/**
+	 * How long (ms) a session's goodbye ({@link IProcessor#replyClosing(CloseReason)}) may take
+	 * before its connection is closed anyway.
+	 * @since 2.0.0
+	 */
+	public static final long GOODBYE_WAIT_MS = 2000;
+
+	/** Daemon threads for goodbyes, virtual where the JVM has them */
+	private final NamedThreadFactory goodbyeThreads = new NamedThreadFactory("goodbye-").daemon(true).virtual(true);
+
+	/**
+	 * Close a session's connection after its goodbye ({@link IProcessor#replyClosing(CloseReason)}).
+	 * The goodbye runs on a thread of its own, and the connection is closed when it returns or
+	 * after {@link #GOODBYE_WAIT_MS}, whichever is first: closing the socket also ends a write a
+	 * client that doesn't read has blocked. The caller doesn't wait.
+	 *
+	 * @param proc the session
+	 * @param reason why it is being closed
+	 * @return the thread that closes the connection, to wait for when the caller must
+	 * @since 2.0.0
+	 */
+	protected Thread closeSession(final IProcessor proc, final CloseReason reason) {
+		final IConnection con = proc.getConnection();
+		final Thread goodbye = goodbyeThreads.newThread(new Runnable() {
+			@Override
+			public void run() {
+				try {
+					proc.replyClosing(reason);
+				} catch (Exception e) {
+					// the client is gone, or the protocol's goodbye failed: it is being closed anyway
+					logDebug("No goodbye ("+reason+") to "+(con == null ? proc : con.getSocket()), e);
+				}
+			}
+		});
+		goodbye.start();
+		Thread closer = goodbyeThreads.newThread(new Runnable() {
+			@Override
+			public void run() {
+				try {
+					goodbye.join(GOODBYE_WAIT_MS);
+				} catch (InterruptedException e) {
+					Thread.currentThread().interrupt();
+				}
+				IoUtils.closeQuietly(con);
+			}
+		});
+		closer.start();
+		return closer;
 	}
 
 	protected void doAdmin() {
@@ -1064,7 +1129,7 @@ public class Server extends AbstractCoreServer implements IServer {
 					logDebug("Closing idle connection "+sock);
 					it.remove();
 					releaseClientOf(entry.getValue());
-					IoUtils.closeQuietly(con);
+					closeSession(entry.getValue(), CloseReason.IDLE);
 				}
 			} catch (Throwable e) {
 				// One bad entry must not stop the idle check for everyone else.

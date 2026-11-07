@@ -82,6 +82,21 @@ public interface IProcessor extends IManagedThread, ILoginSession {
 	public void setServerRuntimeValue(String name, Object value) ;
 	public Object getServerRuntimeValue(String name);
 
+	/**
+	 * The server is about to close this session on its own: it has been idle too long, nobody
+	 * logged in in time, or the server is stopping. A protocol overrides this to say goodbye in
+	 * its own way (FTP and SMTP: 421). The default sends nothing, which is what POP3 does (RFC 1939).
+	 * <p>
+	 * It is called on a thread of its own, and the connection is closed after it returns or after
+	 * {@link us.bringardner.parley.net.server.Server#GOODBYE_WAIT_MS} ms, whichever is first, so a
+	 * client that doesn't read can't hold the server up.
+	 *
+	 * @param reason why the session is being closed
+	 * @since 2.0.0
+	 */
+	public default void replyClosing(us.bringardner.parley.net.server.CloseReason reason) throws java.io.IOException {
+	}
+
 	/** Asks the server ({@link IServer#checkPermission}) with {@link #getRequester()}. */
 	@Override
 	public default AuthorizationResult checkPermission(ParleyPermission needed, ProtectedResource resource) {
