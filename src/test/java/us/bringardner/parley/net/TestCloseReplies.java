@@ -49,8 +49,8 @@ public class TestCloseReplies {
 				}
 
 				@Override
-				protected void replyCommandFailed(String command) throws IOException {
-					reply(451, command + " failed: local error");
+				protected void replyCommandFailed(IRequestContext request) throws IOException {
+					reply(451, request.getFirstToken() + " failed: local error");
 				}
 
 				@Override

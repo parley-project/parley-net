@@ -187,6 +187,28 @@ read from properties (`PropertiesUserRegistry`).
 Unknown commands get a `500` reply, and so does a command that throws a `RuntimeException`;
 the session carries on. Only an I/O error ends a session.
 
+### The session loop
+
+`AbstractCommandProcessor.run()` is the one session loop for every protocol (FTP, POP3, SMTP and
+IMAP use it). It sends the greeting, reads and runs one request after another, ends the session
+after too many failed logins, and logs a failed TLS handshake as one line and a dropped connection
+as a debug line. When the session ends, however it ends, it lets the protocol clean up and closes
+the connection. A protocol overrides only what differs:
+
+| Method | Default | Override it for |
+|---|---|---|
+| `sendGreeting()` | the greeting set with `setPendingGreeting` | the protocol's greeting, and checks of the client first (SMTP) |
+| `readRequest()` | one text line, made a request by the request context factory | the protocol's framing (SMTP's byte lines, IMAP's literals); return null to end the session |
+| `runRequest(request)` | the command factory's command, checked against the state machine and its permission | a protocol's own dispatch |
+| `afterRequest()` | nothing | sending buffered replies (SMTP when the client has sent nothing more, IMAP always) |
+| `isSessionEnding()` | false | ending the session after a goodbye (SMTP's 421, IMAP's LOGOUT) without `stop()` |
+| `sessionEnded()` | nothing | releasing what the session holds (a mail transaction, a mailbox, a data connection) |
+| `replyCommandFailed(request)` | `500` | the protocol's reply to a command that failed unexpectedly (FTP `451`, IMAP tagged `NO [SERVERBUG]`) |
+
+A protocol that reads and writes the socket through its own streams wraps their I/O errors in
+`ConnectionLostException`, so a command's own error handling doesn't take a dropped connection for
+a failed operation.
+
 ## TLS
 
 **TLS from the first byte.** Give the server a key store and call `setSecure(true)`:

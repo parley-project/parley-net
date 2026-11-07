@@ -49,6 +49,8 @@ public abstract  class AbstractCommandProcessor extends AbstractProcessor implem
 	private IRequestContextFactory requestContextFactory = new DefaultRequestContextFactory();	
 	private ICommandFactory commandFactory ;
 	private boolean debug;
+	/** The commands this session used, kept only in debug mode */
+	private final Map<String,String> cmdUsed = new TreeMap<String, String>();
 	
 
 	public IRequestContextFactory getRequestContextFactory() {
@@ -78,122 +80,220 @@ public abstract  class AbstractCommandProcessor extends AbstractProcessor implem
 	}
 
 
+	/**
+	 * The session: the greeting, then one request after another until the client leaves, the
+	 * session ends or the server stops, then the protocol's clean-up and the connection closed.
+	 * This is the only command loop; a protocol changes what differs by overriding
+	 * {@link #sendGreeting()}, {@link #readRequest()}, {@link #runRequest(IRequestContext)},
+	 * {@link #afterRequest()}, {@link #isSessionEnding()} and {@link #sessionEnded()}, and the
+	 * replies (replyCommandFailed, replyTooManyLoginFailures, ...).
+	 * <p>
+	 * What every protocol gets the same way: a request that fails with a RuntimeException is logged
+	 * and answered ({@link #replyCommandFailed(IRequestContext)}), and the session goes on; after
+	 * too many failed logins the session ends after the protocol's goodbye; a failed TLS handshake
+	 * is one INFO line, a connection the client dropped is a debug line, any other I/O error is
+	 * logged as an error.
+	 */
 	public void run() {
-		IConnection con = getConnection();
 		running = true;
-		Map<String,String> cmdUsed = new TreeMap<String, String>();
-
-		// Greeting is sent here (not on the server accept thread) so a slow client 
-		// or TLS handshake only blocks this processor.
-		String greeting = takePendingGreeting();
-		if( greeting != null ) {
-			try {
-				reply(greeting);
-			} catch (IOException e) {
-				logDebug("Can't send greeting, closing connection", e);
+		try {
+			if( startSession() ) {
+				loop();
+			}
+		} finally {
+			if( !stopping ) {
 				stop();
 			}
+			running = false;
+			closeSession();
 		}
+	}
 
-		while(running &&  !stopping ) {
-			String line = null;
-			try {
-				line = con.readLine();
-			} catch(SocketTimeoutException e) {
-				//  Idle, keep waiting. Server.doAdmin closes connections that are idle too long.
-				continue;
-			} catch(us.bringardner.parley.io.LineTooLongException e) {
-				//  The rest of the line can't be trusted: the session ends, after telling the client
-				try {
-					replyLineTooLong(e.getMaxLineLength());
-				} catch(IOException ignore) {
-					// the client is gone
-				}
-				logDebug("Line longer than "+e.getMaxLineLength()+" bytes, closing");
-				break;
-			} catch(IOException e) {
-				if( isTlsHandshakeFailure(e) ) {
-					logTlsHandshakeFailure(e);
-				} else if( e instanceof java.net.SocketException ) {
-					//  the client went away (reset the connection): nothing wrong here
-					logDebug("Connection lost reading a request: "+e);
-				} else if( !isClosed(con) && !stopping ) {
-					logError("Error reading request",e);
-				}
-				break;
-			}
-
-			if( line == null ) {
-				logDebug("read null??? EOF reached? Connection must be closed by client or network stack error.");
-				break;
-			}
-
-			try {
-				processLine(line, cmdUsed);
-				if( isTooManyLoginFailures() ) {
-					// the protocol has answered the last failed login; say goodbye and close
-					logInfo("Too many failed logins, closing "+con.getSocket());
-					replyTooManyLoginFailures();
-					break;
-				}
-			} catch(IOException e) {
-				//  Can't talk to the client any more
-				if( isTlsHandshakeFailure(e) ) {
-					logTlsHandshakeFailure(e);
-				} else if( !isClosed(con) && !stopping ) {
-					logError("I/O error processing request",e);
-				}
-				break;
-			} catch(RuntimeException e) {
-				//  A failed command should not end the session
-				logError("Error processing command "+firstToken(line),e);
-				try {
-					replyCommandFailed(firstToken(line));
-				} catch(IOException ex) {
-					break;
-				}
-			} catch(Error e) {
-				logError("Fatal error in processor",e);
-				break;
-			}
-		}
-
-		if( !stopping ) {
-			stop();
-		}
-		running = false;
-		getServer().removeClient(this);
+	/** The greeting; false if the session can't go on. */
+	private boolean startSession() {
 		try {
-			con.close();
-		} catch (IOException e) {
-			logError("error on close", e);
+			sendGreeting();
+			return true;
+		} catch(IOException e) {
+			connectionFailed(e, "sending the greeting");
+		} catch(RuntimeException e) {
+			logError("Error starting the session", e);
+		} catch(Error e) {
+			logError("Fatal error starting the session", e);
 		}
+		return false;
+	}
 
+	private void loop() {
+		while( running && !stopping && !isSessionEnding() ) {
+			IRequestContext request;
+			try {
+				request = readRequest();
+			} catch(IOException e) {
+				connectionFailed(e, "reading a request");
+				return;
+			} catch(RuntimeException e) {
+				logError("Error reading a request", e);
+				return;
+			}
+			if( request == null ) {
+				// the client closed the connection, or the protocol ended the session while reading
+				return;
+			}
+			try {
+				try {
+					runRequest(request);
+				} catch(RuntimeException e) {
+					// a failed command should not end the session
+					logError("Error processing command "+commandName(request), e);
+					replyCommandFailed(request);
+				}
+				boolean tooMany = !isSessionEnding() && isTooManyLoginFailures();
+				if( tooMany ) {
+					// the protocol has answered the last failed login; say goodbye and close
+					logInfo("Too many failed logins, closing the connection from "+clientAddressText());
+					replyTooManyLoginFailures();
+				}
+				afterRequest();
+				if( tooMany ) {
+					return;
+				}
+			} catch(IOException e) {
+				connectionFailed(e, "processing a request");
+				return;
+			} catch(RuntimeException e) {
+				logError("Error after command "+commandName(request), e);
+				return;
+			} catch(Error e) {
+				logError("Fatal error in processor", e);
+				return;
+			}
+		}
+	}
+
+	/**
+	 * The connection can't be used any more. A failed TLS handshake is the client's doing (one INFO
+	 * line); so is a connection it dropped ({@link #isConnectionLost(IOException)}, a debug line);
+	 * anything else is an error, unless the session was already closing.
+	 */
+	private void connectionFailed(IOException e, String doing) {
+		if( isTlsHandshakeFailure(e) ) {
+			logTlsHandshakeFailure(e);
+		} else if( isConnectionLost(e) ) {
+			logDebug("Connection lost "+doing+": "+e);
+		} else if( !isClosed(getConnection()) && !stopping ) {
+			logError("I/O error "+doing, e);
+		}
+	}
+
+	/**
+	 * Let the protocol release what the session holds, close the connection, and take the session
+	 * off the server's list. The clean-up comes before the close, so a client that reconnects as
+	 * soon as it sees the close finds what the session held (a connection count, a maildrop) free.
+	 */
+	private void closeSession() {
+		try {
+			sessionEnded();
+		} catch(Throwable e) {
+			logError("Error ending the session", e);
+		}
+		IConnection con = getConnection();
+		if( con != null ) {
+			try {
+				con.close();
+			} catch (IOException e) {
+				logDebug("Error closing the connection: "+e);
+			}
+		}
+		try {
+			getServer().removeClient(this);
+		} catch(RuntimeException e) {
+			logError("Error removing the session from the server", e);
+		}
 		if( isDebug()) {
 			logInfo(""+cmdUsed.size()+" Server commands used "+cmdUsed.keySet());
 		}
 	}
 
 	/**
-	 * Parse and execute a single request line.
-	 * 
-	 * @throws IOException if the connection can no longer be used, this ends the session. 
-	 * Any RuntimeException is reported to the client as a 500 and the session continues.
+	 * Send the greeting. The default sends the greeting the server asked for
+	 * ({@link #setPendingGreeting(String)}), if any; a protocol overrides it for its own, and for
+	 * what it checks or sets up first (SMTP's checks of the client). To refuse the client, send the
+	 * refusal and make {@link #isSessionEnding()} true.
+	 *
+	 * @throws IOException if the connection can't be used (the session ends)
+	 * @since 2.0.0
 	 */
-	protected void processLine(String line, Map<String,String> cmdUsed) throws IOException {
+	protected void sendGreeting() throws IOException {
+		String greeting = takePendingGreeting();
+		if( greeting != null ) {
+			reply(greeting);
+		}
+	}
+
+	/**
+	 * Read the next request. The default reads one line and makes it a request with the
+	 * {@link #getRequestContextFactory() request context factory}; while the client sends nothing it
+	 * keeps waiting (the server closes sessions idle for too long). A line longer than the
+	 * connection's limit is answered with {@link #replyLineTooLong(int)} and ends the session.
+	 * <p>
+	 * A protocol overrides it for its own framing (SMTP's byte lines, IMAP's literals). It may answer
+	 * a request it can't parse itself and read on.
+	 *
+	 * @return the request, or null to end the session (the client closed the connection)
+	 * @throws IOException if the connection can't be used (the session ends)
+	 * @since 2.0.0
+	 */
+	protected IRequestContext readRequest() throws IOException {
+		IConnection con = getConnection();
+		while( running && !stopping ) {
+			String line;
+			try {
+				line = con.readLine();
+			} catch(SocketTimeoutException e) {
+				// idle: keep waiting. Server.doAdmin closes connections that are idle too long.
+				continue;
+			} catch(us.bringardner.parley.io.LineTooLongException e) {
+				// the rest of the line can't be trusted: the session ends, after telling the client
+				try {
+					replyLineTooLong(e.getMaxLineLength());
+				} catch(IOException ignore) {
+					// the client is gone
+				}
+				logDebug("Line longer than "+e.getMaxLineLength()+" bytes, closing");
+				return null;
+			}
+			if( line == null ) {
+				logDebug("End of input: the client closed the connection");
+				return null;
+			}
+			return getRequestContextFactory().getRequestContext(line);
+		}
+		return null;
+	}
+
+	/**
+	 * Run one request. The default finds the command with the {@link #getCommandFactory() command
+	 * factory} and runs it if the session's state ({@link #getStateMachine()}) and permissions allow
+	 * it; otherwise it gives the protocol's reply (replyInvalidState, replyNotAuthorized,
+	 * replyPermissionUnavailable).
+	 *
+	 * @throws IOException if the connection can no longer be used; this ends the session.
+	 * A RuntimeException is logged and answered with {@link #replyCommandFailed(IRequestContext)},
+	 * and the session goes on.
+	 * @since 2.0.0
+	 */
+	protected void runRequest(IRequestContext context) throws IOException {
 		// Only log the command name, the rest of the line may contain credentials (e.g. PASS)
 		if( isDebugEnabled()) {
-			logDebug("Received command="+firstToken(line));
+			// from the line, not getFirstToken(): that moves the request's token position
+			logDebug("Received command="+firstWord(context.getCommandLine()));
 		}
-		IRequestContext context = getRequestContextFactory().getRequestContext(line);
-
 		ICommand command = getCommandFactory().getCommand(context);
 		if( command == null ) {
-			reply(IGenericResponseCode.REPLY_500_GENERIC_ERROR, "Not a valid command ("+line+").");
+			reply(IGenericResponseCode.REPLY_500_GENERIC_ERROR, "Not a valid command ("+context.getCommandLine()+").");
 		} else {
-			if( isDebug()) {
-				cmdUsed.put(command.getName(), command.getName());
-			}
+			recordCommandUsed(command.getName());
 			StateMachine<?> states = getStateMachine();
 			if( states != null 
 					&& command instanceof IStatefulCommand 
@@ -212,6 +312,81 @@ public abstract  class AbstractCommandProcessor extends AbstractProcessor implem
 					replyNotAuthorized(command, reportMissingPermission(command.getName(), command.getPermission()));
 				}
 			}
+		}
+	}
+
+	/**
+	 * Called after each request, after the session's goodbye when it had too many failed logins.
+	 * The default does nothing (every reply is sent at once); a protocol that buffers its replies
+	 * sends them here (SMTP when the client has sent nothing more, for pipelining; IMAP always).
+	 *
+	 * @throws IOException if the connection can't be used (the session ends)
+	 * @since 2.0.0
+	 */
+	protected void afterRequest() throws IOException {
+	}
+
+	/**
+	 * @return true when the session is to end before the next request, without the server
+	 * stopping: the protocol has said goodbye (SMTP's 421, IMAP's LOGOUT) or refused the client.
+	 * The default is false; a protocol that ends a session with {@link #stop()} needs nothing more.
+	 * @since 2.0.0
+	 */
+	protected boolean isSessionEnding() {
+		return false;
+	}
+
+	/**
+	 * Called once when the session has ended, however it ended (the client left, an error, the
+	 * server stopping), before the connection is closed, so a client that reconnects at once finds
+	 * what the session held free: release it here (a connection count, a mail transaction, a
+	 * selected mailbox, a maildrop, a data connection). The default does nothing. An exception here
+	 * is logged; the connection is still closed.
+	 * @since 2.0.0
+	 */
+	protected void sessionEnded() {
+	}
+
+	/**
+	 * @return true if the I/O error means the client dropped the connection (a reset, a broken
+	 * pipe): nothing wrong on the server, so it is a debug line, not an error. The default:
+	 * a {@link java.net.SocketException} or a {@link ConnectionLostException}.
+	 * @since 2.0.0
+	 */
+	protected boolean isConnectionLost(IOException e) {
+		return e instanceof java.net.SocketException || e instanceof ConnectionLostException;
+	}
+
+	/**
+	 * In debug mode, note that the session used this command; the list is logged when the session
+	 * ends. The default {@link #runRequest(IRequestContext)} calls it; a protocol's own calls it too.
+	 * @since 2.0.0
+	 */
+	protected void recordCommandUsed(String name) {
+		if( isDebug() && name != null ) {
+			cmdUsed.put(name, name);
+		}
+	}
+
+	/** The first word of a line (the command), or null. */
+	private static String firstWord(String line) {
+		if( line == null ) {
+			return null;
+		}
+		String tmp = line.trim();
+		int idx = tmp.indexOf(' ');
+		return idx > 0 ? tmp.substring(0, idx) : tmp;
+	}
+
+	/**
+	 * The request's command name, for the log after it has run; never its arguments (they may hold a
+	 * password). getFirstToken() moves the request's token position, so not before it runs.
+	 */
+	private static String commandName(IRequestContext request) {
+		try {
+			return request.getFirstToken();
+		} catch(RuntimeException e) {
+			return null;
 		}
 	}
 
@@ -246,12 +421,14 @@ public abstract  class AbstractCommandProcessor extends AbstractProcessor implem
 	/**
 	 * A command failed with an unexpected error (a RuntimeException, already logged); the session
 	 * goes on. The default is a generic 500, as before; a protocol overrides it for its own reply
-	 * (FTP 451, POP3 -ERR [SYS/TEMP]): 500 means a syntax error to most protocols.
+	 * (FTP 451, POP3 -ERR [SYS/TEMP], SMTP 451 4.3.0, IMAP's tagged NO [SERVERBUG]): 500 means a
+	 * syntax error to most protocols.
 	 *
-	 * @param command the command's name, as the client sent it (null for an empty line)
+	 * @param request the request that failed; its first token is the command's name as the client
+	 * sent it (null for an empty line)
 	 * @since 2.0.0
 	 */
-	protected void replyCommandFailed(String command) throws IOException {
+	protected void replyCommandFailed(IRequestContext request) throws IOException {
 		reply(REPLY_500_GENERIC_ERROR, "An error occured processing the request.");
 	}
 
@@ -304,15 +481,6 @@ public abstract  class AbstractCommandProcessor extends AbstractProcessor implem
 	protected void replyInvalidState(ICommand command, StateMachine<?> states) throws IOException {
 		reply(IGenericResponseCode.REPLY_500_GENERIC_ERROR, 
 				command.getName()+" is not valid in the "+states.get()+" state");
-	}
-
-	private static String firstToken(String line) {
-		if( line == null ) {
-			return null;
-		}
-		String tmp = line.trim();
-		int idx = tmp.indexOf(' ');
-		return idx > 0 ? tmp.substring(0, idx) : tmp;
 	}
 
 	private static boolean isClosed(IConnection con) {
