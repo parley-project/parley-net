@@ -282,10 +282,21 @@ public class FileUserRegistryManagerTest {
 			assertEquals(0, registry.findMembers(sales).size());
 			assertEquals(java.util.List.of(bob), registry.findPrincipals("b", PrincipalManager.Kind.USER, 0), "listed, so it can be turned on");
 			assertEquals(null, bob.getAttribute("enabled"), "not an attribute");
+			assertEquals(java.util.Set.of(sales), registry.findDirectGroups(bob), "a management page still sees its groups");
+			assertEquals(0, registry.findDirectGroups(sales).size(), "groups don't nest in a user file");
+
+			// changed while it is off: written to the file, and the servers still see none of it
+			registry.removeMember(sales, bob);
+			assertEquals(0, registry.findDirectGroups(bob).size());
+			registry.addMember(sales, bob);
+			assertEquals(java.util.Set.of(sales), registry.findDirectGroups(bob));
+			assertEquals(0, registry.findMembers(sales).size());
+			assertEquals(0, registry.findGroups(bob).size());
 
 			registry.setEnabled(bob, true);
 			assertTrue(read(f).contains("bob , other , READ , groups=sales\n"), read(f));
 			assertEquals(AuthenticationResult.Status.AUTHENTICATED, login(registry, "bob", "other"));
+			assertEquals(java.util.Set.of(sales), registry.findGroups(bob));
 		}
 	}
 

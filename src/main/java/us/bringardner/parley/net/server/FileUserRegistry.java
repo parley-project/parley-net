@@ -75,7 +75,7 @@ import us.bringardner.parley.net.sasl.ScramMechanism;
  * file (not a class path resource). A change rewrites the file, keeping its other lines,
  * comments, permissions and group, and every registry reading the file sees it at its next
  * check. Only users can be members, since groups don't nest here. A turned-off user can't log in,
- * holds nothing and isn't found, except by {@link #findPrincipals}. Grants are managed through
+ * holds nothing and isn't found, except by {@link #findPrincipals} and {@link #findDirectGroups}. Grants are managed through
  * {@link PermissionManager}: this file keeps grants to users about the whole server (the
  * permissions field), not grants to groups or about one resource.
  * <p>
@@ -1368,6 +1368,31 @@ public class FileUserRegistry extends BaseObject implements PrincipalManager, Pe
 		int index = lineOf(lines, stored.principal.getName());
 		lines.set(index, withParameter(lines.get(index), 3, PARAMETER_ENABLED, enabled ? null : "false"));
 		writeChange(lines);
+	}
+
+	/**
+	 * The groups on the user's line, turned off or not. Groups don't nest in a user file, so a
+	 * group is in none.
+	 */
+	@Override
+	public Set<ParleyPrincipal> findDirectGroups(ParleyPrincipal principal) {
+		if( principal == null ) {
+			throw new IllegalArgumentException("A user or group is needed");
+		}
+		reloadIfChanged();
+		Users u = view();
+		Set<ParleyPrincipal> ret = new LinkedHashSet<ParleyPrincipal>();
+		FileUser user = u.byId.get(principal.getId());
+		if( user != null ) {
+			for (ParleyPrincipal g : user.groups) {
+				ret.add(u.current(g));
+			}
+			return ret;
+		}
+		if( u.groupsById.containsKey(principal.getId())) {
+			return ret;
+		}
+		throw new IllegalArgumentException("No user or group "+principal.getName()+" in this user file");
 	}
 
 	@Override
