@@ -22,7 +22,6 @@ import org.junit.jupiter.api.Test;
 import us.bringardner.parley.iam.AuthenticationResult;
 import us.bringardner.parley.iam.AuthorizationResult;
 import us.bringardner.parley.iam.Credential;
-import us.bringardner.parley.iam.EntityId;
 import us.bringardner.parley.iam.ParleyPermission;
 import us.bringardner.parley.iam.ParleyPrincipal;
 import us.bringardner.parley.iam.ProtectedResource;
@@ -30,9 +29,9 @@ import us.bringardner.parley.iam.Requester;
 import us.bringardner.parley.iam.StoredCredential;
 import us.bringardner.parley.iam.StoredCredentialType;
 import us.bringardner.parley.iam.UserRegistry;
-import us.bringardner.parley.iam.UserRegistryUnavailableException;
 import us.bringardner.parley.iam.credential.ProofCredential;
 import us.bringardner.parley.iam.permission.BasicParleyPermission;
+import us.bringardner.parley.iam.registry.UnavailableUserRegistry;
 import us.bringardner.parley.net.sasl.CramMd5Mechanism;
 import us.bringardner.parley.net.sasl.ISaslAuthenticator;
 import us.bringardner.parley.net.sasl.ISaslChannel;
@@ -688,38 +687,7 @@ public class TestSasl {
 
 	/** A registry whose store is down: every lookup throws. */
 	static UserRegistry down() {
-		return new UserRegistry() {
-			@Override
-			public boolean supports(Class<? extends Credential> kind, StoredCredentialType stored) {
-				return true;
-			}
-
-			@Override
-			public AuthenticationResult authenticate(Credential credential) {
-				return AuthenticationResult.unavailable("the database is down");
-			}
-
-			@Override
-			public StoredCredential findStoredCredential(String user, StoredCredentialType type) throws UserRegistryUnavailableException {
-				throw new UserRegistryUnavailableException("the database is down");
-			}
-
-			@Override
-			public ParleyPrincipal findPrincipal(String name) throws UserRegistryUnavailableException {
-				throw new UserRegistryUnavailableException("the database is down");
-			}
-
-			@Override
-			public ParleyPrincipal findPrincipal(EntityId id) throws UserRegistryUnavailableException {
-				throw new UserRegistryUnavailableException("the database is down");
-			}
-
-			@Override
-			public AuthorizationResult checkPermission(Requester requester, ParleyPermission needed,
-					ProtectedResource resource) {
-				return AuthorizationResult.unavailable("the database is down");
-			}
-		};
+		return new UnavailableUserRegistry("the database is down");
 	}
 
 	@Test
