@@ -1075,7 +1075,8 @@ public class Server extends AbstractCoreServer implements IServer {
 
 	/**
 	 * Close a session's connection after its goodbye ({@link IProcessor#replyClosing(CloseReason)}).
-	 * The goodbye runs on a thread of its own, and the connection is closed when it returns or
+	 * The goodbye takes the session's output lock ({@link IProcessor#getOutputLock()}), so it comes
+	 * after a reply the session is writing, never inside it. The goodbye runs on a thread of its own, and the connection is closed when it returns or
 	 * after {@link #GOODBYE_WAIT_MS}, whichever is first: closing the socket also ends a write a
 	 * client that doesn't read has blocked. The caller doesn't wait.
 	 *
@@ -1090,7 +1091,19 @@ public class Server extends AbstractCoreServer implements IServer {
 			@Override
 			public void run() {
 				try {
-					proc.replyClosing(reason);
+					// after any reply the session is writing, never inside it
+					java.util.concurrent.locks.ReentrantLock lock = proc.getOutputLock();
+					if( !lock.tryLock(GOODBYE_WAIT_MS, TimeUnit.MILLISECONDS) ) {
+						logDebug("No goodbye ("+reason+") to "+(con == null ? proc : con.getSocket())+": the session is still writing");
+						return;
+					}
+					try {
+						proc.replyClosing(reason);
+					} finally {
+						lock.unlock();
+					}
+				} catch (InterruptedException e) {
+					Thread.currentThread().interrupt();
 				} catch (Exception e) {
 					// the client is gone, or the protocol's goodbye failed: it is being closed anyway
 					logDebug("No goodbye ("+reason+") to "+(con == null ? proc : con.getSocket()), e);

@@ -97,6 +97,21 @@ public interface IProcessor extends IManagedThread, LoginSession {
 	public default void replyClosing(us.bringardner.parley.net.server.CloseReason reason) throws java.io.IOException {
 	}
 
+	/**
+	 * The lock every write to this session's client takes, so the replies of the session's own
+	 * thread, a goodbye ({@link #replyClosing}) and any other thread of the session (FTP's
+	 * transfer thread) never mix. There is one per session, never shared with another client.
+	 * Hold it from the first write of a reply to its flush; {@link
+	 * us.bringardner.parley.net.server.SessionOutputStream} does that for a protocol that collects
+	 * its replies and flushes once. It is a {@link java.util.concurrent.locks.ReentrantLock}, not
+	 * {@code synchronized}: a write can block on a slow client, and on Java 21-23 a virtual thread
+	 * blocked inside a monitor pins its carrier thread (BJL-52).
+	 *
+	 * @return this session's output lock; always the same one
+	 * @since 2.0.0
+	 */
+	public java.util.concurrent.locks.ReentrantLock getOutputLock();
+
 	/** Asks the server ({@link IServer#checkPermission}) with {@link #getRequester()}. */
 	@Override
 	public default AuthorizationResult checkPermission(ParleyPermission needed, ProtectedResource resource) {
