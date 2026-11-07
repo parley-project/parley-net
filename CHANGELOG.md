@@ -2,6 +2,11 @@
 
 ## parley-net 2.0.0 (unreleased)
 
+### Changed (2026-11-06: change sets)
+
+- **`FileUserRegistry.apply(PrincipalChanges)`** (parley-iam's `PrincipalManager`) makes every step of a change set
+  or none, in one rewrite of the user file; when a step fails the file isn't written.
+
 ### Changed (2026-11-06: grants managed through parley-iam)
 
 - **`FileUserRegistry` is a parley-iam `PermissionManager`**: `grant`, `revoke` and `findGrants` for a user's
