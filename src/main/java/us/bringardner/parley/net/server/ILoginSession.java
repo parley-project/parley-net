@@ -67,6 +67,22 @@ public interface ILoginSession {
 	 */
 	AuthenticationResult authenticate(Credential credential);
 
+	/**
+	 * Refuse a login that never reached the user registry, or that the registry was never asked to
+	 * prove right: text SASLprep can't prepare, an APOP that wasn't offered, a wrong SCRAM proof
+	 * (found by the mechanism itself). It is counted and answered late like a wrong password
+	 * ({@link LoginFailures}): a thread-per-connection session waits before returning, and a
+	 * non-blocking one holds the reply the protocol writes next. The session is left as it was.
+	 * <p>
+	 * A missing permission is not a refused login: the password was right, the session stays
+	 * logged in, and the protocol refuses the commands that need the permission.
+	 *
+	 * @param reason why, for the log
+	 * @return a REFUSED result, for the protocol's reply
+	 * @since 2.0.0
+	 */
+	AuthenticationResult refuseLogin(String reason);
+
 	/** Log the session out; nobody is logged in afterwards. */
 	void logout();
 

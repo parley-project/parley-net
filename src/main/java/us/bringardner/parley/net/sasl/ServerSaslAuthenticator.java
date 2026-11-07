@@ -1,5 +1,7 @@
 package us.bringardner.parley.net.sasl;
 
+import java.io.IOException;
+
 import us.bringardner.parley.iam.AuthenticationResult;
 import us.bringardner.parley.iam.Credential;
 import us.bringardner.parley.iam.PasswordCredential;
@@ -24,13 +26,23 @@ import us.bringardner.parley.net.server.ILoginSession;
  * goes through {@link ILoginSession#authenticate}, the session's one way to log in. Made with
  * a requester only, it checks and reports, and logs nobody in.
  * <p>
- * SCRAM doesn't check a password here: when {@link SaslServerDriver} reports success for it,
- * call {@link #verified(String)} with the outcome's user. That goes through the server's
- * {@link IBaseServer#authenticate} too, so the registry is told the outcome and the principal
- * is looked up in one place.
- * <p>
- * When the registry can't answer (its database is down, say), the login fails and
- * {@link #isUnavailable()} is true: answer with a temporary failure, not "wrong password".
+ * {@link #authenticate(ISaslMechanism, String, ISaslChannel)} runs a whole exchange and returns
+ * how the login ended; a protocol's AUTH command only supplies the lines and the replies:
+ * <pre>
+ *   AuthenticationResult result = authenticator.authenticate(mechanism, initialResponse, channel);
+ *   if (result == null) {
+ *       // no login: authenticator.getOutcome() says cancelled, malformed or closed
+ *   } else if (result.getStatus() == AuthenticationResult.Status.AUTHENTICATED) {
+ *       // logged in
+ *   } else if (result.getStatus() == AuthenticationResult.Status.UNAVAILABLE) {
+ *       // the user registry can't answer: a temporary failure, not "wrong password"
+ *   } else {
+ *       // refused, and already counted
+ *   }
+ * </pre>
+ * SCRAM doesn't check a password here: when the exchange succeeds, {@link #verified(String)}
+ * logs the user in through the server's {@link IBaseServer#authenticate} too, so the registry is
+ * told the outcome and the principal is looked up in one place.
  *
  * <PRE>
  * Copyright 1998-2026 <A href="http://bringardner.us/tony">Tony Bringardner</A>
@@ -56,6 +68,7 @@ public class ServerSaslAuthenticator implements ISaslAuthenticator {
 	private final Requester requester;
 	private volatile AuthenticationResult result;
 	private volatile boolean unavailable;
+	private volatile SaslOutcome outcome;
 	/** The user and SCRAM credentials of the last exchange, for {@link #verified(String)} */
 	private String scramUser;
 	private StoredCredentialType scramType;
@@ -99,6 +112,68 @@ public class ServerSaslAuthenticator implements ISaslAuthenticator {
 		}
 		result = ret;
 		return ret;
+	}
+
+	/**
+	 * Run a whole SASL exchange and return how the login ended:
+	 * <ul>
+	 * <li>a password mechanism (PLAIN, LOGIN) that succeeded: the result of its password check
+	 * ({@link #getResult()}); the session is logged in;</li>
+	 * <li>SCRAM that succeeded: {@link #verified(String)} with the outcome's user;</li>
+	 * <li>a failed exchange in which a login was checked (a wrong password): that result, already
+	 * counted by the session;</li>
+	 * <li>a failed exchange in which none was (a wrong SCRAM proof, an unknown SCRAM user):
+	 * UNAVAILABLE when the user registry couldn't answer, otherwise REFUSED, counted through
+	 * {@link ILoginSession#refuseLogin(String)} (made with a requester only, it isn't counted);</li>
+	 * <li>no login (the client cancelled, sent bad Base64 or went away): null, not counted;
+	 * {@link #getOutcome()} says which, for the protocol's reply.</li>
+	 * </ul>
+	 *
+	 * @param mechanism the mechanism the client asked for
+	 * @param initialResponse the Base64 text that followed the command, or null if none
+	 * @param channel the protocol's lines for challenges and responses
+	 * @return how the login ended, or null when the exchange ended without one
+	 * @throws IOException if the channel fails
+	 * @since 2.0.0
+	 */
+	public AuthenticationResult authenticate(ISaslMechanism mechanism, String initialResponse, ISaslChannel channel)
+			throws IOException {
+		SaslOutcome out = SaslServerDriver.authenticate(mechanism, this, initialResponse, channel);
+		outcome = out;
+		AuthenticationResult checked = getResult();
+		switch (out.getStatus()) {
+		case SUCCESS:
+			if( checked != null ) {
+				// a password mechanism logged the session in while checking the password
+				return checked;
+			}
+			// SCRAM proved the user without a password
+			return verified(out.getUser());
+		case FAILED:
+			if( checked != null ) {
+				return checked;
+			}
+			if( isUnavailable() ) {
+				return AuthenticationResult.unavailable("the user registry can't answer now");
+			}
+			String reason = mechanism.getName() + " failed: " + out.getReason();
+			if( session == null ) {
+				return AuthenticationResult.refused(reason);
+			}
+			return session.refuseLogin(reason);
+		default:
+			// CANCELLED, MALFORMED, CLOSED: no login was tried
+			return null;
+		}
+	}
+
+	/**
+	 * @return how the last {@link #authenticate(ISaslMechanism, String, ISaslChannel)} exchange
+	 * ended (success, failed, cancelled, malformed or closed), or null before one
+	 * @since 2.0.0
+	 */
+	public SaslOutcome getOutcome() {
+		return outcome;
 	}
 
 	@Override

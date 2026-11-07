@@ -84,7 +84,7 @@ public class TestSessions {
 		try (CommandClient client = ServerTestSupport.connect(svr)) {
 			ICommandResponse resp = client.executeCommand(ServerTestSupport.SECRET);
 			assertEquals(500, resp.getResponseCode());
-			assertTrue(resp.getResponseText().contains("not authorized"), resp.toString());
+			assertTrue(resp.getResponseText().contains(ServerTestSupport.SECRET + " refused: nobody is logged in"), resp.toString());
 			assertEcho(client);
 		}
 	}
@@ -95,7 +95,9 @@ public class TestSessions {
 			assertTrue(client.executeCommand(ServerTestSupport.LOGIN, "bob", "bobpw").isPositive());
 			ICommandResponse resp = client.executeCommand(ServerTestSupport.SECRET);
 			assertEquals(500, resp.getResponseCode());
-			assertTrue(resp.getResponseText().contains("not authorized"), resp.toString());
+			// names the permission, so the user and the administrators know what's missing
+			assertTrue(resp.getResponseText().contains(ServerTestSupport.SECRET + " refused: bob doesn't have the "), resp.toString());
+			assertTrue(resp.getResponseText().contains(" permission"), resp.toString());
 		}
 	}
 

@@ -64,6 +64,10 @@ public class NioLoginLimitsTest {
 				AuthenticationResult result = connection.authenticate(
 						new PasswordCredential(words[1], words[2].toCharArray(), connection.getRequester()));
 				connection.writeLine(result.getStatus() == AuthenticationResult.Status.AUTHENTICATED ? "200 ok" : "500 failed");
+			} else if( words[0].equals("REFUSE") ) {
+				// refused by the protocol itself, before the registry
+				connection.refuseLogin("refused before the registry");
+				connection.writeLine("500 refused");
 			} else {
 				connection.writeLine("200 "+String.join(" ", words));
 			}
@@ -163,6 +167,22 @@ public class NioLoginLimitsTest {
 			timedLogin(socket, in, "secret", "200 ok");
 			Thread.sleep(600);
 			assertEquals("200 ECHO logged in", send(socket, in, "ECHO logged in"), "stays open");
+		}
+	}
+
+	/** A login the protocol refuses itself (refuseLogin) is held and counted like a wrong password. */
+	@Test
+	public void aRefusalByTheProtocolIsHeldAndCounted() throws Exception {
+		try (Socket socket = start(0)) {
+			BufferedReader in = new BufferedReader(new InputStreamReader(socket.getInputStream(), StandardCharsets.UTF_8));
+			assertEquals("220 ready", in.readLine());
+			long start = System.currentTimeMillis();
+			assertEquals("500 refused", send(socket, in, "REFUSE"));
+			assertTrue(System.currentTimeMillis()-start >= DELAY-20, "held");
+			timedLogin(socket, in, "wrong", "500 failed");
+			assertEquals("500 refused", send(socket, in, "REFUSE"));
+			assertEquals("421 goodbye", in.readLine());
+			assertNull(in.readLine(), "closed after the third refusal");
 		}
 	}
 }

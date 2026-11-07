@@ -459,6 +459,19 @@ public class NioConnection extends BaseObject implements INioConnection {
 	}
 
 	/**
+	 * Counts a login refused before (or without) the registry's check, and holds the reply for
+	 * the failure delay, like a wrong password (rule 8).
+	 */
+	@Override
+	public final AuthenticationResult refuseLogin(String reason) {
+		AuthenticationResult result = AuthenticationResult.refused(reason);
+		if( loginFailures != null && loginFailures.record(result) ) {
+			holdAfterFailedLogin();
+		}
+		return result;
+	}
+
+	/**
 	 * @return true once this connection has had as many failed logins as the application
 	 * allows; it is closed after the reply to the last one
 	 * @since 2.0.0
