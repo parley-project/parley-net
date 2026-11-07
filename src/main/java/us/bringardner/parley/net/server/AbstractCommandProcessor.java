@@ -35,6 +35,8 @@ import java.util.Map;
 import java.util.TreeMap;
 
 import us.bringardner.parley.iam.AuthorizationResult;
+import us.bringardner.parley.iam.ParleyPermission;
+import us.bringardner.parley.iam.ParleyPrincipal;
 import us.bringardner.parley.net.IConnection;
 import us.bringardner.parley.net.IGenericResponseCode;
 
@@ -207,18 +209,49 @@ public abstract  class AbstractCommandProcessor extends AbstractProcessor implem
 					logError(command.getName()+" not checked: "+allowed.getReason());
 					replyPermissionUnavailable(command);
 				} else {
-					replyNotAuthorized(command);
+					replyNotAuthorized(command, reportMissingPermission(command.getName(), command.getPermission()));
 				}
 			}
 		}
 	}
 
 	/**
-	 * Answer a command the session isn't allowed to run. The default is a generic 500
-	 * "not authorized"; a protocol overrides it for its own reply.
+	 * A session lacks a permission a command needs. This isn't a failed login and isn't counted
+	 * as one: the command is refused, and the administrators are told (a warning in the log) who,
+	 * which permission, which command and from which address, so they can find the problem.
+	 * <p>
+	 * The dispatcher calls it for every command it refuses; a protocol that checks a permission
+	 * itself (its own command loop, or at a point such as SMTP's MAIL FROM) calls it too, so every
+	 * refusal reads and is logged the same way.
+	 *
+	 * @param command the command refused (or "login", when telling a user at login)
+	 * @param permission the permission it needs
+	 * @return the text for the reply, e.g. "tony doesn't have the read permission", or "nobody is
+	 * logged in"
+	 * @since 2.0.0
 	 */
-	protected void replyNotAuthorized(ICommand command) throws IOException {
-		reply(IGenericResponseCode.REPLY_500_GENERIC_ERROR, command.getName()+" not authorized");
+	public String reportMissingPermission(String command, ParleyPermission permission) {
+		ParleyPrincipal principal = getPrincipal();
+		String text;
+		if( principal == null ) {
+			text = "nobody is logged in";
+		} else {
+			text = principal.getName()+" doesn't have the "+permission.getName()+" permission";
+		}
+		java.net.InetAddress from = getRequester().getClientAddress();
+		logWarn(command+" refused: "+text+"; client "+(from == null ? "unknown" : from.getHostAddress()));
+		return text;
+	}
+
+	/**
+	 * Answer a command the session isn't allowed to run. The default is a generic 500
+	 * "COMMAND refused: reason"; a protocol overrides it for its own reply (code and form only).
+	 *
+	 * @param command the command refused
+	 * @param reason what's missing, from {@link #reportMissingPermission(String, ParleyPermission)}
+	 */
+	protected void replyNotAuthorized(ICommand command, String reason) throws IOException {
+		reply(IGenericResponseCode.REPLY_500_GENERIC_ERROR, command.getName()+" refused: "+reason);
 	}
 
 	/**

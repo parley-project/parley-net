@@ -117,7 +117,7 @@ public class TestLoginLimits {
 			}
 			ICommandResponse secret = client.executeCommand(ServerTestSupport.SECRET);
 			assertEquals(400, secret.getResponseCode(), secret.toString());
-			assertTrue(!secret.getResponseText().contains("not authorized"), secret.toString());
+			assertTrue(!secret.getResponseText().contains(" refused: "), secret.toString());
 			assertTrue(client.executeCommand(ServerTestSupport.ECHO, "still here").isPositive(), "not closed");
 		} finally {
 			ServerTestSupport.stop(svr);
@@ -131,7 +131,7 @@ public class TestLoginLimits {
 		try (CommandClient client = ServerTestSupport.connect(svr)) {
 			ICommandResponse secret = client.executeCommand(ServerTestSupport.SECRET);
 			assertEquals(500, secret.getResponseCode(), secret.toString());
-			assertTrue(secret.getResponseText().contains("not authorized"), secret.toString());
+			assertTrue(secret.getResponseText().contains(" refused: "), secret.toString());
 		} finally {
 			ServerTestSupport.stop(svr);
 		}
