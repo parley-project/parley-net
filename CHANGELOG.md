@@ -2,6 +2,13 @@
 
 ## parley-net 2.0.0 (unreleased)
 
+### Added (2026-11-07: line ends in LineFrameDecoder)
+
+- **`LineFrameDecoder(maxLineLength, lineEnd, skipEmptyLines, truncateLongLines)`**: a line ends in LF (a CR before it
+  dropped, the default as before), CR LF only, or any of CR, LF and CR LF (`LineFrameDecoder.LineEnd`); empty lines
+  can be skipped; and a line over the limit can be cut (never inside a UTF-8 character, the rest of the line
+  dropped) instead of throwing `LineTooLongException`. The existing constructors behave as before.
+
 ### Changed (2026-11-07: the login session)
 
 - **`ILoginSession` is renamed `LoginSession`** (the interfaces' naming rule: the plain role name, no `I` prefix).
