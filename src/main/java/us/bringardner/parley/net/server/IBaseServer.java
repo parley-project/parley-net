@@ -209,7 +209,8 @@ public interface IBaseServer extends IManagedThread {
 			if( !proven || !known ) {
 				result = AuthenticationResult.refused(type + " proof failed for " + user);
 			} else {
-				ParleyPrincipal principal = registry.findPrincipal(user);
+				// a group doesn't log in, even one a registry keeps a secret for
+				ParleyPrincipal principal = registry.findUser(user);
 				if( principal == null ) {
 					result = AuthenticationResult.refused("no user " + user);
 				} else {

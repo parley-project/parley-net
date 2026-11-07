@@ -153,6 +153,33 @@ public class TestServerAuthenticate {
 	}
 
 	@Test
+	public void aGroupCantLogInWithAProof() {
+		// a registry that keeps a secret for a group's name: the proof is right, but a group isn't a user
+		FileUserRegistry registry = new FileUserRegistry() {
+			{
+				load(Arrays.asList("plain, tanstaaf, READ, groups=staff"));
+			}
+
+			@Override
+			public StoredCredential findStoredCredential(String user, StoredCredentialType type) {
+				if( "staff".equals(user) ) {
+					return new StoredCredential(StoredCredentialType.PLAIN_TEXT, "tanstaaf");
+				}
+				return super.findStoredCredential(user, type);
+			}
+		};
+		Server svr = new Server(0, "GroupProof-" + System.nanoTime());
+		svr.setUserRegistry(registry);
+
+		CountingVerifier yes = new CountingVerifier(Boolean.TRUE);
+		AuthenticationResult result = svr.authenticate(proof("staff", StoredCredentialType.PLAIN_TEXT, yes));
+		assertEquals(AuthenticationResult.Status.REFUSED, result.getStatus());
+		assertEquals(1, yes.runs.get(), "the proof was checked");
+		assertEquals(AuthenticationResult.Status.AUTHENTICATED,
+				svr.authenticate(proof("plain", StoredCredentialType.PLAIN_TEXT, new CountingVerifier(Boolean.TRUE))).getStatus());
+	}
+
+	@Test
 	public void madeUpSecrets() {
 		Server svr = new Server(0, "MadeUp-" + System.nanoTime());
 		StoredCredential scram = svr.makeUpStoredCredential("x", StoredCredentialType.SCRAM_SHA_1);
