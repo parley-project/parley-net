@@ -466,6 +466,7 @@ public class TestSasl {
 		private final Server server;
 		private Requester requester = ServerTestSupport.requester();
 		int logins;
+		int refusals;
 
 		Session(Server server) {
 			this.server = server;
@@ -484,6 +485,12 @@ public class TestSasl {
 				logins++;
 			}
 			return result;
+		}
+
+		@Override
+		public AuthenticationResult refuseLogin(String reason) {
+			refusals++;
+			return AuthenticationResult.refused(reason);
 		}
 
 		@Override
@@ -739,5 +746,134 @@ public class TestSasl {
 		assertEquals(AuthenticationResult.Status.AUTHENTICATED, ServerTestSupport.login(svr, "bob", "pw").getStatus());
 		assertEquals(AuthenticationResult.Status.REFUSED, ServerTestSupport.login(svr, "bob", "x").getStatus());
 		assertEquals(AuthenticationResult.Status.REFUSED, ServerTestSupport.login(svr, "nobody", "pw").getStatus());
+	}
+
+	// ------------------------------------------------------------------ authenticate(): a whole exchange
+
+	/** A channel to an in-process client, as {@link #run} uses, for authenticate(). */
+	private static AuthenticationResult exchange(ServerSaslAuthenticator auth, ISaslMechanism server, ISaslClient client)
+			throws IOException {
+		Deque<String> toClient = new ArrayDeque<>();
+		ISaslChannel channel = new ISaslChannel() {
+			@Override
+			public void sendChallenge(String base64) {
+				toClient.add(base64);
+			}
+
+			@Override
+			public String readResponse() throws IOException {
+				String challenge = toClient.poll();
+				return SaslEncoding.encode(client.evaluateChallenge(SaslEncoding.decode(challenge)));
+			}
+		};
+		String ir = client.hasInitialResponse() ? SaslEncoding.encode(client.initialResponse()) : null;
+		return auth.authenticate(server, ir, channel);
+	}
+
+	/** A channel whose client answers every challenge with the same line (null: the connection closed). */
+	private static ISaslChannel answering(String line) {
+		return new ISaslChannel() {
+			@Override
+			public void sendChallenge(String base64) {
+			}
+
+			@Override
+			public String readResponse() {
+				return line;
+			}
+		};
+	}
+
+	@Test
+	public void authenticateReturnsTheLoginsResult() throws Exception {
+		Server svr = ServerTestSupport.create("SaslWhole", ServerTestSupport.standardCommands(), null);
+		svr.setUserRegistry(ServerTestSupport.registry("carol, " + FileUserRegistry.hashPasswordWithScram("s3cret".toCharArray()) + ", READ"));
+
+		// PLAIN: the password check's result; the session is logged in
+		Session session = new Session(svr);
+		ServerSaslAuthenticator auth = new ServerSaslAuthenticator(svr, session);
+		AuthenticationResult r = exchange(auth, new PlainMechanism(), PlainMechanism.client("carol", "s3cret"));
+		assertEquals(AuthenticationResult.Status.AUTHENTICATED, r.getStatus());
+		assertEquals(Status.SUCCESS, auth.getOutcome().getStatus());
+		assertEquals("carol", session.getPrincipal().getName());
+		assertEquals(0, session.refusals);
+
+		// a wrong password: the check's REFUSED (the session counted it); not refused a second time
+		session = new Session(svr);
+		auth = new ServerSaslAuthenticator(svr, session);
+		r = exchange(auth, new LoginMechanism(), LoginMechanism.client("carol", "wrong"));
+		assertEquals(AuthenticationResult.Status.REFUSED, r.getStatus());
+		assertEquals(Status.FAILED, auth.getOutcome().getStatus());
+		assertEquals(0, session.refusals);
+		assertNull(session.getPrincipal());
+
+		for (ScramMechanism m : new ScramMechanism[] {ScramMechanism.SHA_256, ScramMechanism.SHA_1}) {
+			// SCRAM: verified() is called, and logs the session in
+			session = new Session(svr);
+			auth = new ServerSaslAuthenticator(svr, session);
+			r = exchange(auth, m, m.client("carol", "s3cret"));
+			assertEquals(AuthenticationResult.Status.AUTHENTICATED, r.getStatus(), m.getName());
+			assertEquals(m.getStoredType().getName(), r.getMethod());
+			assertEquals("carol", session.getPrincipal().getName());
+			assertEquals(1, session.logins);
+
+			// a wrong proof, or a user who isn't there: no password was checked, so refuseLogin counts it
+			for (String[] who : new String[][] {{"carol", "wrong"}, {"nobody", "s3cret"}}) {
+				session = new Session(svr);
+				auth = new ServerSaslAuthenticator(svr, session);
+				r = exchange(auth, m, m.client(who[0], who[1]));
+				assertEquals(AuthenticationResult.Status.REFUSED, r.getStatus(), m.getName() + " " + who[0]);
+				assertEquals(Status.FAILED, auth.getOutcome().getStatus());
+				assertEquals(1, session.refusals, "counted once");
+				assertNull(session.getPrincipal());
+			}
+		}
+
+		// made with a requester only: refused, and nobody to count it
+		ServerSaslAuthenticator report = new ServerSaslAuthenticator(svr, ServerTestSupport.requester());
+		r = exchange(report, ScramMechanism.SHA_256, ScramMechanism.SHA_256.client("carol", "wrong"));
+		assertEquals(AuthenticationResult.Status.REFUSED, r.getStatus());
+	}
+
+	@Test
+	public void authenticateWithoutALoginReturnsNull() throws Exception {
+		Server svr = ServerTestSupport.create("SaslNoLogin", ServerTestSupport.standardCommands(), null);
+		svr.setUserRegistry(ServerTestSupport.registry("bob, pw, READ"));
+		Session session = new Session(svr);
+
+		ServerSaslAuthenticator auth = new ServerSaslAuthenticator(svr, session);
+		assertNull(auth.getOutcome(), "no exchange yet");
+		assertNull(auth.authenticate(new LoginMechanism(), null, answering("*")));
+		assertEquals(Status.CANCELLED, auth.getOutcome().getStatus());
+
+		auth = new ServerSaslAuthenticator(svr, session);
+		assertNull(auth.authenticate(new PlainMechanism(), "!!not base64", answering("*")));
+		assertEquals(Status.MALFORMED, auth.getOutcome().getStatus());
+
+		auth = new ServerSaslAuthenticator(svr, session);
+		assertNull(auth.authenticate(new LoginMechanism(), null, answering("!!")));
+		assertEquals(Status.MALFORMED, auth.getOutcome().getStatus());
+
+		auth = new ServerSaslAuthenticator(svr, session);
+		assertNull(auth.authenticate(new LoginMechanism(), null, answering(null)));
+		assertEquals(Status.CLOSED, auth.getOutcome().getStatus());
+
+		assertEquals(0, session.refusals, "none of these is counted");
+		assertEquals(0, session.logins);
+	}
+
+	@Test
+	public void authenticateWhenTheRegistryCantAnswer() throws Exception {
+		Server svr = ServerTestSupport.create("SaslWholeDown", ServerTestSupport.standardCommands(), null);
+		svr.getLogger().setLevel(us.bringardner.parley.core.ILogger.Level.NONE);
+		svr.setUserRegistry(down());
+		Session session = new Session(svr);
+		ServerSaslAuthenticator scram = new ServerSaslAuthenticator(svr, session);
+		AuthenticationResult r = exchange(scram, ScramMechanism.SHA_256, ScramMechanism.SHA_256.client("bob", "pw"));
+		assertEquals(AuthenticationResult.Status.UNAVAILABLE, r.getStatus());
+		ServerSaslAuthenticator plain = new ServerSaslAuthenticator(svr, session);
+		r = exchange(plain, new PlainMechanism(), PlainMechanism.client("bob", "pw"));
+		assertEquals(AuthenticationResult.Status.UNAVAILABLE, r.getStatus());
+		assertEquals(0, session.refusals, "an outage is not a refusal");
 	}
 }

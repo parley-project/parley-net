@@ -110,6 +110,17 @@ public abstract class AbstractProcessor extends BaseThread implements IProcessor
 		return result;
 	}
 
+	@Override
+	public final AuthenticationResult refuseLogin(String reason) {
+		AuthenticationResult result = AuthenticationResult.refused(reason);
+		LoginFailures failures = getLoginFailures();
+		if( failures != null && failures.record(result) ) {
+			// counted like a wrong password, and answered as late
+			waitMillis(failures.getDelayMillis());
+		}
+		return result;
+	}
+
 	/**
 	 * @return this connection's failed logins, or null when the server has no login limits
 	 * (it isn't an {@link AbstractCoreServer})
