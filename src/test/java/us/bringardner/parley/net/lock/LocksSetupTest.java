@@ -47,7 +47,7 @@ public class LocksSetupTest {
 	private static FileSource localRoot() throws Exception {
 		File d = Files.createTempDirectory("parley-net-setup").toFile();
 		d.deleteOnExit();
-		return FileSourceFactory.getDefaultFactory().createFileSource(d.getCanonicalPath());
+		return FileSourceFactory.fileProxyFactory.createFileSource(d.getCanonicalPath());
 	}
 
 	private static LockOptions opts(Sharing s) {

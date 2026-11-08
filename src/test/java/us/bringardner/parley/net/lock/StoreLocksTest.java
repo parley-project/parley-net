@@ -27,7 +27,7 @@ public class StoreLocksTest {
 	public void setUp() throws Exception {
 		File d = Files.createTempDirectory("store-locks").toFile();
 		d.deleteOnExit();
-		top = FileSourceFactory.getDefaultFactory().createFileSource(d.getCanonicalPath());
+		top = FileSourceFactory.fileProxyFactory.createFileSource(d.getCanonicalPath());
 	}
 
 	private FileSource dir(FileSource parent, String name) throws Exception {

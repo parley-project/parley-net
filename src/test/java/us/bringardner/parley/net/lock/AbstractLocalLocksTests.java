@@ -34,7 +34,7 @@ public abstract class AbstractLocalLocksTests extends AbstractLocksTests {
 	protected FileSource newRoot() throws Exception {
 		File d = Files.createTempDirectory("parley-net-locks").toFile();
 		d.deleteOnExit();
-		return FileSourceFactory.getDefaultFactory().createFileSource(d.getCanonicalPath());
+		return FileSourceFactory.fileProxyFactory.createFileSource(d.getCanonicalPath());
 	}
 
 	@AfterEach
