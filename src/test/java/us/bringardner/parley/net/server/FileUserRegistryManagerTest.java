@@ -7,12 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import java.io.File;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.attribute.PosixFileAttributeView;
-import java.nio.file.attribute.PosixFilePermission;
-import java.nio.file.attribute.PosixFilePermissions;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -21,6 +16,10 @@ import java.util.Set;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.function.Executable;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
+
+import us.bringardner.parley.files.FileSource;
 
 import us.bringardner.parley.iam.AuthenticationResult;
 import us.bringardner.parley.iam.EntityId;
@@ -34,12 +33,22 @@ import us.bringardner.parley.iam.StoredCredentialType;
 import us.bringardner.parley.iam.credential.PasswordCredential;
 import us.bringardner.parley.iam.credential.ProofCredential;
 import us.bringardner.parley.iam.permission.BasicParleyPermission;
+import us.bringardner.parley.net.TestFiles;
 
-/** A user file's users and groups found and managed through PrincipalManager. */
+/**
+ * A user file's users and groups found and managed through PrincipalManager, on the local file system
+ * and on a memory file system (To-Do 18.8 C6).
+ */
 public class FileUserRegistryManagerTest {
 
 	@TempDir
-	File dir;
+	Path tempDir;
+
+	private FileSource dir;
+
+	private void on(String type) throws Exception {
+		dir = TestFiles.folder(type, tempDir);
+	}
 
 	private static final String FILE = "# the users\n"
 			+ "alice , secret , READ|WRITE , maildrop=alice\n"
@@ -47,24 +56,24 @@ public class FileUserRegistryManagerTest {
 			+ "\n"
 			+ "carol , third , READ\n";
 
-	private File users(String text) throws Exception {
-		File f = new File(dir, "users.txt");
-		Files.write(f.toPath(), text.getBytes(StandardCharsets.UTF_8));
-		return f;
+	private FileSource users(String text) throws Exception {
+		return TestFiles.write(dir.getChild("users.txt"), text);
 	}
 
-	private static FileUserRegistry open(File f) throws Exception {
+	private static FileUserRegistry open(FileSource f) throws Exception {
 		FileUserRegistry registry = new FileUserRegistry();
 		registry.initialize(f);
 		return registry;
 	}
 
-	private static String read(File f) throws Exception {
-		return new String(Files.readAllBytes(f.toPath()), StandardCharsets.UTF_8);
+	private static String read(FileSource f) throws Exception {
+		return TestFiles.read(f);
 	}
 
-	@Test
-	public void groupsAreFoundBothWays() throws Exception {
+	@ParameterizedTest
+	@ValueSource(strings = { TestFiles.LOCAL, TestFiles.MEMORY })
+	public void groupsAreFoundBothWays(String type) throws Exception {
+		on(type);
 		try (FileUserRegistry registry = open(users(FILE + "dave , fourth , READ , groups=sales;support\n"))) {
 			ParleyPrincipal sales = registry.findPrincipal("sales");
 			ParleyPrincipal bob = registry.findPrincipal("bob");
@@ -78,9 +87,11 @@ public class FileUserRegistryManagerTest {
 		}
 	}
 
-	@Test
-	public void aNewGroupIsKeptOnItsOwnLine() throws Exception {
-		File f = users(FILE);
+	@ParameterizedTest
+	@ValueSource(strings = { TestFiles.LOCAL, TestFiles.MEMORY })
+	public void aNewGroupIsKeptOnItsOwnLine(String type) throws Exception {
+		on(type);
+		FileSource f = users(FILE);
 		try (FileUserRegistry registry = open(f)) {
 			PrincipalManager groups = registry;
 			ParleyPrincipal support = groups.createGroup("support@bringardner.us");
@@ -97,9 +108,11 @@ public class FileUserRegistryManagerTest {
 		}
 	}
 
-	@Test
-	public void addingAndRemovingMembersEditsTheUsersLines() throws Exception {
-		File f = users(FILE);
+	@ParameterizedTest
+	@ValueSource(strings = { TestFiles.LOCAL, TestFiles.MEMORY })
+	public void addingAndRemovingMembersEditsTheUsersLines(String type) throws Exception {
+		on(type);
+		FileSource f = users(FILE);
 		try (FileUserRegistry registry = open(f)) {
 			ParleyPrincipal alice = registry.findPrincipal("alice");
 			ParleyPrincipal bob = registry.findPrincipal("bob");
@@ -125,9 +138,11 @@ public class FileUserRegistryManagerTest {
 		}
 	}
 
-	@Test
-	public void deletingAGroupTakesItOffEveryLine() throws Exception {
-		File f = users(FILE + "dave , fourth , READ , groups=sales;support\ngroup: sales\n");
+	@ParameterizedTest
+	@ValueSource(strings = { TestFiles.LOCAL, TestFiles.MEMORY })
+	public void deletingAGroupTakesItOffEveryLine(String type) throws Exception {
+		on(type);
+		FileSource f = users(FILE + "dave , fourth , READ , groups=sales;support\ngroup: sales\n");
 		try (FileUserRegistry registry = open(f)) {
 			ParleyPrincipal sales = registry.findPrincipal("sales");
 			assertTrue(registry.deletePrincipal(sales));
@@ -139,8 +154,10 @@ public class FileUserRegistryManagerTest {
 		}
 	}
 
-	@Test
-	public void changesThatCantWorkAreRefused() throws Exception {
+	@ParameterizedTest
+	@ValueSource(strings = { TestFiles.LOCAL, TestFiles.MEMORY })
+	public void changesThatCantWorkAreRefused(String type) throws Exception {
+		on(type);
 		try (FileUserRegistry registry = open(users(FILE))) {
 			final PrincipalManager groups = registry;
 			final ParleyPrincipal sales = registry.findPrincipal("sales");
@@ -196,19 +213,26 @@ public class FileUserRegistryManagerTest {
 		}
 	}
 
-	@Test
-	public void theFileKeepsItsPermissions() throws Exception {
-		File f = users(FILE);
-		PosixFileAttributeView view = Files.getFileAttributeView(f.toPath(), PosixFileAttributeView.class);
-		if (view == null) {
-			return; // no POSIX permissions on this file system
+	@ParameterizedTest
+	@ValueSource(strings = { TestFiles.LOCAL, TestFiles.MEMORY })
+	public void theFileKeepsItsPermissions(String type) throws Exception {
+		on(type);
+		FileSource f = users(FILE);
+		if (TestFiles.LOCAL.equals(type) && us.bringardner.parley.files.FileSourceFactory.isWindows()) {
+			return; // no owner, group and other bits on Windows
 		}
-		Set<PosixFilePermission> ownerOnly = PosixFilePermissions.fromString("rw-------");
-		Files.setPosixFilePermissions(f.toPath(), ownerOnly);
+		// rw-------
+		assertTrue(f.setOwnerReadable(true) & f.setOwnerWritable(true) & f.setOwnerExecutable(false)
+				& f.setGroupReadable(false) & f.setGroupWritable(false) & f.setGroupExecutable(false)
+				& f.setOtherReadable(false) & f.setOtherWritable(false) & f.setOtherExecutable(false));
+		java.nio.file.attribute.GroupPrincipal group = f.getGroup();
 		try (FileUserRegistry registry = open(f)) {
 			registry.createGroup("support");
 		}
-		assertEquals(ownerOnly, Files.getPosixFilePermissions(f.toPath()));
+		FileSource now = dir.getChild("users.txt");
+		assertTrue(read(now).contains("group: support"), "it was changed");
+		assertEquals("rw-------", bits(now));
+		assertEquals(group, now.getGroup());
 		assertEquals(1, dir.list().length, "no temporary file is left: " + Arrays.toString(dir.list()));
 	}
 
@@ -223,14 +247,22 @@ public class FileUserRegistryManagerTest {
 		assertEquals("a , p , READ , , extra", FileUserRegistry.withGroups("a , p , READ , groups=x, extra", none));
 	}
 
+	private static String bits(FileSource f) throws Exception {
+		return (f.canOwnerRead() ? "r" : "-") + (f.canOwnerWrite() ? "w" : "-") + (f.canOwnerExecute() ? "x" : "-")
+				+ (f.canGroupRead() ? "r" : "-") + (f.canGroupWrite() ? "w" : "-") + (f.canGroupExecute() ? "x" : "-")
+				+ (f.canOtherRead() ? "r" : "-") + (f.canOtherWrite() ? "w" : "-") + (f.canOtherExecute() ? "x" : "-");
+	}
+
 	private static AuthenticationResult.Status login(FileUserRegistry registry, String user, String password) {
 		Requester r = Requester.connected(null, 110, true, Requester.Transport.TCP, "pop3");
 		return registry.authenticate(new PasswordCredential(user, password.toCharArray(), r)).getStatus();
 	}
 
-	@Test
-	public void usersAreManagedThroughTheFile() throws Exception {
-		File f = users(FILE);
+	@ParameterizedTest
+	@ValueSource(strings = { TestFiles.LOCAL, TestFiles.MEMORY })
+	public void usersAreManagedThroughTheFile(String type) throws Exception {
+		on(type);
+		FileSource f = users(FILE);
 		try (FileUserRegistry registry = open(f)) {
 			PrincipalManager manager = registry;
 			ParleyPrincipal jose = manager.createUser("jose@bringardner.us");
@@ -256,9 +288,11 @@ public class FileUserRegistryManagerTest {
 		}
 	}
 
-	@Test
-	public void aNewUserDoesntTurnScramOff() throws Exception {
-		File f = users("a , " + FileUserRegistry.hashPasswordWithScram("pw".toCharArray()) + " , READ\n");
+	@ParameterizedTest
+	@ValueSource(strings = { TestFiles.LOCAL, TestFiles.MEMORY })
+	public void aNewUserDoesntTurnScramOff(String type) throws Exception {
+		on(type);
+		FileSource f = users("a , " + FileUserRegistry.hashPasswordWithScram("pw".toCharArray()) + " , READ\n");
 		try (FileUserRegistry registry = open(f)) {
 			assertTrue(registry.supports(ProofCredential.class, StoredCredentialType.SCRAM_SHA_256));
 			registry.createUser("b");
@@ -266,9 +300,11 @@ public class FileUserRegistryManagerTest {
 		}
 	}
 
-	@Test
-	public void aTurnedOffUserIsAsIfGone() throws Exception {
-		File f = users(FILE);
+	@ParameterizedTest
+	@ValueSource(strings = { TestFiles.LOCAL, TestFiles.MEMORY })
+	public void aTurnedOffUserIsAsIfGone(String type) throws Exception {
+		on(type);
+		FileSource f = users(FILE);
 		try (FileUserRegistry registry = open(f)) {
 			ParleyPrincipal bob = registry.findPrincipal("bob");
 			ParleyPrincipal sales = registry.findPrincipal("sales");
@@ -300,9 +336,11 @@ public class FileUserRegistryManagerTest {
 		}
 	}
 
-	@Test
-	public void groupsHaveAttributesOnTheirOwnLine() throws Exception {
-		File f = users(FILE);
+	@ParameterizedTest
+	@ValueSource(strings = { TestFiles.LOCAL, TestFiles.MEMORY })
+	public void groupsHaveAttributesOnTheirOwnLine(String type) throws Exception {
+		on(type);
+		FileSource f = users(FILE);
 		try (FileUserRegistry registry = open(f)) {
 			ParleyPrincipal sales = registry.findPrincipal("sales");
 			ParleyPrincipal changed = registry.setAttribute(sales, "mailbox", "Sales");
@@ -318,8 +356,10 @@ public class FileUserRegistryManagerTest {
 		}
 	}
 
-	@Test
-	public void principalsAreListedByName() throws Exception {
+	@ParameterizedTest
+	@ValueSource(strings = { TestFiles.LOCAL, TestFiles.MEMORY })
+	public void principalsAreListedByName(String type) throws Exception {
+		on(type);
 		try (FileUserRegistry registry = open(users(FILE + "group: support\n"))) {
 			assertEquals(java.util.List.of("alice", "bob", "carol", "sales", "support"),
 					names(registry.findPrincipals(null, PrincipalManager.Kind.ANY, 0)));
@@ -329,8 +369,10 @@ public class FileUserRegistryManagerTest {
 		}
 	}
 
-	@Test
-	public void attributesTheFileCantHoldAreRefused() throws Exception {
+	@ParameterizedTest
+	@ValueSource(strings = { TestFiles.LOCAL, TestFiles.MEMORY })
+	public void attributesTheFileCantHoldAreRefused(String type) throws Exception {
+		on(type);
 		try (FileUserRegistry registry = open(users(FILE))) {
 			final ParleyPrincipal alice = registry.findPrincipal("alice");
 			for (final String[] bad : new String[][] { { "groups", "x" }, { "enabled", "false" }, { "a", "b,c" }, { "a", "b|c" },
@@ -357,9 +399,11 @@ public class FileUserRegistryManagerTest {
 		}
 	}
 
-	@Test
-	public void grantsToUsersAreKeptInThePermissionsField() throws Exception {
-		File f = users(FILE);
+	@ParameterizedTest
+	@ValueSource(strings = { TestFiles.LOCAL, TestFiles.MEMORY })
+	public void grantsToUsersAreKeptInThePermissionsField(String type) throws Exception {
+		on(type);
+		FileSource f = users(FILE);
 		try (FileUserRegistry registry = open(f)) {
 			final PermissionManager manager = registry;
 			final ParleyPrincipal carol = registry.findPrincipal("carol");
@@ -398,9 +442,11 @@ public class FileUserRegistryManagerTest {
 		}
 	}
 
-	@Test
-	public void aChangeSetIsOneChangeToTheFile() throws Exception {
-		File f = users(FILE);
+	@ParameterizedTest
+	@ValueSource(strings = { TestFiles.LOCAL, TestFiles.MEMORY })
+	public void aChangeSetIsOneChangeToTheFile(String type) throws Exception {
+		on(type);
+		FileSource f = users(FILE);
 		try (FileUserRegistry registry = open(f)) {
 			PrincipalChanges changes = new PrincipalChanges()
 					.createUser("jose@bringardner.us")
@@ -423,9 +469,11 @@ public class FileUserRegistryManagerTest {
 		}
 	}
 
-	@Test
-	public void aChangeSetThatFailsLeavesTheFileAsItWas() throws Exception {
-		File f = users(FILE);
+	@ParameterizedTest
+	@ValueSource(strings = { TestFiles.LOCAL, TestFiles.MEMORY })
+	public void aChangeSetThatFailsLeavesTheFileAsItWas(String type) throws Exception {
+		on(type);
+		FileSource f = users(FILE);
 		try (final FileUserRegistry registry = open(f)) {
 			final PrincipalChanges changes = new PrincipalChanges()
 					.createUser("jose@bringardner.us")

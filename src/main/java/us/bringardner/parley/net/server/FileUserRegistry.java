@@ -1,15 +1,10 @@
 package us.bringardner.parley.net.server;
 
-import java.io.File;
-import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
-import java.nio.file.attribute.PosixFileAttributeView;
-import java.nio.file.attribute.PosixFileAttributes;
+import java.nio.file.attribute.GroupPrincipal;
 import java.security.GeneralSecurityException;
 import java.security.MessageDigest;
 import java.security.SecureRandom;
@@ -32,6 +27,7 @@ import javax.crypto.SecretKeyFactory;
 import javax.crypto.spec.PBEKeySpec;
 
 import us.bringardner.parley.core.BaseObject;
+import us.bringardner.parley.files.FileSource;
 import us.bringardner.parley.iam.AuthenticationResult;
 import us.bringardner.parley.iam.AuthorizationResult;
 import us.bringardner.parley.iam.Credential;
@@ -130,7 +126,10 @@ import us.bringardner.parley.net.sasl.ScramMechanism;
  */
 public class FileUserRegistry extends BaseObject implements PrincipalManager, PermissionManager {
 
-	/** Setting (prefix.userFile) naming the user file, a path or a class path resource */
+	/**
+	 * Setting (prefix.userFile) naming the user file: a class path resource, else a path on the
+	 * default file system or a {@code filesource:} URL ({@link FileSource#of(String)})
+	 */
 	public static final String PROP_FILE_NAME = "userFile";
 
 	public static final String HASH_PREFIX = "{PBKDF2}";
@@ -445,13 +444,13 @@ public class FileUserRegistry extends BaseObject implements PrincipalManager, Pe
 	public static final String PROP_RELOAD_INTERVAL = "parley.net.acl.reloadInterval";
 	public static final long DEFAULT_RELOAD_INTERVAL_MS = 15_000;
 	/** The user file when it was read from the file system (not a class path resource), else null */
-	private volatile File sourceFile;
+	private volatile FileSource sourceFile;
 	private volatile long sourceModified;
 	private volatile long sourceLength;
 	private volatile long lastCheck;
 	private static volatile String dummyHash;
 
-	/** A registry with no users, until {@link #initialize(String)} or {@link #initialize(File)} reads some. */
+	/** A registry with no users, until {@link #initialize(String)} or {@link #initialize(FileSource)} reads some. */
 	public FileUserRegistry() {
 		super();
 	}
@@ -480,7 +479,7 @@ public class FileUserRegistry extends BaseObject implements PrincipalManager, Pe
 
 	/**
 	 * Read the users from the file named by the setting {@code serverName.userFile}: a class
-	 * path resource, or else a file.
+	 * path resource, or else a file ({@link FileSource#of(String)}).
 	 *
 	 * @param serverName the property prefix of the server
 	 * @throws IOException if there is no such setting or the file can't be read
@@ -503,7 +502,7 @@ public class FileUserRegistry extends BaseObject implements PrincipalManager, Pe
 			in = getClass().getResourceAsStream("/"+path);
 		}
 		if( in == null ) {
-			initialize(new File(path));
+			initialize(FileSource.of(path));
 			return;
 		}
 		load(in);
@@ -516,14 +515,14 @@ public class FileUserRegistry extends BaseObject implements PrincipalManager, Pe
 	 * @throws IOException if the file can't be read
 	 * @since 2.0.0
 	 */
-	public void initialize(File f) throws IOException {
-		File file = f.getCanonicalFile();
+	public void initialize(FileSource f) throws IOException {
+		FileSource file = f.getCanonicalFile();
 		if(!file.exists() || !file.canRead()) {
 			throw new IOException(f+" is not a valid file");
 		}
 		long modified = file.lastModified();
 		long length = file.length();
-		load(new FileInputStream(file));
+		load(file.getInputStream());
 		sourceModified = modified;
 		sourceLength = length;
 		lastCheck = System.currentTimeMillis();
@@ -531,7 +530,7 @@ public class FileUserRegistry extends BaseObject implements PrincipalManager, Pe
 	}
 
 	/** The file the users were read from, or null (a class path resource) */
-	public File getSourceFile() {
+	public FileSource getSourceFile() {
 		return sourceFile;
 	}
 
@@ -585,7 +584,7 @@ public class FileUserRegistry extends BaseObject implements PrincipalManager, Pe
 	 * @since 2.0.0
 	 */
 	public boolean reloadIfChanged() {
-		File f = sourceFile;
+		FileSource f = sourceFile;
 		if( f == null ) {
 			return false;
 		}
@@ -605,19 +604,26 @@ public class FileUserRegistry extends BaseObject implements PrincipalManager, Pe
 	 * @since 2.0.0
 	 */
 	public boolean reloadNow() {
-		File f = sourceFile;
+		FileSource f = sourceFile;
 		return f != null && reload(f, System.currentTimeMillis());
 	}
 
-	private synchronized boolean reload(File f, long now) {
+	private synchronized boolean reload(FileSource f, long now) {
 		lastCheck = now;
-		long modified = f.lastModified();
-		long length = f.length();
+		long modified;
+		long length;
+		try {
+			modified = f.lastModified();
+			length = f.length();
+		} catch (IOException | RuntimeException e) {
+			logError("Can't check the user file "+f+"; the users read before stay", e);
+			return false;
+		}
 		if( modified == sourceModified && length == sourceLength ) {
 			return false;
 		}
 		try {
-			try (FileInputStream in = new FileInputStream(f)) {
+			try (InputStream in = f.getInputStream()) {
 				load(in);
 			}
 			logInfo("Read the user file "+f+" again");
@@ -1640,13 +1646,16 @@ public class FileUserRegistry extends BaseObject implements PrincipalManager, Pe
 		if( editing == Thread.currentThread() ) {
 			return new ArrayList<String>(editLines);
 		}
-		File f = sourceFile;
+		FileSource f = sourceFile;
 		if( f == null ) {
 			throw new UnsupportedOperationException("The users weren't read from a file (a class path resource), so they can't be changed");
 		}
 		reload(f, System.currentTimeMillis());
 		try {
-			String text = new String(Files.readAllBytes(f.toPath()), StandardCharsets.UTF_8);
+			String text;
+			try (InputStream in = f.getInputStream()) {
+				text = new String(in.readAllBytes(), StandardCharsets.UTF_8);
+			}
 			List<String> lines = new ArrayList<String>();
 			for (String line : text.split("\r?\n", -1)) {
 				lines.add(line);
@@ -1676,32 +1685,42 @@ public class FileUserRegistry extends BaseObject implements PrincipalManager, Pe
 		writeFile(lines);
 	}
 
-	/** Write the lines to the user file, then read it again. */
+	/**
+	 * Write the lines to the user file, then read it again: a uniquely named temporary file next to
+	 * it, renamed over it (To-Do 18.11). The rename is one step where the file system's
+	 * getCapabilities().atomicReplace() says so; elsewhere the file is missing for a moment, and a
+	 * reload then fails, keeping the users read before.
+	 */
 	private void writeFile(List<String> lines) throws UserRegistryUnavailableException {
-		File f = sourceFile;
+		FileSource f = sourceFile;
 		StringBuilder text = new StringBuilder();
 		for (String line : lines) {
 			text.append(line).append('\n');
 		}
-		Path target = f.toPath().toAbsolutePath();
-		Path folder = target.getParent();
-		if( folder == null ) {
-			throw new UserRegistryUnavailableException("The user file "+f+" has no folder to write in");
-		}
 		try {
+			FileSource folder = f.getParentFile();
+			if( folder == null ) {
+				throw new UserRegistryUnavailableException("The user file "+f+" has no folder to write in");
+			}
 			// a name of its own, so another writer of the file (an application's own page) can't collide
-			Path tmp = Files.createTempFile(folder, "."+f.getName()+".", ".tmp");
+			FileSource tmp = folder.getFileSourceFactory().createTempFile("."+f.getName()+".", ".tmp", folder);
+			boolean moved = false;
 			try {
-				Files.write(tmp, text.toString().getBytes(StandardCharsets.UTF_8));
-				copyPermissions(target, tmp);
-				try {
-					Files.move(tmp, target, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
-				} catch (IOException e) {
-					Files.move(tmp, target, StandardCopyOption.REPLACE_EXISTING);
+				try (OutputStream out = tmp.getOutputStream()) {
+					out.write(text.toString().getBytes(StandardCharsets.UTF_8));
+				}
+				copyPermissions(f, tmp);
+				moved = tmp.renameTo(f, true);
+				if( !moved ) {
+					throw new IOException("Can't replace it with "+tmp);
 				}
 			} finally {
-				Files.deleteIfExists(tmp);
+				if( !moved && tmp.exists() ) {
+					tmp.delete();
+				}
 			}
+		} catch (UserRegistryUnavailableException e) {
+			throw e;
 		} catch (IOException e) {
 			throw new UserRegistryUnavailableException("Can't change the user file "+f, e);
 		}
@@ -1712,21 +1731,34 @@ public class FileUserRegistry extends BaseObject implements PrincipalManager, Pe
 		reload(f, System.currentTimeMillis());
 	}
 
-	/** Gives the new file the old one's permissions and group, where the file system has them. */
-	private void copyPermissions(Path original, Path copy) {
-		PosixFileAttributeView from = Files.getFileAttributeView(original, PosixFileAttributeView.class);
-		PosixFileAttributeView to = Files.getFileAttributeView(copy, PosixFileAttributeView.class);
-		if( from == null || to == null ) {
-			return; // Windows: the folder's permissions apply to the new file
+	/**
+	 * Gives the new file the old one's owner, group and other permissions and its group (FileSource's
+	 * bits, To-Do 18.11); where the file system can't, that is skipped with a log line.
+	 */
+	private void copyPermissions(FileSource original, FileSource copy) {
+		try {
+			boolean all = copy.setOwnerReadable(original.canOwnerRead())
+					& copy.setOwnerWritable(original.canOwnerWrite())
+					& copy.setOwnerExecutable(original.canOwnerExecute())
+					& copy.setGroupReadable(original.canGroupRead())
+					& copy.setGroupWritable(original.canGroupWrite())
+					& copy.setGroupExecutable(original.canGroupExecute())
+					& copy.setOtherReadable(original.canOtherRead())
+					& copy.setOtherWritable(original.canOtherWrite())
+					& copy.setOtherExecutable(original.canOtherExecute());
+			if( !all ) {
+				logError("Can't give the changed user file "+original+" all of its permissions again");
+			}
+		} catch (IOException | RuntimeException e) {
+			logError("Can't give the changed user file "+original+" its permissions again: "+e);
 		}
 		try {
-			PosixFileAttributes a = from.readAttributes();
-			to.setPermissions(a.permissions());
-			if( !a.group().equals(to.readAttributes().group())) {
-				to.setGroup(a.group());
+			GroupPrincipal group = original.getGroup();
+			if( group != null && !group.equals(copy.getGroup()) && !copy.setGroup(group) ) {
+				logError("Can't give the changed user file "+original+" its group "+group.getName()+" again");
 			}
-		} catch (IOException | SecurityException e) {
-			logError("Can't give the changed user file "+original+" its permissions or group again: "+e.getMessage());
+		} catch (IOException | RuntimeException e) {
+			logError("Can't give the changed user file "+original+" its group again: "+e);
 		}
 	}
 

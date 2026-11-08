@@ -6,23 +6,31 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import java.io.File;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
+import java.nio.file.Path;
 
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import us.bringardner.parley.files.FileSource;
 import us.bringardner.parley.iam.AuthenticationResult;
 import us.bringardner.parley.iam.Requester;
 import us.bringardner.parley.iam.credential.PasswordCredential;
+import us.bringardner.parley.net.TestFiles;
 
 /** A user file is read again when it changes, so users can change while a server runs. */
 public class FileUserRegistryReloadTest {
 
 	@TempDir
-	File dir;
+	Path tempDir;
+
+	private FileSource dir;
+
+	@BeforeEach
+	public void dir() throws Exception {
+		dir = TestFiles.local(tempDir);
+	}
 
 	@AfterEach
 	public void clear() {
@@ -30,14 +38,14 @@ public class FileUserRegistryReloadTest {
 		System.clearProperty(FileUserRegistry.PROP_RELOAD_INTERVAL);
 	}
 
-	private static void write(File f, String text, long modified) throws Exception {
-		Files.write(f.toPath(), text.getBytes(StandardCharsets.UTF_8));
+	private static void write(FileSource f, String text, long modified) throws Exception {
+		TestFiles.write(f, text);
 		f.setLastModified(modified);
 	}
 
 	@Test
 	public void changesAreReadAgain() throws Exception {
-		File f = new File(dir, "users.txt");
+		FileSource f = dir.getChild("users.txt");
 		long t = System.currentTimeMillis() - 60000;
 		write(f, "tony , secret , READ\n", t);
 		System.setProperty("reloadTest." + FileUserRegistry.PROP_FILE_NAME, f.getPath());
@@ -65,7 +73,7 @@ public class FileUserRegistryReloadTest {
 
 	@Test
 	public void anUnreadableFileKeepsTheUsers() throws Exception {
-		File f = new File(dir, "users.txt");
+		FileSource f = dir.getChild("users.txt");
 		long t = System.currentTimeMillis() - 60000;
 		write(f, "tony , secret , READ\n", t);
 		System.setProperty("reloadTest." + FileUserRegistry.PROP_FILE_NAME, f.getPath());
