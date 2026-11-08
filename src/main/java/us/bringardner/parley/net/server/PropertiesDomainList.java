@@ -24,10 +24,8 @@
  */
 package us.bringardner.parley.net.server;
 
-import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
-import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -38,12 +36,15 @@ import java.util.TreeSet;
 import java.util.function.Function;
 import java.util.regex.Pattern;
 
+import us.bringardner.parley.files.FileSource;
+
 /**
  * A domain list kept in a properties file, as one setting that lists the domains separated by
  * commas or spaces (by default the {@code domains} setting), so several servers reading the same
  * file (DNS and mail, say) share one list.
  * <p>
- * Settings: {@code file} (required), the properties file; {@code key} (default {@code domains}),
+ * Settings: {@code file} (required), the properties file: a path on the default file system or a
+ * {@code filesource:} URL ({@link FileSource#of(String)}); {@code key} (default {@code domains}),
  * the setting in it. A name that isn't a domain name is left out and reported by
  * {@link #getErrors()}. The file is read again when its time or size changes; if it can't be
  * read, the list read last is kept.
@@ -60,7 +61,7 @@ public class PropertiesDomainList implements IDomainList {
 
 	private static final Pattern DOMAIN = Pattern.compile("[a-z0-9_]([a-z0-9_-]*[a-z0-9_])?(\\.[a-z0-9_]([a-z0-9_-]*[a-z0-9_])?)+");
 
-	private File file;
+	private FileSource file;
 	private String key = DEFAULT_KEY;
 	private volatile Set<String> domains = Collections.emptySet();
 	private volatile List<String> errors = Collections.emptyList();
@@ -71,7 +72,7 @@ public class PropertiesDomainList implements IDomainList {
 	}
 
 	/** A list read from this file's setting (initialized: no need to call initialize). */
-	public PropertiesDomainList(File file, String key) throws DomainListUnavailableException {
+	public PropertiesDomainList(FileSource file, String key) throws DomainListUnavailableException {
 		this.file = file;
 		this.key = key == null ? DEFAULT_KEY : key;
 		reload();
@@ -84,13 +85,13 @@ public class PropertiesDomainList implements IDomainList {
 			throw new IOException(getClass().getSimpleName()+": the setting '"+FILE+"' (the properties file) is not set");
 		}
 		String k = setting.apply(KEY);
-		file = new File(f.trim());
+		file = FileSource.of(f.trim());
 		key = k == null || k.trim().isEmpty() ? DEFAULT_KEY : k.trim();
 		reload();
 	}
 
 	/** The properties file. */
-	public File getFile() {
+	public FileSource getFile() {
 		return file;
 	}
 
@@ -134,7 +135,7 @@ public class PropertiesDomainList implements IDomainList {
 		}
 		String s = stamp(file);
 		Properties p = new Properties();
-		try(InputStream in = Files.newInputStream(file.toPath())) {
+		try(InputStream in = file.getInputStream()) {
 			p.load(in);
 		} catch(IOException | RuntimeException e) {
 			throw new DomainListUnavailableException("Can't read the domain list from "+file+": "+e.getMessage(), e);
@@ -162,8 +163,13 @@ public class PropertiesDomainList implements IDomainList {
 		return changed;
 	}
 
-	private static String stamp(File f) {
-		return f != null && f.exists() ? f.lastModified()+"/"+f.length() : "-";
+	private static String stamp(FileSource f) {
+		try {
+			return f != null && f.exists() ? f.lastModified()+"/"+f.length() : "-";
+		} catch(IOException e) {
+			// can't tell: read it, so the reason is reported
+			return "? "+System.nanoTime();
+		}
 	}
 
 	private static String normalize(String n) {
