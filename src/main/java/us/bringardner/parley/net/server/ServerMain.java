@@ -1,14 +1,15 @@
 package us.bringardner.parley.net.server;
 
-import java.io.File;
 import java.io.IOException;
-import java.nio.file.Files;
+import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
 
+import us.bringardner.parley.files.FileSource;
+import us.bringardner.parley.files.FileSourceFactory;
 import us.bringardner.parley.iam.ParleyPrincipal;
 import us.bringardner.parley.plugin.PluginFolders;
 
@@ -31,6 +32,10 @@ import us.bringardner.parley.plugin.PluginFolders;
  * file named by the server's configFile property, else {@code CONF/parley-NAME.properties} when it
  * is there. CONF is the folder of Parley's administrator file: /etc/parley (Windows
  * %ProgramData%\Parley), or the folder of the file the PARLEY_CONF environment variable names. The
+ * settings file and CONF are on the default file system ({@link FileSource#of(String)}), or the
+ * configFile property is a {@code filesource:} URL; a {@code parley.files.defaultFactory} on the
+ * command line chooses the default file system before the settings file is found (a settings
+ * file can't choose the file system it is read from). The
  * command line wins over the JVM's own {@code -D} options (java -Dname=value ...), which win over
  * the file. The file is UTF-8 (a file that isn't valid UTF-8 is read as ISO-8859-1, as
  * Properties.load reads it). Values whose names say password or secret are never printed.</li>
@@ -245,14 +250,23 @@ public final class ServerMain {
 
 	/**
 	 * The folder of Parley's administrator file: /etc/parley (Windows %ProgramData%\Parley), or
-	 * the folder of the file the PARLEY_CONF environment variable names
+	 * the folder of the file the PARLEY_CONF environment variable names, on the default file system
+	 * ({@link FileSource#of(String)})
+	 *
+	 * @throws IOException if the default file system can't be connected
 	 */
-	public static File confDir() {
+	public static FileSource confDir() throws IOException {
 		return confDir(System.getenv(), System.getProperty("os.name", "").toLowerCase().startsWith("windows"));
 	}
 
-	static File confDir(Map<String, String> env, boolean windows) {
-		return PluginFolders.adminFile(env, windows).getAbsoluteFile().getParentFile();
+	static FileSource confDir(Map<String, String> env, boolean windows) throws IOException {
+		// (parley-core has no FileSource: its java.io.File is only a path here)
+		return FileSource.of(PluginFolders.adminFile(env, windows).getAbsoluteFile().getParent());
+	}
+
+	/** CONF, found only when it is needed (after the command line's parley.files.defaultFactory) */
+	interface ConfDir {
+		FileSource get() throws IOException;
 	}
 
 	/**
@@ -260,7 +274,7 @@ public final class ServerMain {
 	 * with no default settings file; see {@link #configure(String, String[], String, String)}.
 	 */
 	public static void configure(String serverName, String[] args, String configProperty) throws IOException {
-		configure(serverName, args, configProperty, null, null);
+		configure(serverName, args, configProperty, null, (ConfDir) null);
 	}
 
 	/**
@@ -272,10 +286,14 @@ public final class ServerMain {
 	 * @throws IOException if the file named can't be read
 	 */
 	public static void configure(String serverName, String[] args, String configProperty, String defaultFileName) throws IOException {
-		configure(serverName, args, configProperty, defaultFileName, confDir());
+		configure(serverName, args, configProperty, defaultFileName, (ConfDir) ServerMain::confDir);
 	}
 
-	static void configure(String serverName, String[] args, String configProperty, String defaultFileName, File confDir) throws IOException {
+	static void configure(String serverName, String[] args, String configProperty, String defaultFileName, FileSource confDir) throws IOException {
+		configure(serverName, args, configProperty, defaultFileName, (ConfDir) () -> confDir);
+	}
+
+	static void configure(String serverName, String[] args, String configProperty, String defaultFileName, ConfDir confDir) throws IOException {
 		System.out.println("\nStarting " + serverName + " with " + args.length + " args");
 		Properties commandLine = new Properties();
 		for (int idx = 0; idx < args.length; idx++) {
@@ -295,18 +313,32 @@ public final class ServerMain {
 		for (String name : commandLine.stringPropertyNames()) {
 			System.out.println("\t" + name + "=" + printable(name, commandLine.getProperty(name)));
 		}
+		// the default file system first, so the settings file is found on it (To-Do 18.13); the
+		// default is fixed when it is first used
+		String defaultFactory = commandLine.getProperty(FileSourceFactory.PROP_DEFAULT_FACTORY);
+		if (defaultFactory != null) {
+			System.setProperty(FileSourceFactory.PROP_DEFAULT_FACTORY, defaultFactory);
+		}
 		// the names set, by where, for the check of settings nothing reads (To-Do 2.16)
 		Map<String, java.util.Set<String>> sources = new java.util.LinkedHashMap<String, java.util.Set<String>>();
 		String file = commandLine.getProperty(configProperty, System.getProperty(configProperty));
+		FileSource settings = null;
 		if (file == null && defaultFileName != null && confDir != null) {
-			File f = new File(confDir, defaultFileName);
-			if (f.isFile()) {
+			FileSource dir = confDir.get();
+			FileSource f = dir == null ? null : dir.getChild(defaultFileName);
+			if (f != null && f.isFile()) {
+				settings = f;
 				file = f.getPath();
 				System.setProperty(configProperty, file);
 			}
 		}
 		if (file != null) {
-			Properties fromFile = load(new File(file));
+			if (settings == null) {
+				settings = FileSource.of(file);
+			}
+			// (a filesource: URL's query holds connection settings and secrets)
+			file = FileSourceFactory.safe(file.trim());
+			Properties fromFile = load(settings);
 			for (String name : fromFile.stringPropertyNames()) {
 				String jvm = System.getProperty(name);
 				if (jvm == null) {
@@ -331,8 +363,11 @@ public final class ServerMain {
 	}
 
 	/** A settings file: UTF-8, or ISO-8859-1 (what Properties.load reads) when it isn't valid UTF-8. */
-	static Properties load(File f) throws IOException {
-		byte[] bytes = Files.readAllBytes(f.toPath());
+	static Properties load(FileSource f) throws IOException {
+		byte[] bytes;
+		try (InputStream in = f.getInputStream()) {
+			bytes = in.readAllBytes();
+		}
 		String text;
 		try {
 			text = java.nio.charset.StandardCharsets.UTF_8.newDecoder()

@@ -11,7 +11,7 @@ import java.io.File;
 import java.io.InputStreamReader;
 import java.net.ServerSocket;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -19,12 +19,16 @@ import java.util.List;
 import java.util.concurrent.TimeUnit;
 
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import us.bringardner.parley.files.FileSource;
+import us.bringardner.parley.files.FileSourceFactory;
 import us.bringardner.parley.iam.AuthorizationResult;
 import us.bringardner.parley.iam.ParleyPermission;
 import us.bringardner.parley.iam.ProtectedResource;
+import us.bringardner.parley.net.TestFiles;
 import us.bringardner.parley.net.nio.NioServer;
 
 /**
@@ -35,7 +39,14 @@ import us.bringardner.parley.net.nio.NioServer;
 public class ServerMainTest {
 
 	@TempDir
-	File dir;
+	Path tempDir;
+
+	private FileSource dir;
+
+	@BeforeEach
+	public void dir() throws Exception {
+		dir = TestFiles.local(tempDir);
+	}
 
 	private final List<String> set = new ArrayList<String>();
 
@@ -50,10 +61,12 @@ public class ServerMainTest {
 		set.addAll(Arrays.asList(names));
 	}
 
-	private File file(String name, String... lines) throws Exception {
-		File f = new File(dir, name);
-		Files.write(f.toPath(), Arrays.asList(lines));
-		return f;
+	private FileSource file(String name, String... lines) throws Exception {
+		return file(dir, name, lines);
+	}
+
+	private static FileSource file(FileSource in, String name, String... lines) throws Exception {
+		return TestFiles.write(in.getChild(name), String.join("\n", lines) + "\n");
 	}
 
 	@Test
@@ -64,7 +77,7 @@ public class ServerMainTest {
 		assertEquals("2", System.getProperty("test.sm.port"), "the command line wins");
 		assertEquals("/from/file", System.getProperty("test.sm.root"));
 		assertEquals("x", System.getProperty("test.sm.other"), "name value");
-		assertEquals(new File(dir, "parley-test.properties").getPath(), System.getProperty("test.sm.configFile"));
+		assertEquals(dir.getChild("parley-test.properties").getPath(), System.getProperty("test.sm.configFile"));
 	}
 
 	@Test
@@ -81,11 +94,12 @@ public class ServerMainTest {
 
 	@Test
 	public void theFileIsUtf8OrLatin1() throws Exception {
-		File utf8 = new File(dir, "utf8.properties");
-		Files.write(utf8.toPath(), "greeting=Gr\u00fc\u00dfe \u2014 caf\u00e9\n".getBytes(StandardCharsets.UTF_8));
+		FileSource utf8 = TestFiles.write(dir.getChild("utf8.properties"), "greeting=Gr\u00fc\u00dfe \u2014 caf\u00e9\n");
 		assertEquals("Gr\u00fc\u00dfe \u2014 caf\u00e9", ServerMain.load(utf8).getProperty("greeting"));
-		File latin1 = new File(dir, "latin1.properties");
-		Files.write(latin1.toPath(), "greeting=caf\u00e9\n".getBytes(StandardCharsets.ISO_8859_1));
+		FileSource latin1 = dir.getChild("latin1.properties");
+		try (java.io.OutputStream out = latin1.getOutputStream()) {
+			out.write("greeting=caf\u00e9\n".getBytes(StandardCharsets.ISO_8859_1));
+		}
 		assertEquals("caf\u00e9", ServerMain.load(latin1).getProperty("greeting"), "not valid UTF-8: ISO-8859-1");
 	}
 
@@ -101,7 +115,7 @@ public class ServerMainTest {
 	public void aNamedFileInsteadOfTheDefault() throws Exception {
 		used("test.sm.configFile", "test.sm.port");
 		file("parley-test.properties", "test.sm.port=1");
-		File other = file("other.properties", "test.sm.port=3");
+		FileSource other = file("other.properties", "test.sm.port=3");
 		ServerMain.configure("Test", new String[] {"-Dtest.sm.configFile="+other.getPath()}, "test.sm.configFile", "parley-test.properties", dir);
 		assertEquals("3", System.getProperty("test.sm.port"));
 	}
@@ -118,14 +132,49 @@ public class ServerMainTest {
 	public void aMissingNamedFileIsAnError() {
 		used("test.sm.configFile");
 		assertThrows(java.io.IOException.class, () -> ServerMain.configure("Test",
-				new String[] {"-Dtest.sm.configFile="+new File(dir, "none").getPath()}, "test.sm.configFile", null, dir));
+				new String[] {"-Dtest.sm.configFile="+dir.getChild("none").getPath()}, "test.sm.configFile", null, dir));
 	}
 
 	@Test
-	public void confDir() {
-		assertEquals(new File("/etc/parley").getAbsoluteFile(), ServerMain.confDir(Collections.emptyMap(), false));
-		assertEquals(new File(dir, "x.properties").getAbsoluteFile().getParentFile(),
-				ServerMain.confDir(Collections.singletonMap("PARLEY_CONF", new File(dir, "x.properties").getPath()), false));
+	public void confDir() throws Exception {
+		assertEquals(new File("/etc/parley").getAbsolutePath(), ServerMain.confDir(Collections.emptyMap(), false).getAbsolutePath());
+		FileSource conf = ServerMain.confDir(Collections.singletonMap("PARLEY_CONF", dir.getChild("x.properties").getPath()), false);
+		assertEquals(dir.getAbsolutePath(), conf.getAbsolutePath());
+		assertEquals(FileSourceFactory.getDefaultFactory(), conf.getFileSourceFactory(), "on the default file system");
+	}
+
+	/** A settings file on another file system, by its filesource: URL (To-Do 18.13) */
+	@Test
+	public void aSettingsFileByUrl() throws Exception {
+		used("test.sm.configFile", "test.sm.port");
+		FileSource elsewhere = file(TestFiles.folder(TestFiles.MEMORY, tempDir), "parley-test.properties", "test.sm.port=4");
+		ServerMain.configure("Test", new String[] {"-Dtest.sm.configFile="+TestFiles.setting(elsewhere)}, "test.sm.configFile", null, dir);
+		assertEquals("4", System.getProperty("test.sm.port"));
+	}
+
+	/** The command line's parley.files.defaultFactory is a system property before the file is found (To-Do 18.13) */
+	@Test
+	public void theCommandLinesDefaultFactoryComesFirst() throws Exception {
+		String before = System.getProperty(FileSourceFactory.PROP_DEFAULT_FACTORY);
+		try {
+			used("test.sm.configFile", "test.sm.port");
+			file("parley-test.properties", "test.sm.port=5");
+			String id = FileSourceFactory.getDefaultFactory().getTypeId();
+			String[] seen = new String[1];
+			ServerMain.configure("Test", new String[] {"-D"+FileSourceFactory.PROP_DEFAULT_FACTORY+"="+id}, "test.sm.configFile",
+					"parley-test.properties", (ServerMain.ConfDir) () -> {
+						seen[0] = System.getProperty(FileSourceFactory.PROP_DEFAULT_FACTORY);
+						return dir;
+					});
+			assertEquals(id, seen[0], "set before CONF is found");
+			assertEquals("5", System.getProperty("test.sm.port"));
+		} finally {
+			if (before == null) {
+				System.clearProperty(FileSourceFactory.PROP_DEFAULT_FACTORY);
+			} else {
+				System.setProperty(FileSourceFactory.PROP_DEFAULT_FACTORY, before);
+			}
+		}
 	}
 
 	// ------------------------------------------------------------------ the process
@@ -201,7 +250,7 @@ public class ServerMainTest {
 				"-cp", System.getProperty("java.class.path"), ServerMainTest.class.getName()));
 		cmd.addAll(Arrays.asList(args));
 		ProcessBuilder pb = new ProcessBuilder(cmd).redirectErrorStream(true);
-		pb.environment().put("PARLEY_CONF", new File(dir, "parley.properties").getPath());
+		pb.environment().put("PARLEY_CONF", dir.getChild("parley.properties").getPath());
 		return pb.start();
 	}
 
