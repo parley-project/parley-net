@@ -85,7 +85,7 @@ public class TestDynamicTrustManager {
 
 	@BeforeAll
 	public static void setup() throws Exception {
-		trustFile = TestFiles.local(ServerTestSupport.useTestHome().toPath()).getChild(".parley").getChild("trusted-certificates");
+		trustFile = ServerTestSupport.useTestHome().getChild(".parley").getChild("trusted-certificates");
 		chain = new X509Certificate[] {ServerTestSupport.certificate()};
 	}
 

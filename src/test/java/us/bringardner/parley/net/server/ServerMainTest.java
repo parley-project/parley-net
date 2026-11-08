@@ -7,7 +7,6 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import java.io.BufferedReader;
-import java.io.File;
 import java.io.InputStreamReader;
 import java.net.ServerSocket;
 import java.nio.charset.StandardCharsets;
@@ -137,7 +136,7 @@ public class ServerMainTest {
 
 	@Test
 	public void confDir() throws Exception {
-		assertEquals(new File("/etc/parley").getAbsolutePath(), ServerMain.confDir(Collections.emptyMap(), false).getAbsolutePath());
+		assertEquals(FileSource.of("/etc/parley").getAbsolutePath(), ServerMain.confDir(Collections.emptyMap(), false).getAbsolutePath());
 		FileSource conf = ServerMain.confDir(Collections.singletonMap("PARLEY_CONF", dir.getChild("x.properties").getPath()), false);
 		assertEquals(dir.getAbsolutePath(), conf.getAbsolutePath());
 		assertEquals(FileSourceFactory.getDefaultFactory(), conf.getFileSourceFactory(), "on the default file system");
@@ -246,7 +245,7 @@ public class ServerMainTest {
 	}
 
 	private Process process(String... args) throws Exception {
-		List<String> cmd = new ArrayList<String>(Arrays.asList(new File(System.getProperty("java.home"), "bin/java").getPath(),
+		List<String> cmd = new ArrayList<String>(Arrays.asList(FileSource.of(System.getProperty("java.home"), "bin").getChild("java").getPath(),
 				"-cp", System.getProperty("java.class.path"), ServerMainTest.class.getName()));
 		cmd.addAll(Arrays.asList(args));
 		ProcessBuilder pb = new ProcessBuilder(cmd).redirectErrorStream(true);
@@ -256,7 +255,7 @@ public class ServerMainTest {
 
 	@Test
 	public void runsUntilStopped() throws Exception {
-		assumeTrue(File.separatorChar == '/', "SIGTERM: not on Windows");
+		assumeTrue(!FileSourceFactory.isWindows(), "SIGTERM: not on Windows");
 		// (the settings file in CONF, read without being named)
 		file("parley-test.properties", "test.sm.port1=0", "test.sm.port2=0");
 		Process p = process();
