@@ -25,13 +25,11 @@
 package us.bringardner.parley.net.client;
 
 import java.io.BufferedReader;
-import java.io.File;
-import java.io.FileReader;
 import java.io.IOException;
+import java.io.InputStreamReader;
 import java.io.PrintStream;
 import java.net.Socket;
-import java.nio.file.Files;
-import java.nio.file.StandardCopyOption;
+import java.nio.charset.StandardCharsets;
 import java.security.KeyStore;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -56,6 +54,7 @@ import javax.net.ssl.X509TrustManager;
 import us.bringardner.parley.core.BaseObject;
 import us.bringardner.parley.net.client.DynamicTrustManager.CertificateValidator.ManageAs;
 import us.bringardner.parley.core.util.Hex;
+import us.bringardner.parley.files.FileSource;
 
 /**
  * Server certificate trust for clients.
@@ -79,8 +78,9 @@ import us.bringardner.parley.core.util.Hex;
 public class DynamicTrustManager extends X509ExtendedTrustManager {
 
 	/**
-	 * System property: the file the approved server certificates are kept in (default
-	 * ~/.parley/trusted-certificates; ~ is the user's home).
+	 * System property: the file the approved server certificates are kept in, a path on the
+	 * default file system or a {@code filesource:} URL ({@link FileSource#of(String)}) (default
+	 * ~/.parley/trusted-certificates; ~ at the start of a path is the user's home).
 	 * @since 2.0.0
 	 */
 	public static final String PROPERTY_TRUST_FILE = "parley.net.client.trustFile";
@@ -94,7 +94,7 @@ public class DynamicTrustManager extends X509ExtendedTrustManager {
 	private static final Map<String,String> sessionTrusted = new ConcurrentHashMap<String, String>();
 
 	static {
-		try(BufferedReader in = new BufferedReader(new FileReader(getPersistenceFile()))) {
+		try(BufferedReader in = new BufferedReader(new InputStreamReader(getPersistenceFile().getInputStream(), StandardCharsets.UTF_8))) {
 			String line = in.readLine();
 			while( line != null ) {
 				if(!line.startsWith("#")) {
@@ -111,30 +111,41 @@ public class DynamicTrustManager extends X509ExtendedTrustManager {
 	}
 
 	private static synchronized void saveTrusted() throws IOException {
-		// Write a temp file and move it into place so a crash can't leave a truncated file.
-		File target = getPersistenceFile();
-		File dir = target.getAbsoluteFile().getParentFile();
-		if( dir != null && !dir.isDirectory() && !dir.mkdirs() && !dir.isDirectory() ) {
+		// Write a uniquely named temp file next to it and rename it into place, so a crash can't
+		// leave a truncated file (the rename is atomic where the file system's
+		// getCapabilities().atomicReplace() says so).
+		FileSource target = getPersistenceFile();
+		FileSource dir = target.getParentFile();
+		if( dir == null ) {
+			throw new IOException("No folder for the approved certificates: "+target);
+		}
+		if( !dir.isDirectory() && !dir.mkdirs() && !dir.isDirectory() ) {
 			throw new IOException("Can't make "+dir+" for the approved certificates");
 		}
-		File tmp = new File(dir, target.getName()+".tmp");
-		try(PrintStream out = new PrintStream(tmp)) {
-			for (Map.Entry<String, String> e : trusted.entrySet()) {
-				out.println(e.getKey()+"~"+e.getValue());
-			}
-			if( out.checkError()) {
-				throw new IOException("Error writing "+tmp);
-			}
-		}
+		FileSource tmp = dir.getFileSourceFactory().createTempFile("."+target.getName()+".", ".tmp", dir);
+		boolean moved = false;
 		try {
-			Files.move(tmp.toPath(), target.toPath(), StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
-		} catch (IOException e) {
-			Files.move(tmp.toPath(), target.toPath(), StandardCopyOption.REPLACE_EXISTING);
+			try(PrintStream out = new PrintStream(tmp.getOutputStream(), false, StandardCharsets.UTF_8.name())) {
+				for (Map.Entry<String, String> e : trusted.entrySet()) {
+					out.println(e.getKey()+"~"+e.getValue());
+				}
+				if( out.checkError()) {
+					throw new IOException("Error writing "+tmp);
+				}
+			}
+			moved = tmp.renameTo(target, true);
+			if( !moved ) {
+				throw new IOException("Can't replace "+target+" with "+tmp);
+			}
+		} finally {
+			if( !moved ) {
+				tmp.delete();
+			}
 		}
 	}
 
 	/** The file approvals are kept in: {@value #PROPERTY_TRUST_FILE}, else ~/.parley/trusted-certificates */
-	static File getPersistenceFile() {
+	static FileSource getPersistenceFile() throws IOException {
 		String home = System.getProperty("user.home");
 		String f = System.getProperty(PROPERTY_TRUST_FILE);
 		if( f != null && !f.trim().isEmpty() ) {
@@ -142,9 +153,9 @@ public class DynamicTrustManager extends X509ExtendedTrustManager {
 			if( f.equals("~") || f.startsWith("~/") || f.startsWith("~\\") ) {
 				f = home + f.substring(1);
 			}
-			return new File(f);
+			return FileSource.of(f);
 		}
-		return new File(new File(home, ".parley"), "trusted-certificates");
+		return FileSource.of(home, ".parley").getChild("trusted-certificates");
 	}
 
 	/**
