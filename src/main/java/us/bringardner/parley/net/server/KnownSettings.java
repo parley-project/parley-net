@@ -1,7 +1,6 @@
 package us.bringardner.parley.net.server;
 
 import java.io.BufferedReader;
-import java.io.File;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.Reader;
@@ -22,6 +21,8 @@ import java.util.TreeSet;
 import java.util.jar.JarEntry;
 import java.util.jar.JarFile;
 import java.util.regex.Pattern;
+
+import us.bringardner.parley.files.FileSource;
 
 /**
  * The setting names the Parley modules on the class path read, so a server can warn at start-up
@@ -374,9 +375,10 @@ public final class KnownSettings {
 	 * module's test that its list has every name its code spells out.
 	 */
 	public static List<String> settingConstants(Class<?> inModule) throws IOException {
-		File where;
+		// a local file (FileProxy, To-Do 18.12): the JVM loaded the classes from it
+		FileSource where;
 		try {
-			where = new File(inModule.getProtectionDomain().getCodeSource().getLocation().toURI());
+			where = FileSource.of(inModule.getProtectionDomain().getCodeSource().getLocation().toURI());
 		} catch (URISyntaxException e) {
 			throw new IOException(e);
 		}
@@ -384,7 +386,8 @@ public final class KnownSettings {
 		if (where.isDirectory()) {
 			collect(where, "", classes);
 		} else {
-			try (JarFile jar = new JarFile(where)) {
+			// (only JarFile needs the java.io.File)
+			try (JarFile jar = new JarFile(where.toFile())) {
 				for (Enumeration<JarEntry> e = jar.entries(); e.hasMoreElements();) {
 					String n = e.nextElement().getName();
 					if (n.endsWith(".class") && !n.contains("-")) {
@@ -427,12 +430,12 @@ public final class KnownSettings {
 		return Collections.unmodifiableList(new ArrayList<>(ret));
 	}
 
-	private static void collect(File dir, String pkg, List<String> into) {
-		File[] files = dir.listFiles();
+	private static void collect(FileSource dir, String pkg, List<String> into) throws IOException {
+		FileSource[] files = dir.listFiles();
 		if (files == null) {
 			return;
 		}
-		for (File f : files) {
+		for (FileSource f : files) {
 			if (f.isDirectory()) {
 				collect(f, pkg + f.getName() + ".", into);
 			} else if (f.getName().endsWith(".class") && !f.getName().contains("-")) {
