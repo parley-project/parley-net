@@ -20,12 +20,10 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 
 import us.bringardner.parley.files.FileSource;
-
 import us.bringardner.parley.iam.AuthenticationResult;
 import us.bringardner.parley.iam.EntityId;
 import us.bringardner.parley.iam.ParleyPermission;
 import us.bringardner.parley.iam.ParleyPrincipal;
-import us.bringardner.parley.iam.PermissionManager;
 import us.bringardner.parley.iam.PrincipalChanges;
 import us.bringardner.parley.iam.PrincipalManager;
 import us.bringardner.parley.iam.Requester;
@@ -93,8 +91,7 @@ public class FileUserRegistryManagerTest {
 		on(type);
 		FileSource f = users(FILE);
 		try (FileUserRegistry registry = open(f)) {
-			PrincipalManager groups = registry;
-			ParleyPrincipal support = groups.createGroup("support@bringardner.us");
+			ParleyPrincipal support = registry.createGroup("support@bringardner.us");
 			assertTrue(support.isGroup());
 			assertEquals(0, registry.findMembers(support).size());
 			assertTrue(read(f).endsWith("carol , third , READ\ngroup: support@bringardner.us\n"), read(f));
@@ -159,40 +156,39 @@ public class FileUserRegistryManagerTest {
 	public void changesThatCantWorkAreRefused(String type) throws Exception {
 		on(type);
 		try (FileUserRegistry registry = open(users(FILE))) {
-			final PrincipalManager groups = registry;
 			final ParleyPrincipal sales = registry.findPrincipal("sales");
 			final ParleyPrincipal alice = registry.findPrincipal("alice");
 			final ParleyPrincipal support = registry.createGroup("support");
 			assertRefused(new Executable() {
 				@Override
 				public void execute() throws Throwable {
-					groups.createGroup("alice");
+					registry.createGroup("alice");
 				}
 			}, "the name of a user");
 			assertRefused(new Executable() {
 				@Override
 				public void execute() throws Throwable {
-					groups.createGroup("sales");
+					registry.createGroup("sales");
 				}
 			}, "the name of a group");
 			for (final String bad : Arrays.asList("a,b", "a;b", "a|b", "a=b", " a", "#a", "")) {
 				assertRefused(new Executable() {
 					@Override
 					public void execute() throws Throwable {
-						groups.createGroup(bad);
+						registry.createGroup(bad);
 					}
 				}, "a name the file can't hold: '" + bad + "'");
 			}
 			assertRefused(new Executable() {
 				@Override
 				public void execute() throws Throwable {
-					groups.addMember(sales, support);
+					registry.addMember(sales, support);
 				}
 			}, "groups don't nest");
 			assertRefused(new Executable() {
 				@Override
 				public void execute() throws Throwable {
-					groups.addMember(alice, alice);
+					registry.addMember(alice, alice);
 				}
 			}, "a user isn't a group");
 		}
@@ -264,25 +260,24 @@ public class FileUserRegistryManagerTest {
 		on(type);
 		FileSource f = users(FILE);
 		try (FileUserRegistry registry = open(f)) {
-			PrincipalManager manager = registry;
-			ParleyPrincipal jose = manager.createUser("jose@bringardner.us");
+			ParleyPrincipal jose = registry.createUser("jose@bringardner.us");
 			assertTrue(read(f).endsWith("jose@bringardner.us , , \n"), read(f));
 			assertEquals(AuthenticationResult.Status.REFUSED, login(registry, "jose@bringardner.us", ""), "no password: no login, not even an empty one");
 
-			manager.setPassword(jose, "pw".toCharArray());
+			registry.setPassword(jose, "pw".toCharArray());
 			assertTrue(read(f).contains("jose@bringardner.us , {PBKDF2}"), read(f));
 			assertEquals(AuthenticationResult.Status.AUTHENTICATED, login(registry, "jose@bringardner.us", "pw"));
 
-			ParleyPrincipal changed = manager.setAttribute(jose, "maildrop", "jose");
+			ParleyPrincipal changed = registry.setAttribute(jose, "maildrop", "jose");
 			assertEquals("jose", changed.getAttribute("maildrop"));
 			assertEquals(jose, changed);
-			assertEquals(null, manager.setAttribute(jose, "maildrop", null).getAttribute("maildrop"));
+			assertEquals(null, registry.setAttribute(jose, "maildrop", null).getAttribute("maildrop"));
 
-			assertTrue(manager.removePassword(jose));
-			assertFalse(manager.removePassword(jose));
+			assertTrue(registry.removePassword(jose));
+			assertFalse(registry.removePassword(jose));
 			assertEquals(AuthenticationResult.Status.REFUSED, login(registry, "jose@bringardner.us", "pw"));
 
-			assertTrue(manager.deletePrincipal(jose));
+			assertTrue(registry.deletePrincipal(jose));
 			assertFalse(read(f).contains("jose"), read(f));
 			assertNull(registry.findPrincipal("jose@bringardner.us"));
 		}
@@ -405,38 +400,37 @@ public class FileUserRegistryManagerTest {
 		on(type);
 		FileSource f = users(FILE);
 		try (FileUserRegistry registry = open(f)) {
-			final PermissionManager manager = registry;
 			final ParleyPrincipal carol = registry.findPrincipal("carol");
 			final ParleyPrincipal sales = registry.findPrincipal("sales");
 			ParleyPermission write = new BasicParleyPermission("write", null);
-			assertTrue(manager.supportsGrant(false, false));
-			assertFalse(manager.supportsGrant(true, false), "no grants to groups here");
-			assertFalse(manager.supportsGrant(false, true), "no grants about one resource here");
+			assertTrue(registry.supportsGrant(false, false));
+			assertFalse(registry.supportsGrant(true, false), "no grants to groups here");
+			assertFalse(registry.supportsGrant(false, true), "no grants about one resource here");
 
-			assertTrue(manager.grant(carol, write));
-			assertFalse(manager.grant(carol, new BasicParleyPermission("WRITE", null)), "names ignore case");
+			assertTrue(registry.grant(carol, write));
+			assertFalse(registry.grant(carol, new BasicParleyPermission("WRITE", null)), "names ignore case");
 			assertTrue(read(f).contains("carol , third , READ|write\n"), read(f));
-			assertEquals(2, manager.findGrants(carol).size());
-			assertEquals(0, manager.findGrants(sales).size(), "a group holds none here");
+			assertEquals(2, registry.findGrants(carol).size());
+			assertEquals(0, registry.findGrants(sales).size(), "a group holds none here");
 
-			assertTrue(manager.revoke(carol, new BasicParleyPermission("Read", null)));
-			assertFalse(manager.revoke(carol, new BasicParleyPermission("read", null)));
+			assertTrue(registry.revoke(carol, new BasicParleyPermission("Read", null)));
+			assertFalse(registry.revoke(carol, new BasicParleyPermission("read", null)));
 			assertTrue(read(f).contains("carol , third , write\n"), read(f));
-			assertTrue(manager.revoke(carol, write));
+			assertTrue(registry.revoke(carol, write));
 			assertTrue(read(f).contains("carol , third , \n"), read(f));
-			assertEquals(0, manager.findGrants(carol).size());
+			assertEquals(0, registry.findGrants(carol).size());
 			assertNotNull(registry.findPrincipal("carol"), "a user with no permissions is still a user");
 
 			assertRefused(new Executable() {
 				@Override
 				public void execute() throws Throwable {
-					manager.grant(sales, new BasicParleyPermission("read", null));
+					registry.grant(sales, new BasicParleyPermission("read", null));
 				}
 			}, "a grant to a group");
 			assertRefused(new Executable() {
 				@Override
 				public void execute() throws Throwable {
-					manager.grant(carol, new BasicParleyPermission("read", EntityId.of("mailbox:carol/INBOX")));
+					registry.grant(carol, new BasicParleyPermission("read", EntityId.of("mailbox:carol/INBOX")));
 				}
 			}, "a grant about one resource");
 		}
