@@ -33,17 +33,18 @@ public class SaslMechanisms {
 	private final Map<String, ISaslMechanism> byName = new LinkedHashMap<>();
 
 	/**
-	 * @param host the host name for CRAM-MD5 challenges
-	 * @return SCRAM-SHA-256, SCRAM-SHA-1, CRAM-MD5, PLAIN, LOGIN and XOAUTH2, strongest first
+	 * The server mechanisms Parley offers. CRAM-MD5 and XOAUTH2 aren't among them (removed in
+	 * 2.0.0); their client sides are {@link CramMd5Mechanism} and {@link XOAuth2Mechanism}.
+	 *
+	 * @return SCRAM-SHA-256, SCRAM-SHA-1, PLAIN and LOGIN, strongest first
+	 * @since 2.0.0 (was standard(String host), the host being for CRAM-MD5's challenges)
 	 */
-	public static SaslMechanisms standard(String host) {
+	public static SaslMechanisms standard() {
 		SaslMechanisms ret = new SaslMechanisms();
 		ret.register(ScramMechanism.SHA_256);
 		ret.register(ScramMechanism.SHA_1);
-		ret.register(new CramMd5Mechanism(host));
 		ret.register(new PlainMechanism());
 		ret.register(new LoginMechanism());
-		ret.register(new XOAuth2Mechanism());
 		return ret;
 	}
 

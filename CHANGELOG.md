@@ -2,6 +2,18 @@
 
 ## parley-net 2.0.0 (unreleased)
 
+### Removed (2026-11-08: no CRAM-MD5 or XOAUTH2 server, design Q10)
+
+- **CRAM-MD5 and XOAUTH2 are client sides only.** `CramMd5Mechanism` and `XOAuth2Mechanism` no longer implement
+  `ISaslMechanism` (their constructors and `newServer` are gone); `client(...)` stays, so Parley's clients still log in
+  to servers that ask for them. No Parley server offered either: `ServerSaslAuthenticator` served neither. A CRAM-MD5
+  server needs every password in plain text, and an XOAUTH2 server needs something to issue and check tokens; it
+  can come back built on parley-iam's `TokenCredential`, checked by a registry.
+- **`ISaslAuthenticator.getPassword(user)` and `checkBearerToken(user, token)`** removed; only those two mechanisms
+  used them.
+- **`SaslMechanisms.standard()`** replaces `standard(String host)` (the host was for CRAM-MD5's challenges) and lists
+  SCRAM-SHA-256, SCRAM-SHA-1, PLAIN and LOGIN.
+
 ### Added (2026-11-07: line ends in LineFrameDecoder)
 
 - **`LineFrameDecoder(maxLineLength, lineEnd, skipEmptyLines, truncateLongLines)`**: a line ends in LF (a CR before it

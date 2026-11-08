@@ -91,7 +91,6 @@ public class TestSasl {
 		final String password;
 		final ScramCredentials sha1;
 		final ScramCredentials sha256;
-		final String token = "ya29.token";
 
 		Users(String user, String password) {
 			this.user = user;
@@ -107,58 +106,28 @@ public class TestSasl {
 		}
 
 		@Override
-		public String getPassword(String u) {
-			return user.equals(u) ? password : null;
-		}
-
-		@Override
 		public ScramCredentials getScramCredentials(String u, String hash) {
 			if (!user.equals(u)) {
 				return null;
 			}
 			return hash.equals("SHA-1") ? sha1 : sha256;
 		}
-
-		@Override
-		public boolean checkBearerToken(String u, String t) {
-			return user.equals(u) && token.equals(t);
-		}
 	}
 
 	// ------------------------------------------------------------------ vectors
 
+	/** CRAM-MD5's client side (the only side Parley has): RFC 2195's example answer. */
 	@Test
-	public void cramMd5MatchesRfc2195() throws Exception {
+	public void cramMd5ClientMatchesRfc2195() throws Exception {
 		String challenge = "<1896.697170952@postoffice.reston.mci.net>";
-		CramMd5Mechanism mech = new CramMd5Mechanism(() -> challenge);
-		ISaslAuthenticator auth = new ISaslAuthenticator() {
-			@Override
-			public boolean checkPassword(String user, String password) {
-				return false;
-			}
-
-			@Override
-			public String getPassword(String user) {
-				return "tim".equals(user) ? "tanstaaftanstaaf" : null;
-			}
-		};
-		ISaslServer server = mech.newServer(auth);
-		SaslStep first = server.start(null);
-		assertEquals(SaslStep.Kind.CHALLENGE, first.getKind());
-		assertEquals(challenge, str(first.getData()));
-
-		SaslStep done = server.respond(utf8("tim b913a602c7eda7a495b4e6e7334d3890"));
-		assertEquals(SaslStep.Kind.SUCCESS, done.getKind());
-		assertEquals("tim", done.getUser());
-
-		ISaslServer again = mech.newServer(auth);
-		again.start(null);
-		assertEquals(SaslStep.Kind.FAILURE, again.respond(utf8("tim b913a602c7eda7a495b4e6e7334d3891")).getKind());
-
-		// and the client side makes the same answer
 		ISaslClient client = CramMd5Mechanism.client("tim", "tanstaaftanstaaf");
+		assertEquals("CRAM-MD5", client.getName());
+		assertFalse(client.hasInitialResponse());
+		assertFalse(client.isComplete());
 		assertEquals("tim b913a602c7eda7a495b4e6e7334d3890", str(client.evaluateChallenge(utf8(challenge))));
 		assertTrue(client.isComplete());
+		assertThrows(SaslException.class, () -> client.evaluateChallenge(utf8(challenge)), "one challenge only");
+		assertThrows(SaslException.class, () -> CramMd5Mechanism.client("tim", "x").evaluateChallenge(new byte[0]));
 	}
 
 	@Test
@@ -293,18 +262,16 @@ public class TestSasl {
 		assertEquals(SaslStep.Kind.FAILURE, withUser.respond(utf8("nope")).getKind());
 	}
 
+	/** XOAUTH2's client side (the only side Parley has): the message, and acknowledging a server's JSON error. */
 	@Test
-	public void xoauth2ChecksTokenAndAcknowledgesFailure() throws Exception {
-		Users users = new Users("alice", "secret");
-		XOAuth2Mechanism mech = new XOAuth2Mechanism();
-		byte[] good = XOAuth2Mechanism.client("alice", users.token).initialResponse();
-		assertEquals("alice", mech.newServer(users).start(good).getUser());
-
-		ISaslServer bad = mech.newServer(users);
-		SaslStep err = bad.start(XOAuth2Mechanism.client("alice", "wrong").initialResponse());
-		assertEquals(SaslStep.Kind.CHALLENGE, err.getKind(), "the error is sent as JSON first");
-		assertTrue(str(err.getData()).contains("invalid_token"));
-		assertEquals(SaslStep.Kind.FAILURE, bad.respond(new byte[0]).getKind());
+	public void xoauth2ClientSendsTokenAndAcknowledgesError() throws Exception {
+		ISaslClient client = XOAuth2Mechanism.client("alice", "ya29.token");
+		assertEquals("XOAUTH2", client.getName());
+		assertTrue(client.hasInitialResponse());
+		assertEquals("user=alice\u0001auth=Bearer ya29.token\u0001\u0001", str(client.initialResponse()));
+		assertTrue(client.isComplete());
+		assertEquals(0, client.evaluateChallenge(utf8("{\"status\":\"invalid_token\"}")).length,
+				"an error challenge is acknowledged with an empty response");
 	}
 
 	@Test
@@ -406,10 +373,6 @@ public class TestSasl {
 		for (boolean ir : new boolean[] {true, false}) {
 			assertTrue(run(new PlainMechanism(), PlainMechanism.client(u, users.password), users, ir).isSuccess(), "PLAIN");
 			assertTrue(run(new LoginMechanism(), LoginMechanism.client(u, users.password), users, ir).isSuccess(), "LOGIN");
-			assertTrue(run(new CramMd5Mechanism("example.com"), CramMd5Mechanism.client(u, users.password), users, ir)
-					.isSuccess(), "CRAM-MD5");
-			assertTrue(run(new XOAuth2Mechanism(), XOAuth2Mechanism.client(u, users.token), users, ir).isSuccess(),
-					"XOAUTH2");
 			for (ScramMechanism m : new ScramMechanism[] {ScramMechanism.SHA_1, ScramMechanism.SHA_256}) {
 				SaslOutcome out = run(m, m.client(u, users.password), users, ir);
 				assertTrue(out.isSuccess(), m.getName() + " " + out);
@@ -423,8 +386,6 @@ public class TestSasl {
 		Users users = new Users("alice", "secret");
 		assertEquals(Status.FAILED, run(new PlainMechanism(), PlainMechanism.client("alice", "x"), users, true).getStatus());
 		assertEquals(Status.FAILED, run(new LoginMechanism(), LoginMechanism.client("alice", "x"), users, false).getStatus());
-		assertEquals(Status.FAILED, run(new CramMd5Mechanism("h"), CramMd5Mechanism.client("alice", "x"), users, false)
-				.getStatus());
 		assertEquals(Status.FAILED, run(ScramMechanism.SHA_256, ScramMechanism.SHA_256.client("alice", "x"), users, true)
 				.getStatus());
 	}
@@ -433,11 +394,12 @@ public class TestSasl {
 
 	@Test
 	public void registryOffersByStrengthAndSecurity() {
-		SaslMechanisms all = SaslMechanisms.standard("example.com");
+		SaslMechanisms all = SaslMechanisms.standard();
 		ISaslAuthenticator everything = new Users("a", "b");
-		assertEquals(Arrays.asList("SCRAM-SHA-256", "SCRAM-SHA-1", "CRAM-MD5"), all.offered(everything, false));
-		assertEquals(Arrays.asList("SCRAM-SHA-256", "SCRAM-SHA-1", "CRAM-MD5", "PLAIN", "LOGIN", "XOAUTH2"),
-				all.offered(everything, true));
+		assertEquals(Arrays.asList("SCRAM-SHA-256", "SCRAM-SHA-1"), all.offered(everything, false));
+		assertEquals(Arrays.asList("SCRAM-SHA-256", "SCRAM-SHA-1", "PLAIN", "LOGIN"), all.offered(everything, true));
+		assertNull(all.find("CRAM-MD5"), "no CRAM-MD5 server (2.0.0)");
+		assertNull(all.find("XOAUTH2"), "no XOAUTH2 server (2.0.0)");
 		assertNotNull(all.find("scram-sha-256"));
 		assertNull(all.find("GSSAPI"));
 		assertNull(all.find(null));
@@ -456,8 +418,8 @@ public class TestSasl {
 				return mechanism.equals("PLAIN");
 			}
 		};
-		assertEquals(Arrays.asList("PLAIN"), SaslMechanisms.standard("h").offered(passwordsOnly, true));
-		assertTrue(SaslMechanisms.standard("h").offered(passwordsOnly, false).isEmpty());
+		assertEquals(Arrays.asList("PLAIN"), SaslMechanisms.standard().offered(passwordsOnly, true));
+		assertTrue(SaslMechanisms.standard().offered(passwordsOnly, false).isEmpty());
 	}
 
 	/** A session for these tests: logs in only through its server, as a real one does. */
@@ -520,7 +482,7 @@ public class TestSasl {
 		Session session = new Session(svr);
 		ServerSaslAuthenticator auth = new ServerSaslAuthenticator(svr, session);
 		// a plain text password can serve SCRAM too
-		assertEquals(Arrays.asList("SCRAM-SHA-256", "SCRAM-SHA-1", "PLAIN", "LOGIN"), SaslMechanisms.standard("h").offered(auth, true));
+		assertEquals(Arrays.asList("SCRAM-SHA-256", "SCRAM-SHA-1", "PLAIN", "LOGIN"), SaslMechanisms.standard().offered(auth, true));
 
 		SaslOutcome out = run(new PlainMechanism(), PlainMechanism.client("bob", "bobpw"), auth, true);
 		assertTrue(out.isSuccess());
@@ -654,7 +616,7 @@ public class TestSasl {
 		assertNull(mixed.findStoredCredential("dave", StoredCredentialType.SCRAM_SHA_256));
 		Server svr = ServerTestSupport.create("SaslMixed", ServerTestSupport.standardCommands(), null);
 		svr.setUserRegistry(mixed);
-		assertEquals(Arrays.asList("PLAIN", "LOGIN"), SaslMechanisms.standard("h").offered(new ServerSaslAuthenticator(svr, ServerTestSupport.requester()), true));
+		assertEquals(Arrays.asList("PLAIN", "LOGIN"), SaslMechanisms.standard().offered(new ServerSaslAuthenticator(svr, ServerTestSupport.requester()), true));
 
 		// only SHA-256 kept: SHA-1 isn't offered
 		String sha256Only = hashed + ";" + FileUserRegistry.SCRAM_SHA_256_PREFIX + ScramMechanism.SHA_256.newCredentials("pw").format();

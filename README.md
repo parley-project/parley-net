@@ -366,8 +366,8 @@ lines (`toLines()`, for EHLO, CAPA and FEAT) or one line (`toInline()`, for IMAP
 reads the same shape with `CapabilitySet.parseReply(reply, skipFirst, skipLast)`,
 `parseLines` or `parseInline`, and tests it with `has("AUTH", "PLAIN")`.
 
-**SASL.** `SaslMechanisms.standard(host)` lists SCRAM-SHA-256, SCRAM-SHA-1, CRAM-MD5, PLAIN,
-LOGIN and XOAUTH2; `offered(authenticator, tls)` gives the names to advertise, leaving out the
+**SASL.** `SaslMechanisms.standard()` lists the server mechanisms: SCRAM-SHA-256, SCRAM-SHA-1, PLAIN
+and LOGIN; `offered(authenticator, tls)` gives the names to advertise, leaving out the
 ones that send the secret in the clear unless the connection uses TLS. An `AUTH` command
 finds the mechanism and runs it:
 
@@ -386,10 +386,14 @@ serves SCRAM-SHA-1 and SCRAM-SHA-256 when the registry keeps SCRAM credentials f
 with the session (`new ServerSaslAuthenticator(server, processor)`) and it logs the session in through
 the session's `authenticate`. SCRAM proves the user without a password check, so on success call
 `authenticator.verified(out.getUser())`, which goes through the same door. Make SCRAM credentials once with `ScramMechanism.SHA_256.newCredentials(password)` and
-keep `credentials.format()`; `ScramCredentials.parse` reads it back. CRAM-MD5 needs the clear
-password, which a hash can't give: implement `ISaslAuthenticator` over your own store for it.
+keep `credentials.format()`; `ScramCredentials.parse` reads it back.
 Clients use the mechanism's `client(...)` factory and `evaluateChallenge` for each server
-challenge.
+challenge, or `SaslClients.choose` to pick the strongest the server offers.
+
+CRAM-MD5 and XOAUTH2 are client sides only (`CramMd5Mechanism.client`, `XOAuth2Mechanism.client`), so
+Parley's clients can log in to servers that ask for them (XOAUTH2 at Gmail and Microsoft 365, for example).
+Parley's servers don't offer them: a CRAM-MD5 server needs every password in plain text, which the hashed
+registries avoid, and an XOAUTH2 server needs something to issue and check tokens.
 
 ## Non-blocking (NIO)
 

@@ -1,7 +1,7 @@
 package us.bringardner.parley.net.sasl;
 
 /**
- * A SASL mechanism (RFC 4422): PLAIN, LOGIN, CRAM-MD5, SCRAM-SHA-256, XOAUTH2 ...
+ * A SASL mechanism's server side (RFC 4422): PLAIN, LOGIN, SCRAM-SHA-1, SCRAM-SHA-256 ...
  * Implementations are stateless and shared; each exchange gets its own {@link ISaslServer}.
  * Client sides are created by factory methods on the mechanism classes, since each needs
  * different credentials.

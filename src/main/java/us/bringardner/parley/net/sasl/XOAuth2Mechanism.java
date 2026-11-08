@@ -3,12 +3,14 @@ package us.bringardner.parley.net.sasl;
 import java.nio.charset.StandardCharsets;
 
 /**
- * XOAUTH2, the bearer token login used by Gmail and Microsoft 365: one message,
- * "user=" user 0x01 "auth=Bearer " token 0x01 0x01. The token is checked by
- * {@link ISaslAuthenticator#checkBearerToken}. The token is a secret, so offer it only over TLS.
+ * XOAUTH2, the bearer token login used by Gmail and Microsoft 365, the client side only: one
+ * message, "user=" user 0x01 "auth=Bearer " token 0x01 0x01. The token is a secret, so send it
+ * only over TLS. A server that rejects the token answers with a JSON error challenge, and the
+ * client ends the exchange with an empty response.
  * <p>
- * A rejected token is answered with a JSON error challenge, and the exchange ends when the
- * client acknowledges it with an empty response.
+ * Parley's servers don't offer XOAUTH2 (removed in 2.0.0): a server needs something to issue
+ * and check tokens. It can come back built on parley-iam's TokenCredential, checked by a user
+ * registry, when Parley is connected to an identity provider.
  *
  * <PRE>
  * Copyright 1998-2026 <A href="http://bringardner.us/tony">Tony Bringardner</A>
@@ -27,57 +29,14 @@ import java.nio.charset.StandardCharsets;
  *   limitations under the License.
  *  </PRE>
  */
-public final class XOAuth2Mechanism implements ISaslMechanism {
+public final class XOAuth2Mechanism {
 
 	public static final String NAME = "XOAUTH2";
 
 	private static final char SOH = '\u0001';
 	private static final String BEARER = "auth=Bearer ";
 
-	@Override
-	public String getName() {
-		return NAME;
-	}
-
-	@Override
-	public boolean isPlaintext() {
-		return true;
-	}
-
-	@Override
-	public ISaslServer newServer(ISaslAuthenticator authenticator) {
-		return new ISaslServer() {
-			private boolean rejected;
-
-			@Override
-			public SaslStep start(byte[] initialResponse) {
-				return initialResponse == null ? SaslStep.emptyChallenge() : respond(initialResponse);
-			}
-
-			@Override
-			public SaslStep respond(byte[] response) {
-				if (rejected) {
-					return SaslStep.failure("Invalid token");
-				}
-				String user = null;
-				String token = null;
-				for (String field : new String(response, StandardCharsets.UTF_8).split(String.valueOf(SOH))) {
-					if (field.startsWith("user=")) {
-						user = field.substring(5);
-					} else if (field.startsWith(BEARER)) {
-						token = field.substring(BEARER.length());
-					}
-				}
-				if (user == null || user.isEmpty() || token == null || token.isEmpty()) {
-					return SaslStep.failure("Malformed XOAUTH2 response");
-				}
-				if (authenticator.checkBearerToken(user, token)) {
-					return SaslStep.success(user);
-				}
-				rejected = true;
-				return SaslStep.challenge("{\"status\":\"invalid_token\"}");
-			}
-		};
+	private XOAuth2Mechanism() {
 	}
 
 	/** @return the client side, which sends the user and token as the initial response */

@@ -2,19 +2,19 @@ package us.bringardner.parley.net.sasl;
 
 import java.nio.charset.StandardCharsets;
 import java.security.InvalidKeyException;
-import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
-import java.security.SecureRandom;
-import java.util.function.Supplier;
 
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 
 /**
- * CRAM-MD5 (RFC 2195): the server sends a one-time challenge and the client answers with
- * "user HMAC-MD5(password, challenge)", so the password isn't sent. The server needs the
- * clear text password ({@link ISaslAuthenticator#getPassword}), which a store of password
- * hashes doesn't have. MD5 is weak: prefer SCRAM.
+ * CRAM-MD5 (RFC 2195), the client side only: the server sends a one-time challenge and the
+ * client answers with "user HMAC-MD5(password, challenge)", so the password isn't sent. It is
+ * here so Parley's clients can log in to servers that ask for it ({@link SaslClients}).
+ * <p>
+ * Parley's servers don't offer CRAM-MD5 (removed in 2.0.0): checking an answer needs every
+ * user's password stored in plain text, which the hashed user registries avoid on purpose, and
+ * PLAIN over TLS or SCRAM serves every modern client. MD5 is weak: prefer SCRAM.
  *
  * <PRE>
  * Copyright 1998-2026 <A href="http://bringardner.us/tony">Tony Bringardner</A>
@@ -33,73 +33,11 @@ import javax.crypto.spec.SecretKeySpec;
  *   limitations under the License.
  *  </PRE>
  */
-public final class CramMd5Mechanism implements ISaslMechanism {
+public final class CramMd5Mechanism {
 
 	public static final String NAME = "CRAM-MD5";
 
-	private static final SecureRandom RANDOM = new SecureRandom();
-
-	private final Supplier<String> challenges;
-
-	/** @param host the host name placed in each challenge ("&lt;nonce.time@host&gt;") */
-	public CramMd5Mechanism(final String host) {
-		this(() -> "<" + Long.toHexString(RANDOM.nextLong() & Long.MAX_VALUE) + "." 
-				+ (System.currentTimeMillis() / 1000) + "@" + host + ">");
-	}
-
-	/**
-	 * @param challenges supplies the challenge of each exchange, like "&lt;1896.697170952@host&gt;".
-	 *                   It must not repeat: a repeated challenge lets a recorded answer be replayed.
-	 */
-	public CramMd5Mechanism(Supplier<String> challenges) {
-		this.challenges = challenges;
-	}
-
-	@Override
-	public String getName() {
-		return NAME;
-	}
-
-	@Override
-	public boolean isPlaintext() {
-		return false;
-	}
-
-	@Override
-	public ISaslServer newServer(final ISaslAuthenticator authenticator) {
-		return new ISaslServer() {
-			private String challenge;
-
-			@Override
-			public SaslStep start(byte[] initialResponse) {
-				if (initialResponse != null) {
-					return SaslStep.failure("CRAM-MD5 takes no initial response");
-				}
-				challenge = challenges.get();
-				return SaslStep.challenge(challenge);
-			}
-
-			@Override
-			public SaslStep respond(byte[] response) {
-				String text = new String(response, StandardCharsets.UTF_8);
-				int sp = text.lastIndexOf(' ');
-				if (challenge == null || sp <= 0) {
-					return SaslStep.failure("Malformed CRAM-MD5 response");
-				}
-				String user = text.substring(0, sp);
-				String digest = text.substring(sp + 1);
-				String password = authenticator.getPassword(user);
-				if (password == null) {
-					return SaslStep.failure("Unknown user");
-				}
-				byte[] expected = hex(hmacMd5(password, challenge)).getBytes(StandardCharsets.US_ASCII);
-				byte[] given = digest.toLowerCase(java.util.Locale.ROOT).getBytes(StandardCharsets.US_ASCII);
-				if (MessageDigest.isEqual(expected, given)) {
-					return SaslStep.success(user);
-				}
-				return SaslStep.failure("Bad credentials");
-			}
-		};
+	private CramMd5Mechanism() {
 	}
 
 	/** @return the client side, which answers the server's challenge */

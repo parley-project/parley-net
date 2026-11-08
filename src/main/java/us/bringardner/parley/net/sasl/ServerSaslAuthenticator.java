@@ -19,8 +19,7 @@ import us.bringardner.parley.net.server.LoginSession;
  * Checks SASL logins with the server's own user registry, so SASL logins and the protocol's
  * USER / PASS use the same users. It serves PLAIN and LOGIN, and SCRAM-SHA-1 and SCRAM-SHA-256
  * when the registry keeps SCRAM credentials for every user
- * ({@link UserRegistry#supports(Class, StoredCredentialType)}). Hashed passwords can't answer
- * CRAM-MD5, so it isn't served.
+ * ({@link UserRegistry#supports(Class, StoredCredentialType)}).
  * <p>
  * Create one per authentication. Made with the session, it logs the session in: every check
  * goes through {@link LoginSession#authenticate}, the session's one way to log in. Made with
