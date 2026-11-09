@@ -2,6 +2,12 @@
 
 ## parley-net 2.0.0 (unreleased)
 
+### Changed (2026-11-08: logging through ILogger, To-Do 19.1 and 19.2)
+
+- **Logging goes through parley-core's ILogger**: `LeaseLockService`, `RegionLockService` and `StoreLocks`
+  are `BaseObject`s now, and `AtomicWrite` logs through `BaseObject.findLogger`. None uses
+  java.util.logging directly any more.
+
 ### Changed (2026-11-08: FileSource in place of java.io.File, To-Do 18)
 
 - **parley-net's files are FileSources** (needs parley-files' `FileSource.of`): `FileUserRegistry.initialize(FileSource)`

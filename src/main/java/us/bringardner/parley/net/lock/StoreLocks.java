@@ -5,8 +5,8 @@ import java.lang.management.ManagementFactory;
 import java.net.InetAddress;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.logging.Logger;
 
+import us.bringardner.parley.core.BaseObject;
 import us.bringardner.parley.files.FileSource;
 
 /**
@@ -29,9 +29,8 @@ import us.bringardner.parley.files.FileSource;
  * {@code parley.ftp.sharedStore}); a later server asking for another one is told in the log and
  * uses the domain as it is.
  */
-public final class StoreLocks {
+public final class StoreLocks extends BaseObject {
 
-	private static final Logger LOG = Logger.getLogger(StoreLocks.class.getName());
 	private static final StoreLocks INSTANCE = new StoreLocks();
 
 	private Locks locks;
@@ -76,7 +75,7 @@ public final class StoreLocks {
 			d = locks().domain(name, root, locks().options().withSharing(sharing));
 			domains.put(key, d);
 		} else if( d.sharing() != sharing ) {
-			LOG.warning("The store " + key + " is already in use here as " + d.sharing() + "; it stays so (" + sharing + " was asked)");
+			logWarn("The store " + key + " is already in use here as " + d.sharing() + "; it stays so (" + sharing + " was asked)");
 		}
 		users.merge(d, 1, Integer::sum);
 		return d;
