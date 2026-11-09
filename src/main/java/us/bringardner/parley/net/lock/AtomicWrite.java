@@ -4,9 +4,9 @@ import java.io.IOException;
 import java.io.OutputStream;
 import java.util.Objects;
 import java.util.UUID;
-import java.util.logging.Level;
-import java.util.logging.Logger;
 
+import us.bringardner.parley.core.BaseObject;
+import us.bringardner.parley.core.ILogger;
 import us.bringardner.parley.files.FileSource;
 import us.bringardner.parley.files.Syncable;
 
@@ -28,7 +28,11 @@ import us.bringardner.parley.files.Syncable;
  */
 public final class AtomicWrite {
 
-	private static final Logger LOG = Logger.getLogger(AtomicWrite.class.getName());
+	/** The logger, looked up each time: parley-core picks the logger type at the first lookup,
+	 *  and clearLoggerCache() would leave a kept one behind */
+	private static ILogger log() {
+		return BaseObject.findLogger(AtomicWrite.class.getName());
+	}
 
 	private AtomicWrite() {
 	}
@@ -82,7 +86,7 @@ public final class AtomicWrite {
 						tmp.delete();
 					}
 				} catch (IOException | RuntimeException e) {
-					LOG.log(Level.WARNING, "Removing " + tmp.getAbsolutePath(), e);
+					log().warn("Removing " + tmp.getAbsolutePath(), e);
 				}
 			}
 		}

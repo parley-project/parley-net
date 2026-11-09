@@ -5,9 +5,8 @@ import java.nio.channels.OverlappingFileLockException;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
-import java.util.logging.Level;
-import java.util.logging.Logger;
 
+import us.bringardner.parley.core.BaseObject;
 import us.bringardner.parley.files.FileSource;
 import us.bringardner.parley.files.lock.FileSourceLock;
 import us.bringardner.parley.net.lock.spi.LockHandle;
@@ -19,9 +18,8 @@ import us.bringardner.parley.net.lock.spi.LockService;
  * share a region (and so wait for each other) only if their hashes collide, which in practice they
  * don't. The locks reach as far as the store's lock scope.
  */
-final class RegionLockService implements LockService {
+final class RegionLockService extends BaseObject implements LockService {
 
-	private static final Logger LOG = Logger.getLogger(RegionLockService.class.getName());
 	static final String FILE = "regions";
 
 	private final FileSource file;
@@ -65,7 +63,7 @@ final class RegionLockService implements LockService {
 		try {
 			((RegionHandle) h).lock.release();
 		} catch (IOException | RuntimeException e) {
-			LOG.log(Level.WARNING, "Releasing a lock on " + file.getAbsolutePath(), e);
+			logWarn("Releasing a lock on " + file.getAbsolutePath(), e);
 		}
 	}
 

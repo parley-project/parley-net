@@ -17,9 +17,8 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
-import java.util.logging.Level;
-import java.util.logging.Logger;
 
+import us.bringardner.parley.core.BaseObject;
 import us.bringardner.parley.files.FileSource;
 import us.bringardner.parley.net.lock.spi.LockHandle;
 import us.bringardner.parley.net.lock.spi.LockService;
@@ -58,9 +57,8 @@ import us.bringardner.parley.net.lock.spi.LockService;
  * in one order (one FTP, SFTP or file server: {@link us.bringardner.parley.files.FileSourceCapabilities#orderedOperations()}).
  * On a store that doesn't promise it, shared requests are held exclusive between servers.
  */
-final class LeaseLockService implements LockService {
+final class LeaseLockService extends BaseObject implements LockService {
 
-	private static final Logger LOG = Logger.getLogger(LeaseLockService.class.getName());
 	static final String DIR = "leases";
 	static final String OWNER = "owner";
 	/** The writer's marker: {@code <hash>.w}. */
@@ -273,7 +271,7 @@ final class LeaseLockService implements LockService {
 			if( m != null && stale(marker.getName(), m) ) {
 				deleteTree(marker);
 				seen.remove(marker.getName());
-				LOG.info("Removed the takeover marker " + marker.getName() + " of a server that stopped");
+				logInfo("Removed the takeover marker " + marker.getName() + " of a server that stopped");
 			}
 			return;
 		}
@@ -299,12 +297,12 @@ final class LeaseLockService implements LockService {
 			if( !staleContent.equals(moved) ) {
 				// not the entry judged stale (a new one, made under a marker cleared as stale): give it back
 				if( aside.renameTo(d) ) {
-					LOG.warning("Moved " + d.getName() + " aside just as it was made again; put it back");
+					logWarn("Moved " + d.getName() + " aside just as it was made again; put it back");
 					return;
 				}
-				LOG.warning("Took over " + d.getName() + " just as it was made again and couldn't put it back; its holder loses it at its next renewal");
+				logWarn("Took over " + d.getName() + " just as it was made again and couldn't put it back; its holder loses it at its next renewal");
 			} else {
-				LOG.info("Took over the stale lock " + d.getName() + " (" + firstLine(staleContent) + ")");
+				logInfo("Took over the stale lock " + d.getName() + " (" + firstLine(staleContent) + ")");
 			}
 			deleteTree(aside);
 		} finally {
@@ -324,11 +322,11 @@ final class LeaseLockService implements LockService {
 				if( ownedBy(read(h.dir), h.token) ) {
 					h.dir.getChild(OWNER).delete();
 					if( !h.dir.delete() ) {
-						LOG.warning("Can't remove the lease directory " + h.dir.getAbsolutePath());
+						logWarn("Can't remove the lease directory " + h.dir.getAbsolutePath());
 					}
 				}
 			} catch (IOException | RuntimeException e) {
-				LOG.log(Level.WARNING, "Releasing the lease " + h.dir.getAbsolutePath(), e);
+				logWarn("Releasing the lease " + h.dir.getAbsolutePath(), e);
 			}
 		}
 	}
@@ -370,7 +368,7 @@ final class LeaseLockService implements LockService {
 			try {
 				if( !ownedBy(read(h.dir), h.token) ) {
 					h.lost = true;
-					LOG.warning("Lost the lease on " + h.name + ": another server took it over");
+					logWarn("Lost the lease on " + h.name + ": another server took it over");
 					return;
 				}
 				if( fenced(h) ) {
@@ -381,10 +379,10 @@ final class LeaseLockService implements LockService {
 				write(h);
 				h.lastRenew = t0;
 			} catch (IOException | RuntimeException e) {
-				LOG.log(Level.FINE, "Renewing the lease on " + h.name, e);
+				logDebug("Renewing the lease on " + h.name, e);
 				if( System.nanoTime() - h.lastRenew >= fenceNanos ) {
 					h.lost = true;
-					LOG.warning("Lost the lease on " + h.name + ": it couldn't be renewed for a whole lease (" + e + ")");
+					logWarn("Lost the lease on " + h.name + ": it couldn't be renewed for a whole lease (" + e + ")");
 				}
 			}
 		}
@@ -398,7 +396,7 @@ final class LeaseLockService implements LockService {
 		if( System.nanoTime() - h.lastRenew >= fenceNanos ) {
 			if( !h.lost ) {
 				h.lost = true;
-				LOG.warning("Lost the lease on " + h.name + ": not renewed for " + (System.nanoTime() - h.lastRenew) / 1_000_000
+				logWarn("Lost the lease on " + h.name + ": not renewed for " + (System.nanoTime() - h.lastRenew) / 1_000_000
 						+ " ms (this process was paused or the store was slow), so another server may take it over");
 			}
 			return true;
@@ -458,7 +456,7 @@ final class LeaseLockService implements LockService {
 		return "owner " + owner;
 	}
 
-	private static void deleteTree(FileSource d) {
+	private void deleteTree(FileSource d) {
 		try {
 			FileSource[] kids = d.listFiles();
 			if( kids != null ) {
@@ -468,11 +466,11 @@ final class LeaseLockService implements LockService {
 			}
 			d.delete();
 		} catch (IOException | RuntimeException e) {
-			LOG.log(Level.WARNING, "Removing " + d.getAbsolutePath(), e);
+			logWarn("Removing " + d.getAbsolutePath(), e);
 		}
 	}
 
-	private static void deleteQuietly(FileSource d) {
+	private void deleteQuietly(FileSource d) {
 		deleteTree(d);
 	}
 
