@@ -2,11 +2,9 @@ package us.bringardner.parley.net;
 
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.UncheckedIOException;
-import java.nio.file.Files;
 import java.security.KeyStore;
 import java.security.cert.X509Certificate;
 import java.util.HashMap;
@@ -18,6 +16,8 @@ import javax.net.ssl.SSLContext;
 import javax.net.ssl.TrustManager;
 import javax.net.ssl.TrustManagerFactory;
 
+import us.bringardner.parley.files.FileSource;
+import us.bringardner.parley.files.FileSourceFactory;
 import us.bringardner.parley.iam.AuthenticationResult;
 import us.bringardner.parley.iam.ParleyPermission;
 import us.bringardner.parley.iam.Requester;
@@ -267,21 +267,31 @@ public class ServerTestSupport {
 	 * keyStorePassword and keyStoreType (PKCS12) properties. The file is replaced in one step, so
 	 * tests running at once never see it half written.
 	 */
-	public static synchronized void writeKeystore(File file) throws IOException {
-		File dir = file.getAbsoluteFile().getParentFile();
-		if( dir != null ) {
+	public static synchronized void writeKeystore(FileSource file) throws IOException {
+		FileSource dir = file.getParentFile();
+		if( dir != null && !dir.isDirectory() ) {
 			dir.mkdirs();
 		}
-		File tmp = File.createTempFile("keystore", ".tmp", dir);
-		try (InputStream in = ServerTestSupport.class.getResourceAsStream(KEYSTORE)) {
-			if( in == null ) {
-				throw new IllegalStateException("Missing test resource " + KEYSTORE);
+		FileSource tmp = dir.getFileSourceFactory().createTempFile("keystore", ".tmp", dir);
+		boolean moved = false;
+		try {
+			try (InputStream in = ServerTestSupport.class.getResourceAsStream(KEYSTORE)) {
+				if( in == null ) {
+					throw new IllegalStateException("Missing test resource " + KEYSTORE);
+				}
+				try (java.io.OutputStream out = tmp.getOutputStream()) {
+					in.transferTo(out);
+				}
 			}
-			Files.copy(in, tmp.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING);
-			Files.move(tmp.toPath(), file.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING,
-					java.nio.file.StandardCopyOption.ATOMIC_MOVE);
+			// one step where the file system's getCapabilities().atomicReplace() says so (local files)
+			moved = tmp.renameTo(file, true);
+			if( !moved ) {
+				throw new IOException("Can't replace " + file + " with " + tmp);
+			}
 		} finally {
-			Files.deleteIfExists(tmp.toPath());
+			if( !moved && tmp.exists() ) {
+				tmp.delete();
+			}
 		}
 	}
 
@@ -316,7 +326,7 @@ public class ServerTestSupport {
 		return tmf.getTrustManagers();
 	}
 
-	private static File testHome;
+	private static FileSource testHome;
 
 	/**
 	 * DynamicTrustManager saves approvals in ${user.home}/.parley/trusted-certificates.
@@ -326,10 +336,11 @@ public class ServerTestSupport {
 	 * temp directory in time.
 	 * @return the test home directory
 	 */
-	public static synchronized File useTestHome() {
+	public static synchronized FileSource useTestHome() {
 		if( testHome == null ) {
 			try {
-				testHome = Files.createTempDirectory("parley-net-test-home").toFile();
+				// local: DynamicTrustManager finds user.home on the default file system
+				testHome = FileSourceFactory.fileProxyFactory.createTempDirectory("parley-net-test-home");
 			} catch(IOException e) {
 				throw new UncheckedIOException(e);
 			}

@@ -7,12 +7,11 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.ByteArrayOutputStream;
-import java.io.File;
 import java.io.IOException;
 import java.io.PrintStream;
 import java.net.Socket;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -23,7 +22,9 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import us.bringardner.parley.core.BaseObject;
+import us.bringardner.parley.files.FileSource;
 import us.bringardner.parley.files.FileSourceFactory;
+import us.bringardner.parley.net.TestFiles;
 import us.bringardner.parley.net.nio.NioServer;
 
 /**
@@ -33,7 +34,7 @@ import us.bringardner.parley.net.nio.NioServer;
 public class KnownSettingsTest {
 
 	@TempDir
-	File dir;
+	Path tempDir;
 
 	@Test
 	public void namesAndPatterns() {
@@ -138,8 +139,9 @@ public class KnownSettingsTest {
 	/** A server started on its own (its main, through ServerMain.configure) is checked too */
 	@Test
 	public void aServerOnItsOwnWarnsToo() throws Exception {
-		File own = new File(dir, "parley-fake.properties");
-		Files.write(own.toPath(), "parley.fake.port=1\nparley.fake.prot=2\n".getBytes(StandardCharsets.UTF_8));
+		FileSource dir = TestFiles.local(tempDir);
+		FileSource own = TestFiles.write(dir.getChild("parley-fake.properties"),
+				"parley.fake.port=1\nparley.fake.prot=2\n");
 		try {
 			String err = stderr(() -> ServerMain.configure("FakeServer", new String[] { "-Dparley.fake.vlaue=x" }, "parley.fake.configFile",
 					"parley-fake.properties", dir));

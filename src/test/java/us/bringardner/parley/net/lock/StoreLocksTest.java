@@ -9,8 +9,6 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import java.io.File;
-import java.nio.file.Files;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -25,9 +23,8 @@ public class StoreLocksTest {
 
 	@BeforeEach
 	public void setUp() throws Exception {
-		File d = Files.createTempDirectory("store-locks").toFile();
-		d.deleteOnExit();
-		top = FileSourceFactory.getDefaultFactory().createFileSource(d.getCanonicalPath());
+		// (canonical: on macOS the temp folder is under a link, /var to /private/var)
+		top = FileSourceFactory.fileProxyFactory.createTempDirectory("store-locks").getCanonicalFile();
 	}
 
 	private FileSource dir(FileSource parent, String name) throws Exception {
@@ -103,12 +100,13 @@ public class StoreLocksTest {
 	/** A link in a root that leads outside it is locked by its own path in the root. */
 	@Test
 	public void aLinkLeadingOutsideIsLockedByItsOwnPath() throws Exception {
-		File outside = Files.createTempDirectory("store-locks-outside").toFile();
-		outside.deleteOnExit();
-		File target = new File(outside, "t.txt");
-		Files.write(target.toPath(), new byte[] {1});
+		FileSource outside = FileSourceFactory.fileProxyFactory.createTempDirectory("store-locks-outside").getCanonicalFile();
+		FileSource target = outside.getChild("t.txt");
+		try (java.io.OutputStream out = target.getOutputStream()) {
+			out.write(1);
+		}
 		try {
-			Files.createSymbolicLink(new File(top.getAbsolutePath(), "link.txt").toPath(), target.toPath());
+			FileSourceFactory.fileProxyFactory.createSymbolicLink(top.getChild("link.txt"), target);
 		} catch (UnsupportedOperationException | java.io.IOException e) {
 			org.junit.jupiter.api.Assumptions.assumeTrue(false, "no symbolic links here: " + e);
 		}

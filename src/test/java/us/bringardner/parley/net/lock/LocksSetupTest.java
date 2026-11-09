@@ -8,9 +8,7 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import java.io.File;
 import java.io.IOException;
-import java.nio.file.Files;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -45,9 +43,8 @@ public class LocksSetupTest {
 	}
 
 	private static FileSource localRoot() throws Exception {
-		File d = Files.createTempDirectory("parley-net-setup").toFile();
-		d.deleteOnExit();
-		return FileSourceFactory.getDefaultFactory().createFileSource(d.getCanonicalPath());
+		// (canonical: on macOS the temp folder is under a link, /var to /private/var)
+		return FileSourceFactory.fileProxyFactory.createTempDirectory("parley-net-setup").getCanonicalFile();
 	}
 
 	private static LockOptions opts(Sharing s) {

@@ -5,10 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import java.io.File;
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -17,22 +14,33 @@ import java.util.TreeSet;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
+import us.bringardner.parley.files.FileSource;
+import us.bringardner.parley.net.TestFiles;
+
+/** On the local file system and on a memory file system (To-Do 18.8 C6) */
 public class PropertiesDomainListTest {
 
 	@TempDir
-	Path dir;
+	Path tempDir;
 
-	private File write(String name, String text, long time) throws IOException {
-		File f = dir.resolve(name).toFile();
-		Files.write(f.toPath(), text.getBytes(StandardCharsets.UTF_8));
+	private FileSource dir;
+
+	private void on(String type) throws IOException {
+		dir = TestFiles.folder(type, tempDir);
+	}
+
+	private FileSource write(String name, String text, long time) throws IOException {
+		FileSource f = TestFiles.write(dir.getChild(name), text);
 		f.setLastModified(time);
 		return f;
 	}
 
-	private static PropertiesDomainList initialized(File f, String key) throws IOException {
+	private static PropertiesDomainList initialized(FileSource f, String key) throws IOException {
 		Map<String, String> s = new HashMap<String, String>();
-		s.put(PropertiesDomainList.FILE, f.getPath());
+		s.put(PropertiesDomainList.FILE, TestFiles.setting(f));
 		if( key != null ) {
 			s.put(PropertiesDomainList.KEY, key);
 		}
@@ -41,9 +49,11 @@ public class PropertiesDomainListTest {
 		return l;
 	}
 
-	@Test
-	public void readsTheDomainsSetting() throws IOException {
-		File f = write("queue.properties", "host=mx1.example.net\ndomains=Example.COM, mxtest.example.org.  other.test\n", 1_000_000);
+	@ParameterizedTest
+	@ValueSource(strings = { TestFiles.LOCAL, TestFiles.MEMORY })
+	public void readsTheDomainsSetting(String type) throws IOException {
+		on(type);
+		FileSource f = write("queue.properties", "host=mx1.example.net\ndomains=Example.COM, mxtest.example.org.  other.test\n", 1_000_000);
 		PropertiesDomainList l = initialized(f, null);
 		assertEquals(new TreeSet<String>(Arrays.asList("example.com", "mxtest.example.org", "other.test")), l.getDomains());
 		assertTrue(l.contains("EXAMPLE.com."));
@@ -51,17 +61,21 @@ public class PropertiesDomainListTest {
 		assertTrue(l.getErrors().isEmpty());
 	}
 
-	@Test
-	public void anotherKeyAndBadNames() throws IOException {
-		File f = write("dns.properties", "zones=a.test bad..name noDot ok.test\n", 1_000_000);
+	@ParameterizedTest
+	@ValueSource(strings = { TestFiles.LOCAL, TestFiles.MEMORY })
+	public void anotherKeyAndBadNames(String type) throws IOException {
+		on(type);
+		FileSource f = write("dns.properties", "zones=a.test bad..name noDot ok.test\n", 1_000_000);
 		PropertiesDomainList l = initialized(f, "zones");
 		assertEquals(new TreeSet<String>(Arrays.asList("a.test", "ok.test")), l.getDomains());
 		assertEquals(2, l.getErrors().size(), l.getErrors().toString());
 	}
 
-	@Test
-	public void reloadIfChanged() throws IOException {
-		File f = write("queue.properties", "domains=a.test\n", 1_000_000);
+	@ParameterizedTest
+	@ValueSource(strings = { TestFiles.LOCAL, TestFiles.MEMORY })
+	public void reloadIfChanged(String type) throws IOException {
+		on(type);
+		FileSource f = write("queue.properties", "domains=a.test\n", 1_000_000);
 		PropertiesDomainList l = new PropertiesDomainList(f, null);
 		assertFalse(l.reloadIfChanged(), "nothing changed");
 		write("queue.properties", "domains=a.test b.test\n", 2_000_000);
@@ -71,9 +85,11 @@ public class PropertiesDomainListTest {
 		assertFalse(l.reloadIfChanged(), "the file changed, the domains didn't");
 	}
 
-	@Test
-	public void anUnreadableFileKeepsTheList() throws IOException {
-		File f = write("queue.properties", "domains=a.test\n", 1_000_000);
+	@ParameterizedTest
+	@ValueSource(strings = { TestFiles.LOCAL, TestFiles.MEMORY })
+	public void anUnreadableFileKeepsTheList(String type) throws IOException {
+		on(type);
+		FileSource f = write("queue.properties", "domains=a.test\n", 1_000_000);
 		PropertiesDomainList l = new PropertiesDomainList(f, null);
 		assertTrue(f.delete());
 		assertThrows(DomainListUnavailableException.class, l::reloadIfChanged);
@@ -81,9 +97,10 @@ public class PropertiesDomainListTest {
 	}
 
 	@Test
-	public void theFileMustBeSet() {
+	public void theFileMustBeSet() throws IOException {
+		on(TestFiles.LOCAL);
 		PropertiesDomainList l = new PropertiesDomainList();
 		assertThrows(IOException.class, () -> l.initialize(k -> null));
-		assertThrows(DomainListUnavailableException.class, () -> initialized(dir.resolve("missing").toFile(), null));
+		assertThrows(DomainListUnavailableException.class, () -> initialized(dir.getChild("missing"), null));
 	}
 }

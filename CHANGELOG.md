@@ -2,6 +2,23 @@
 
 ## parley-net 2.0.0 (unreleased)
 
+### Changed (2026-11-08: FileSource in place of java.io.File, To-Do 18)
+
+- **parley-net's files are FileSources** (needs parley-files' `FileSource.of`): `FileUserRegistry.initialize(FileSource)`
+  and `getSourceFile()`, `PropertiesDomainList(FileSource, String)` and `getFile()`, and `ServerMain.confDir()` take or
+  return a FileSource in place of `java.io.File`, with no `File` overloads. Callers resolve the file themselves
+  (`FileSource.of(path)`, or their own factory's `resolve`). A setting naming a file (`userFile`, a domain list's `file`,
+  `parley.net.client.trustFile`, a server's configFile) may now be a `filesource:` URL; a plain path is on the default
+  file system.
+- **`ServerMain`**: a `parley.files.defaultFactory` on the command line is set before CONF and the settings file are
+  found, so they are on that file system; a settings file can't choose the file system it is read from (give it as a
+  `filesource:` URL instead). CONF is on the default file system.
+- **Writing the user file and the approved certificates** goes through a uniquely named temp file next to it, renamed
+  over it with `renameTo(dest, true)`: one step where the file system's `getCapabilities().atomicReplace()` says so;
+  elsewhere the file is missing for a moment, and a user file reload then keeps the users read before. The user
+  file's owner, group and other permissions and its group are copied with FileSource's bits (skipped, with a log
+  line, where the file system can't), on Windows too.
+
 ### Removed (2026-11-08: no CRAM-MD5 or XOAUTH2 server, design Q10)
 
 - **CRAM-MD5 and XOAUTH2 are client sides only.** `CramMd5Mechanism` and `XOAuth2Mechanism` no longer implement

@@ -26,40 +26,41 @@ public class SessionOutputStreamTest {
 	public void aGoodbyeWaitsForTheFlushAndComesAfterIt() throws Exception {
 		final ByteArrayOutputStream wire = new ByteArrayOutputStream();
 		final ReentrantLock lock = new ReentrantLock();
-		final OutputStream session = new SessionOutputStream(new BufferedOutputStream(wire), lock);
+		try (OutputStream session = new SessionOutputStream(new BufferedOutputStream(wire), lock)) {
+			// the session starts a reply of two lines and hasn't flushed yet
+			session.write(bytes("250-first\r\n"));
+			assertTrue(lock.isHeldByCurrentThread(), "held from the first write");
 
-		// the session starts a reply of two lines and hasn't flushed yet
-		session.write(bytes("250-first\r\n"));
-		assertTrue(lock.isHeldByCurrentThread(), "held from the first write");
-
-		final CountDownLatch started = new CountDownLatch(1);
-		final CountDownLatch done = new CountDownLatch(1);
-		Thread goodbye = new Thread(new Runnable() {
-			@Override
-			public void run() {
-				started.countDown();
-				lock.lock();
-				try {
-					// as Server.closeSession does: the lock first, then the protocol's goodbye
-					session.write(bytes("421 bye\r\n"));
-					session.flush();
-				} catch (IOException e) {
-					throw new RuntimeException(e);
-				} finally {
-					lock.unlock();
+			final CountDownLatch started = new CountDownLatch(1);
+			final CountDownLatch done = new CountDownLatch(1);
+			Thread goodbye = new Thread(new Runnable() {
+				@Override
+				public void run() {
+					started.countDown();
+					lock.lock();
+					try {
+						// as Server.closeSession does: the lock first, then the protocol's goodbye
+						session.write(bytes("421 bye\r\n"));
+						session.flush();
+					} catch (IOException e) {
+						throw new RuntimeException(e);
+					} finally {
+						lock.unlock();
+					}
+					done.countDown();
 				}
-				done.countDown();
-			}
-		});
-		goodbye.start();
-		assertTrue(started.await(5, TimeUnit.SECONDS));
-		assertFalse(done.await(200, TimeUnit.MILLISECONDS), "the goodbye waits for the reply");
+			});
+			goodbye.start();
+			assertTrue(started.await(5, TimeUnit.SECONDS));
+			assertFalse(done.await(200, TimeUnit.MILLISECONDS), "the goodbye waits for the reply");
 
-		session.write(bytes("250 last\r\n"));
-		session.flush();
-		assertFalse(lock.isHeldByCurrentThread(), "let go at the flush");
-		assertTrue(done.await(5, TimeUnit.SECONDS));
-		goodbye.join(5000);
+			session.write(bytes("250 last\r\n"));
+			session.flush();
+			assertFalse(lock.isHeldByCurrentThread(), "let go at the flush");
+			assertTrue(done.await(5, TimeUnit.SECONDS));
+			goodbye.join(5000);
+		}
+
 		assertEquals("250-first\r\n250 last\r\n421 bye\r\n", wire.toString(StandardCharsets.UTF_8.name()));
 		assertFalse(lock.isLocked(), "the goodbye let go too");
 	}
@@ -68,15 +69,16 @@ public class SessionOutputStreamTest {
 	public void aThreadThatHoldsTheLockKeepsItAfterAFlush() throws Exception {
 		ByteArrayOutputStream wire = new ByteArrayOutputStream();
 		ReentrantLock lock = new ReentrantLock();
-		OutputStream session = new SessionOutputStream(wire, lock);
-		lock.lock();
-		try {
-			session.write(bytes("one\r\n"));
-			session.flush();
-			assertTrue(lock.isHeldByCurrentThread(), "taken by the caller, so not let go by the stream");
-			assertEquals(1, lock.getHoldCount());
-		} finally {
-			lock.unlock();
+		try (OutputStream session = new SessionOutputStream(wire, lock)) {
+			lock.lock();
+			try {
+				session.write(bytes("one\r\n"));
+				session.flush();
+				assertTrue(lock.isHeldByCurrentThread(), "taken by the caller, so not let go by the stream");
+				assertEquals(1, lock.getHoldCount());
+			} finally {
+				lock.unlock();
+			}
 		}
 		assertFalse(lock.isLocked());
 	}
@@ -94,12 +96,13 @@ public class SessionOutputStreamTest {
 				throw new IOException("the client went away");
 			}
 		};
-		OutputStream session = new SessionOutputStream(broken, lock);
-		session.write(bytes("x"));
-		try {
-			session.flush();
-		} catch (IOException expected) {
-			// as the client went away
+		try (OutputStream session = new SessionOutputStream(broken, lock)) {
+			session.write(bytes("x"));
+			try {
+				session.flush();
+			} catch (IOException expected) {
+				// as the client went away
+			}
 		}
 		assertFalse(lock.isLocked(), "a goodbye isn't left waiting");
 	}

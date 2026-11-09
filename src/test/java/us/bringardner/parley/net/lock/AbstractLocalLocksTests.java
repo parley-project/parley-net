@@ -7,12 +7,10 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.BufferedReader;
-import java.io.File;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.PrintWriter;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.BlockingQueue;
@@ -32,9 +30,8 @@ public abstract class AbstractLocalLocksTests extends AbstractLocksTests {
 
 	@Override
 	protected FileSource newRoot() throws Exception {
-		File d = Files.createTempDirectory("parley-net-locks").toFile();
-		d.deleteOnExit();
-		return FileSourceFactory.getDefaultFactory().createFileSource(d.getCanonicalPath());
+		// (canonical: on macOS the temp folder is under a link, /var to /private/var)
+		return FileSourceFactory.fileProxyFactory.createTempDirectory("parley-net-locks").getCanonicalFile();
 	}
 
 	@AfterEach
@@ -121,7 +118,7 @@ public abstract class AbstractLocalLocksTests extends AbstractLocksTests {
 		private final BlockingQueue<String> replies = new LinkedBlockingQueue<>();
 
 		Worker(FileSource root, LockOptions o) throws Exception {
-			String java = System.getProperty("java.home") + File.separator + "bin" + File.separator + "java";
+			String java = FileSource.of(System.getProperty("java.home"), "bin").getChild("java").getPath();
 			ProcessBuilder pb = new ProcessBuilder(java, "-cp", System.getProperty("java.class.path"),
 					LocksWorker.class.getName(), root.getAbsolutePath(), o.sharing().name(), o.provider(),
 					String.valueOf(o.lease().toMillis()), String.valueOf(o.renew().toMillis()));

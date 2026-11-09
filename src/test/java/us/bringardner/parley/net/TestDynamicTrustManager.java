@@ -7,10 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
 
-import java.io.File;
 import java.lang.reflect.Field;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.security.cert.CertificateException;
 import java.security.cert.X509Certificate;
 import java.util.Base64;
@@ -25,6 +22,7 @@ import javax.net.ssl.X509TrustManager;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
+import us.bringardner.parley.files.FileSource;
 import us.bringardner.parley.net.client.DynamicTrustManager;
 import us.bringardner.parley.net.client.DynamicTrustManager.CertificateValidator;
 import us.bringardner.parley.net.client.DynamicTrustManager.CertificateValidator.ManageAs;
@@ -54,7 +52,7 @@ public class TestDynamicTrustManager {
 
 	private static final String AUTH = "RSA";
 	private static X509Certificate[] chain;
-	private static File trustFile;
+	private static FileSource trustFile;
 
 	private static final TrustManager[] SYSTEM_REJECTS = {new FakeSystem(false)};
 	private static final TrustManager[] SYSTEM_ACCEPTS = {new FakeSystem(true)};
@@ -87,8 +85,7 @@ public class TestDynamicTrustManager {
 
 	@BeforeAll
 	public static void setup() throws Exception {
-		File home = ServerTestSupport.useTestHome();
-		trustFile = new File(new File(home, ".parley"), "trusted-certificates");
+		trustFile = ServerTestSupport.useTestHome().getChild(".parley").getChild("trusted-certificates");
 		chain = new X509Certificate[] {ServerTestSupport.certificate()};
 	}
 
@@ -101,7 +98,7 @@ public class TestDynamicTrustManager {
 	}
 
 	private static String savedApprovals() throws Exception {
-		return trustFile.exists() ? new String(Files.readAllBytes(trustFile.toPath()), StandardCharsets.UTF_8) : "";
+		return trustFile.exists() ? TestFiles.read(trustFile) : "";
 	}
 
 	@Test
