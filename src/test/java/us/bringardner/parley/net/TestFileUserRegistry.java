@@ -15,7 +15,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.function.Executable;
 
-import us.bringardner.parley.core.ILogger.Level;
+import us.bringardner.parley.core.LogLevel;
 import us.bringardner.parley.iam.AuthenticationResult;
 import us.bringardner.parley.iam.AuthorizationResult;
 import us.bringardner.parley.iam.EntityId;
@@ -166,7 +166,7 @@ public class TestFileUserRegistry {
 
 	private void validateRegistry(String serverName, Class<?> expected) throws Exception {
 		Server svr = new Server(1000, serverName);
-		svr.getLogger().setLevel(Level.WARN);
+		svr.setLogLevel(LogLevel.WARN);
 		UserRegistry registry = svr.getUserRegistry();
 		assertNotNull(registry, "the registry was not found");
 		assertEquals(expected, registry.getClass());

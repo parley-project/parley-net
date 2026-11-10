@@ -46,7 +46,6 @@ import javax.net.ssl.SSLContext;
 import javax.net.ssl.SSLSocket;
 
 import us.bringardner.parley.core.BaseThread;
-import us.bringardner.parley.core.ILogger.Level;
 import us.bringardner.parley.core.NamedThreadFactory;
 import us.bringardner.parley.core.util.AbstractCoreServer;
 import us.bringardner.parley.iam.UserRegistry;
@@ -74,7 +73,6 @@ public class Server extends AbstractCoreServer implements IServer {
 
 	private static int defaultAcceptTimeout = DEFAULT_ACCEPT_TIMEOUT;
 	private static int defaultConnectionTimeout = DEFAULT_CONNECTION_TIMEOUT;
-	private static Level defaultLogLevel = Level.NONE;
 
 	private int port;
 	private boolean secure = false;
@@ -156,14 +154,6 @@ public class Server extends AbstractCoreServer implements IServer {
 
 
 
-	public static Level getDefaultLogLevel() {
-		return defaultLogLevel;
-	}
-
-	public static void setDefaultLogLevel(Level level) {
-		defaultLogLevel = level;
-	}
-
 	/**
 	 * @return the line sent to each client when it connects, or null for none
 	 */
@@ -181,7 +171,6 @@ public class Server extends AbstractCoreServer implements IServer {
 
 
 	public Server() {
-		getLogger().setLevel(defaultLogLevel);
 	}
 	public Server(int port) {
 		this();
@@ -319,7 +308,7 @@ public class Server extends AbstractCoreServer implements IServer {
 						return Server.this.getSSLContext(sslOrTls);
 					}
 				};
-				ret.getLogger().setLevel(Server.this.getLogger().getLevel());
+				ret.setLogLevel(Server.this.getLogLevel());
 				return ret;
 			}
 		};

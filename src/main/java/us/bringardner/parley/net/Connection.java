@@ -73,7 +73,6 @@ public abstract class Connection extends BaseObject implements IConnection {
 	
 	public Connection(boolean useCRLF) {
 		super();		
-		getLogger().setLevel(Server.getDefaultLogLevel());
 		this.useCRLF = useCRLF;
 	}
 
