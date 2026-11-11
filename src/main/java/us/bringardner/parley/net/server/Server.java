@@ -46,6 +46,7 @@ import javax.net.ssl.SSLContext;
 import javax.net.ssl.SSLSocket;
 
 import us.bringardner.parley.core.BaseThread;
+import us.bringardner.parley.core.LogContext;
 import us.bringardner.parley.core.NamedThreadFactory;
 import us.bringardner.parley.core.util.AbstractCoreServer;
 import us.bringardner.parley.iam.UserRegistry;
@@ -97,6 +98,20 @@ public class Server extends AbstractCoreServer implements IServer {
 	 */
 	private final Map<IProcessor, java.util.Set<BaseThread>> sessionTasks = new ConcurrentHashMap<IProcessor, java.util.Set<BaseThread>>();
 	private final AtomicInteger taskNumber = new AtomicInteger();
+
+	/** What the server keeps about a session for its log lines: its ID, when it began, why the server closed it. */
+	private static final class SessionRecord {
+		final String id;
+		final long started = System.currentTimeMillis();
+		volatile String closeReason;
+
+		SessionRecord(String id) {
+			this.id = id;
+		}
+	}
+
+	/** Every session from the time it is accepted until removeClient(), for its ID and its disconnect line. */
+	private final Map<IProcessor, SessionRecord> sessions = new ConcurrentHashMap<IProcessor, SessionRecord>();
 	/** How long the stopping server waits for session tasks to end, see {@link #setTaskStopWait(long)}. */
 	public static final long DEFAULT_TASK_STOP_WAIT = 5000;
 	private volatile long taskStopWait = DEFAULT_TASK_STOP_WAIT;
@@ -633,6 +648,7 @@ public class Server extends AbstractCoreServer implements IServer {
 		java.net.InetAddress client = socket.getInetAddress();
 		boolean clientAcquired = false;
 		IProcessor recorded = null;
+		IProcessor session = null;
 		try {
 			if( !isClientAllowed(client) ) {
 				logInfo("Refusing connection from "+client+": not in "+PROPERTY_ALLOWED_CLIENTS);
@@ -681,6 +697,8 @@ public class Server extends AbstractCoreServer implements IServer {
 
 			IProcessor proc = getProcessor();
 			proc.setConnection(conn);
+			session = proc;
+			beginSession(proc, socket);
 
 			if( serverGreating != null && !serverGreating.isEmpty()) {
 				if( proc instanceof AbstractProcessor ) {
@@ -712,6 +730,9 @@ public class Server extends AbstractCoreServer implements IServer {
 			if( !handedOff ) {
 				activeClients.remove(socket);
 				IoUtils.closeQuietly(socket);
+				if( session != null ) {
+					endSession(session, SessionLog.REASON_NOT_STARTED);
+				}
 				if( clientAcquired ) {
 					if( recorded != null ) {
 						clientAddresses.remove(recorded);
@@ -798,6 +819,10 @@ public class Server extends AbstractCoreServer implements IServer {
 			if( task.getName() == null ) {
 				String session = owner instanceof BaseThread ? ((BaseThread) owner).getName() : null;
 				task.setName((session == null || session.isEmpty() ? getName() : session)+"-task-"+taskNumber.incrementAndGet());
+			}
+			if( task.getLogContext() == null ) {
+				// what the task logs belongs to its session
+				task.setLogContext(getSessionId(owner));
 			}
 			task.start();
 			set.add(task);
@@ -1043,7 +1068,9 @@ public class Server extends AbstractCoreServer implements IServer {
 			loginTimers.put(proc, schedule(() -> {
 				if( loginTimers.remove(proc) != null && proc.getPrincipal() == null ) {
 					IConnection con = proc.getConnection();
-					logInfo("Login time limit reached, closing "+(con == null ? proc : con.getSocket()));
+					try (LogContext.Scope scope = LogContext.enter(getSessionId(proc))) {
+						logInfo("Login time limit reached, closing "+(con == null ? proc : con.getSocket()));
+					}
 					closeSession(proc, CloseReason.LOGIN_TIME_LIMIT);
 				}
 			}, limit, TimeUnit.MILLISECONDS));
@@ -1075,6 +1102,11 @@ public class Server extends AbstractCoreServer implements IServer {
 	 * @since 2.0.0
 	 */
 	protected Thread closeSession(final IProcessor proc, final CloseReason reason) {
+		SessionRecord record = sessions.get(proc);
+		if( record != null && record.closeReason == null ) {
+			// for the session's disconnect line
+			record.closeReason = SessionLog.reason(reason);
+		}
 		final IConnection con = proc.getConnection();
 		final Thread goodbye = goodbyeThreads.newThread(new Runnable() {
 			@Override
@@ -1128,6 +1160,7 @@ public class Server extends AbstractCoreServer implements IServer {
 					// Already closed, the processor is exiting or failed to remove itself.
 					it.remove();
 					releaseClientOf(entry.getValue());
+					endSession(entry.getValue(), null);
 				} else if( entry.getValue() instanceof AbstractCommandProcessor
 						? ((AbstractCommandProcessor) entry.getValue()).isIdleTooLong()
 						: (lastAdmin-con.getLastReadTime()) > maxIdleConnection  && (lastAdmin-con.getLastWriteTime()) > maxIdleConnection
@@ -1135,7 +1168,9 @@ public class Server extends AbstractCoreServer implements IServer {
 					// A session of the session loop closes itself within a second when it is idle while
 					// waiting for a request; one still idle here is stuck in a command (a write to a client
 					// that stopped reading, say), so it is closed by the server, as before.
-					logDebug("Closing idle connection "+sock);
+					try (LogContext.Scope scope = LogContext.enter(getSessionId(entry.getValue()))) {
+						logDebug("Closing idle connection "+sock);
+					}
 					it.remove();
 					releaseClientOf(entry.getValue());
 					closeSession(entry.getValue(), CloseReason.IDLE);
@@ -1275,10 +1310,62 @@ public class Server extends AbstractCoreServer implements IServer {
 		return name == null ? null : getRuntimeValues().remove(name);
 	}
 
+	// ------------------------------------------------------------------ session IDs and their log lines
+
+	/**
+	 * A session begins: it gets its ID ({@link SessionLog#nextId(String)}), which is in front of
+	 * everything logged for it from here on, and the "Connected from" line is logged. Accept thread.
+	 */
+	private void beginSession(IProcessor proc, Socket socket) {
+		SessionRecord record = new SessionRecord(SessionLog.nextId(getName()));
+		sessions.put(proc, record);
+		if( proc instanceof BaseThread ) {
+			// the session's own thread logs with the ID (LogContext), and so do the session's own messages
+			((BaseThread) proc).setLogContext(record.id);
+		}
+		try (LogContext.Scope scope = LogContext.enter(record.id)) {
+			logInfo(SessionLog.connected(socket.getInetAddress(), socket.getPort()));
+		}
+	}
+
+	/**
+	 * A session is over: its "Disconnected" line is logged, once. The reason is the server's own
+	 * when it closed the session ({@link #closeSession(IProcessor, CloseReason)}), else the
+	 * session's ({@link AbstractProcessor#getCloseReason()}), else the one given.
+	 */
+	private void endSession(IProcessor proc, String reason) {
+		SessionRecord record = sessions.remove(proc);
+		if( record == null ) {
+			return;
+		}
+		String why = record.closeReason;
+		if( why == null && proc instanceof AbstractProcessor ) {
+			why = ((AbstractProcessor) proc).getCloseReason();
+		}
+		if( why == null ) {
+			why = stopping ? SessionLog.REASON_SERVER_STOPPING : reason;
+		}
+		try (LogContext.Scope scope = LogContext.enter(record.id)) {
+			logInfo(SessionLog.disconnected(why, System.currentTimeMillis()-record.started));
+		}
+	}
+
+	/**
+	 * @param proc a session of this server
+	 * @return the session's ID, the one in front of its log lines ({@code Pop3Server-4127}); null
+	 *         if it isn't a session of this server (any more)
+	 * @since 2.0.0
+	 */
+	public String getSessionId(IProcessor proc) {
+		SessionRecord record = proc == null ? null : sessions.get(proc);
+		return record == null ? null : record.id;
+	}
+
 	public void removeClient(IProcessor processor) {
 		if( processor == null ) {
 			return;
 		}
+		endSession(processor, null);
 		ScheduledFuture<?> loginTimer = loginTimers.remove(processor);
 		if( loginTimer != null ) {
 			loginTimer.cancel(false);

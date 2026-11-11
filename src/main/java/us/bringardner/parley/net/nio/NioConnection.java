@@ -51,12 +51,14 @@ import javax.net.ssl.SSLException;
 import javax.net.ssl.SSLSession;
 
 import us.bringardner.parley.core.BaseObject;
+import us.bringardner.parley.core.LogContext;
 import us.bringardner.parley.iam.AuthenticationResult;
 import us.bringardner.parley.iam.Credential;
 import us.bringardner.parley.iam.ParleyPrincipal;
 import us.bringardner.parley.iam.Requester;
 import us.bringardner.parley.io.IoUtils;
 import us.bringardner.parley.net.server.LoginFailures;
+import us.bringardner.parley.net.server.SessionLog;
 
 /**
  * A connection on a non-blocking SocketChannel, served by one {@link NioReactor}.
@@ -83,6 +85,12 @@ public class NioConnection extends BaseObject implements INioConnection {
 	private static final ByteBuffer START_TLS = ByteBuffer.allocate(0);
 
 	private final long id = NEXT_ID.incrementAndGet();
+	/** The ID in front of this session's log lines; null for a client connection */
+	private final String sessionId;
+	/** Why the connection is being closed, see {@link #setCloseReason(String)} */
+	private volatile String closeReason;
+	/** Set while a handler call runs that closes the connection by default (onIdle, onDeadline) */
+	private volatile String closingBecause;
 	private final SocketChannel channel;
 	private final NioReactor reactor;
 	private final NioServer server;
@@ -181,6 +189,8 @@ public class NioConnection extends BaseObject implements INioConnection {
 		this.handler = Objects.requireNonNull(handler, "handler");
 		this.decoder = Objects.requireNonNull(decoder, "decoder");
 		this.server = server;
+		// a server's connection is a session: its ID is in front of everything logged for it
+		this.sessionId = server == null ? null : SessionLog.id(server.getName(), id);
 		this.loginFailures = server == null ? null : new LoginFailures(server);
 		this.dispatcher = new SerialExecutor(handlerExecutor);
 		this.maxInputBuffer = Math.max(1, maxInputBuffer);
@@ -204,6 +214,39 @@ public class NioConnection extends BaseObject implements INioConnection {
 	@Override
 	public long getId() {
 		return id;
+	}
+
+	/**
+	 * @return the ID in front of this session's log lines, the server's name and {@link #getId()}
+	 *         ({@code DnsServer-17}); null for a client connection
+	 * @since 2.0.0
+	 */
+	public String getSessionId() {
+		return sessionId;
+	}
+
+	/** What this connection logs outside its handler's calls (TLS, idle checks) carries its ID too. */
+	@Override
+	protected String getLogContext() {
+		return sessionId;
+	}
+
+	/**
+	 * Before a handler call: this thread works for this session until the returned scope is closed.
+	 * A client connection has no session ID and leaves the thread's ID as it is (null is returned,
+	 * which try-with-resources accepts), so a session that makes a client call keeps its own ID.
+	 */
+	private LogContext.Scope enterSession() {
+		return sessionId == null ? null : LogContext.enter(sessionId);
+	}
+
+	/**
+	 * Says why the connection is being closed, for its "Disconnected" line. The first reason given is kept.
+	 */
+	void setCloseReason(String reason) {
+		if( reason != null && closeReason == null ) {
+			closeReason = reason;
+		}
 	}
 
 	@Override
@@ -347,6 +390,16 @@ public class NioConnection extends BaseObject implements INioConnection {
 			return;
 		}
 		logDebug(() -> "Closing connection "+id+" "+remoteAddress);
+		if( sessionId != null ) {
+			// with the session's ID, whichever thread closes it
+			try (LogContext.Scope scope = LogContext.enter(sessionId)) {
+				String why = closeReason != null ? closeReason : closingBecause;
+				if( why == null && server.isStopping() ) {
+					why = SessionLog.REASON_SERVER_STOPPING;
+				}
+				logInfo(SessionLog.disconnected(why, System.currentTimeMillis()-connectTime));
+			}
+		}
 		SelectionKey k = key;
 		if( k != null ) {
 			k.cancel();
@@ -450,6 +503,7 @@ public class NioConnection extends BaseObject implements INioConnection {
 				requester = getRequester().loggedIn(result);
 			}
 		}
+		logInfo(SessionLog.login(credential, result));
 		if( loginFailures.record(result) ) {
 			holdAfterFailedLogin();
 		}
@@ -463,6 +517,9 @@ public class NioConnection extends BaseObject implements INioConnection {
 	@Override
 	public final AuthenticationResult refuseLogin(String reason) {
 		AuthenticationResult result = AuthenticationResult.refused(reason);
+		if( sessionId != null ) {
+			logInfo(SessionLog.loginRefused(reason));
+		}
 		if( loginFailures != null && loginFailures.record(result) ) {
 			holdAfterFailedLogin();
 		}
@@ -506,6 +563,7 @@ public class NioConnection extends BaseObject implements INioConnection {
 			// the protocol's reply goes out first; its closing line, if any, after it
 			dispatch(() -> {
 				logInfo("Too many failed logins, closing "+this);
+				setCloseReason(SessionLog.REASON_TOO_MANY_LOGIN_FAILURES);
 				handler.onTooManyLoginFailures(this);
 				closeAfterFlush();
 			});
@@ -687,6 +745,7 @@ public class NioConnection extends BaseObject implements INioConnection {
 	 */
 	private void endOfInput() {
 		logDebug(() -> "Peer closed connection "+id);
+		setCloseReason(SessionLog.REASON_CLIENT_CLOSED);
 		inputShutdown = true;
 		updateInterest();
 		scheduleProcess();
@@ -752,7 +811,13 @@ public class NioConnection extends BaseObject implements INioConnection {
 			dispatch(() -> {
 				//  not if the deadline was set again or cleared since
 				if( generation == deadlineGeneration ) {
-					handler.onDeadline(this);
+					// if the handler closes the connection here (the default), the deadline is why
+					closingBecause = SessionLog.REASON_TIMEOUT;
+					try {
+						handler.onDeadline(this);
+					} finally {
+						closingBecause = null;
+					}
 				}
 			});
 		}
@@ -767,6 +832,7 @@ public class NioConnection extends BaseObject implements INioConnection {
 			}
 			if( since > 0 && now-since > ft ) {
 				logDebug(() -> "Connection "+id+": a frame took more than "+ft+" ms, closing");
+				setCloseReason(SessionLog.REASON_TIMEOUT);
 				close();
 				return;
 			}
@@ -779,11 +845,20 @@ public class NioConnection extends BaseObject implements INioConnection {
 			idleNotified = true;
 			if( !appConnected ) {
 				// e.g. a TLS handshake that never finished
+				setCloseReason(SessionLog.REASON_IDLE);
 				close();
 				return;
 			}
 			logDebug(() -> "Connection "+id+" idle for "+(now-last)+" ms");
-			dispatch(() -> handler.onIdle(this));
+			dispatch(() -> {
+				// if the handler closes the connection here (the default), being idle is why
+				closingBecause = SessionLog.REASON_IDLE;
+				try {
+					handler.onIdle(this);
+				} finally {
+					closingBecause = null;
+				}
+			});
 		}
 	}
 
@@ -796,6 +871,7 @@ public class NioConnection extends BaseObject implements INioConnection {
 			return;
 		}
 		logDebug("Error on connection "+id, error);
+		setCloseReason(error instanceof IOException ? SessionLog.REASON_CONNECTION_LOST : SessionLog.REASON_ERROR);
 		CompletableFuture<INioConnection> f = connectFuture;
 		if( f != null ) {
 			f.completeExceptionally(error);
@@ -1298,7 +1374,10 @@ public class NioConnection extends BaseObject implements INioConnection {
 	private void dispatch(HandlerCall call) {
 		try {
 			dispatcher.execute(() -> {
-				try {
+				// While the handler runs, this thread works for this connection: everything logged
+				// carries its ID. Closing the scope clears it, so the thread (a reactor or a pool
+				// thread that serves many connections) never keeps the ID of a call that is over.
+				try (LogContext.Scope scope = enterSession()) {
 					call.run();
 				} catch (Throwable e) {
 					fail(e);
@@ -1316,7 +1395,7 @@ public class NioConnection extends BaseObject implements INioConnection {
 	private void dispatchError(Throwable error) {
 		try {
 			dispatcher.execute(() -> {
-				try {
+				try (LogContext.Scope scope = enterSession()) {
 					handler.onError(this, error);
 				} catch (Throwable e) {
 					logError("Error in onError of connection "+id, e);

@@ -440,6 +440,33 @@ channel) instead of opening one on port / bindAddress; the server closes it when
 For request / response protocols (FTP, SMTP, POP3) the blocking `Server` is simpler, and with
 virtual threads (Java 21+) it serves many idle sessions just as cheaply.
 
+## What a server logs about a session
+
+Every session has an ID, the server's name and a number (`Pop3Server-4127`). It is in front of
+everything logged for the session, whichever object logs it, so one session can be followed through
+a log by searching for its ID (parley-core's `LogContext`). The server also logs three lines at INFO
+for every session, whatever the protocol:
+
+```
+[Pop3Server-4127] Connected from 203.0.113.9:51234
+[Pop3Server-4127] Login failed for alice: wrong password for alice
+[Pop3Server-4127] Login alice (password)
+[Pop3Server-4127] Disconnected (client closed the connection) after 264ms
+```
+
+- `Server` (a thread per session) sets the ID on the session's thread, and on the threads the
+  session starts with `startTask`.
+- The NIO server sets it for each call into a connection's handler and clears it afterwards: one
+  thread serves many connections there. What the connection itself logs between calls carries the
+  ID too.
+- Work a protocol hands to a thread of its own doesn't carry the ID unless the task is wrapped:
+  `executor.execute(LogContext.wrap(task))`.
+- The disconnect line says why: `client quit` (the protocol's QUIT or LOGOUT), `idle`, `login time limit`, `server stopping`, `client closed the
+  connection`, `connection lost`, `too many failed logins`, `TLS handshake failed`, or `session
+  ended` when the protocol ended it. A protocol can give its own reason with
+  `AbstractProcessor.setCloseReason`.
+- `Server.getSessionId(processor)` and `NioConnection.getSessionId()` return the ID.
+
 ## Upstream servers and fatal errors
 
 `client.UpstreamHealth` is for a client that picks among several servers. Call `started()` before a

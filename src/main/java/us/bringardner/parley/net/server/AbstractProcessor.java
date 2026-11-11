@@ -44,6 +44,8 @@ public abstract class AbstractProcessor extends BaseThread implements IProcessor
 	private IConnection connection;
 	private IServer server;
 	private Map<String, Object> sessionValues = new HashMap<String, Object>();
+	/** Why the session is ending, see {@link #setCloseReason(String)} */
+	private volatile String closeReason;
 	/** Who is asking; made on first use, guarded by requesterLock */
 	private Requester requester;
 	private final Object requesterLock = new Object();
@@ -109,6 +111,7 @@ public abstract class AbstractProcessor extends BaseThread implements IProcessor
 				requester = getRequester().loggedIn(result);
 			}
 		}
+		logInfo(SessionLog.login(credential, result));
 		LoginFailures failures = getLoginFailures();
 		if( failures != null && failures.record(result) ) {
 			// a refused login: wait before the protocol answers, to slow down password guessing
@@ -120,12 +123,35 @@ public abstract class AbstractProcessor extends BaseThread implements IProcessor
 	@Override
 	public final AuthenticationResult refuseLogin(String reason) {
 		AuthenticationResult result = AuthenticationResult.refused(reason);
+		logInfo(SessionLog.loginRefused(reason));
 		LoginFailures failures = getLoginFailures();
 		if( failures != null && failures.record(result) ) {
 			// counted like a wrong password, and answered as late
 			waitMillis(failures.getDelayMillis());
 		}
 		return result;
+	}
+
+	/**
+	 * Says why the session is ending, for the server's "Disconnected" line. The first reason given
+	 * is kept: what happens while a session closes is a consequence of it. A protocol's QUIT
+	 * command calls this with {@link SessionLog#REASON_CLIENT_QUIT}.
+	 *
+	 * @param reason a few words ({@link SessionLog}'s REASON_ constants), null is ignored
+	 * @since 2.0.0
+	 */
+	public void setCloseReason(String reason) {
+		if( reason != null && closeReason == null ) {
+			closeReason = reason;
+		}
+	}
+
+	/**
+	 * @return why the session is ending ({@link #setCloseReason(String)}), null when nothing has said
+	 * @since 2.0.0
+	 */
+	public String getCloseReason() {
+		return closeReason;
 	}
 
 	/**
