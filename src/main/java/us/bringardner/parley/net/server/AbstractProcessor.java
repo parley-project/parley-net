@@ -52,7 +52,6 @@ public abstract class AbstractProcessor extends BaseThread implements IProcessor
 	private LoginFailures loginFailures;
 	
 	public AbstractProcessor() {
-		getLogger().setLevel(Server.getDefaultLogLevel());
 	}
 
 	/** The session's output lock ({@link #getOutputLock()}) */

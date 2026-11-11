@@ -40,7 +40,6 @@ import java.util.concurrent.ConcurrentLinkedQueue;
 import us.bringardner.parley.core.BaseThread;
 import us.bringardner.parley.io.IoUtils;
 import us.bringardner.parley.net.IManagedThread;
-import us.bringardner.parley.net.server.Server;
 
 /**
  * One selector thread serving many connections: it reads, writes, finishes connects and
@@ -67,7 +66,6 @@ public class NioReactor extends BaseThread implements IManagedThread {
 
 	public NioReactor(String name) throws IOException {
 		super(name, true);
-		getLogger().setLevel(Server.getDefaultLogLevel());
 		selector = Selector.open();
 	}
 

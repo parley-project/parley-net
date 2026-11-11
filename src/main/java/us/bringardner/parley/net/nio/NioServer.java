@@ -129,7 +129,6 @@ public class NioServer extends AbstractCoreServer implements IBaseServer {
 	private volatile Throwable startupError;
 
 	public NioServer() {
-		getLogger().setLevel(Server.getDefaultLogLevel());
 	}
 
 	public NioServer(int port) {

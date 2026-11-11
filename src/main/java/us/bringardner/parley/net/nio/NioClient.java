@@ -43,7 +43,6 @@ import javax.net.ssl.SSLEngine;
 
 import us.bringardner.parley.core.SecureBaseObject;
 import us.bringardner.parley.io.IoUtils;
-import us.bringardner.parley.net.server.Server;
 
 /**
  * Makes non-blocking connections. All the connections of a client share one
@@ -91,7 +90,6 @@ public class NioClient extends SecureBaseObject implements Closeable {
 	 */
 	public NioClient(String name) {
 		this.name = name;
-		getLogger().setLevel(Server.getDefaultLogLevel());
 	}
 
 	/**

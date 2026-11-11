@@ -1,5 +1,6 @@
 package us.bringardner.parley.net;
 
+import us.bringardner.parley.core.LogLevel;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNotSame;
@@ -122,7 +123,7 @@ public class TestUserRegistryClose {
 	public void aClassThatIsNotARegistryIsRefused() {
 		System.setProperty(NAME + "." + IServer.AUTHENTICATION_PROVIDER_PROPERTY, String.class.getName());
 		final Server svr = new Server(0, NAME);
-		svr.getLogger().setLevel(us.bringardner.parley.core.ILogger.Level.NONE);
+		svr.setLogLevel(us.bringardner.parley.core.LogLevel.NONE);
 		assertThrows(IllegalStateException.class, new Executable() {
 			@Override
 			public void execute() {

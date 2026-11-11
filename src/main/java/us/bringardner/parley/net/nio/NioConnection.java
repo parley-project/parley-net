@@ -57,7 +57,6 @@ import us.bringardner.parley.iam.ParleyPrincipal;
 import us.bringardner.parley.iam.Requester;
 import us.bringardner.parley.io.IoUtils;
 import us.bringardner.parley.net.server.LoginFailures;
-import us.bringardner.parley.net.server.Server;
 
 /**
  * A connection on a non-blocking SocketChannel, served by one {@link NioReactor}.
@@ -189,7 +188,6 @@ public class NioConnection extends BaseObject implements INioConnection {
 		this.maxIdleTime = maxIdleTime;
 		this.connectTime = System.currentTimeMillis();
 		this.engineFactory = engineFactory;
-		getLogger().setLevel(Server.getDefaultLogLevel());
 		if( implicitTls ) {
 			if( engineFactory == null ) {
 				throw new IllegalArgumentException("Implicit TLS needs an engine factory");

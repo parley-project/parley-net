@@ -6,7 +6,7 @@ import java.util.Objects;
 import java.util.UUID;
 
 import us.bringardner.parley.core.BaseObject;
-import us.bringardner.parley.core.ILogger;
+import us.bringardner.parley.core.util.LogHelper;
 import us.bringardner.parley.files.FileSource;
 import us.bringardner.parley.files.Syncable;
 
@@ -28,11 +28,8 @@ import us.bringardner.parley.files.Syncable;
  */
 public final class AtomicWrite {
 
-	/** The logger, looked up each time: parley-core picks the logger type at the first lookup,
-	 *  and clearLoggerCache() would leave a kept one behind */
-	private static ILogger log() {
-		return BaseObject.findLogger(AtomicWrite.class.getName());
-	}
+	/** Logs for this class (it isn't a BaseObject) */
+	private static final LogHelper LOG = new LogHelper(AtomicWrite.class);
 
 	private AtomicWrite() {
 	}
@@ -86,7 +83,7 @@ public final class AtomicWrite {
 						tmp.delete();
 					}
 				} catch (IOException | RuntimeException e) {
-					log().warn("Removing " + tmp.getAbsolutePath(), e);
+					LOG.logWarn("Removing " + tmp.getAbsolutePath(), e);
 				}
 			}
 		}

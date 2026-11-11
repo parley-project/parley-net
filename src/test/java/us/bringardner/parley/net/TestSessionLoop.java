@@ -1,5 +1,6 @@
 package us.bringardner.parley.net;
 
+import us.bringardner.parley.core.LogLevel;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -59,7 +60,7 @@ public class TestSessionLoop {
 
 			{
 				// debug logging on: the loop's debug lines must not change which command runs
-				getLogger().setLevel(us.bringardner.parley.core.ILogger.Level.DEBUG);
+				setLogLevel(us.bringardner.parley.core.LogLevel.DEBUG);
 			}
 
 			@Override

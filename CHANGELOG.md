@@ -2,6 +2,15 @@
 
 ## parley-net 2.0.0 (unreleased)
 
+### Changed (2026-11-10: logging through System.Logger, To-Do 19.5)
+
+- **Logging through `System.Logger`** (parley-core): `Server.getDefaultLogLevel()` and
+  `setDefaultLogLevel()` are removed, and with them the NONE level that `Server`, `Connection`,
+  `AbstractProcessor` and the Nio classes set on their (shared) loggers when made, which left the
+  servers silent whatever `parley.log.level` said. Servers now follow `parley.log.level` or the
+  installed `System.Logger`; `setLogLevel` sets one object's level (a server copies its own to the
+  connections and processors it makes). `lock.AtomicWrite` logs through a `LogHelper`.
+
 ### Changed (2026-11-08: logging through ILogger, To-Do 19.1 and 19.2)
 
 - **Logging goes through parley-core's ILogger**: `LeaseLockService`, `RegionLockService` and `StoreLocks`
