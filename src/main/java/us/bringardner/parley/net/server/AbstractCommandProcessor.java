@@ -139,6 +139,7 @@ public abstract  class AbstractCommandProcessor extends AbstractProcessor implem
 				return;
 			} catch(RuntimeException e) {
 				logError("Error reading a request", e);
+				setCloseReason(SessionLog.REASON_ERROR);
 				return;
 			}
 			if( request == null ) {
@@ -157,6 +158,7 @@ public abstract  class AbstractCommandProcessor extends AbstractProcessor implem
 				if( tooMany ) {
 					// the protocol has answered the last failed login; say goodbye and close
 					logInfo("Too many failed logins, closing the connection from "+clientAddressText());
+					setCloseReason(SessionLog.REASON_TOO_MANY_LOGIN_FAILURES);
 					replyTooManyLoginFailures();
 				}
 				afterRequest();
@@ -168,9 +170,11 @@ public abstract  class AbstractCommandProcessor extends AbstractProcessor implem
 				return;
 			} catch(RuntimeException e) {
 				logError("Error after command "+commandName(request), e);
+				setCloseReason(SessionLog.REASON_ERROR);
 				return;
 			} catch(Error e) {
 				logError("Fatal error in processor", e);
+				setCloseReason(SessionLog.REASON_ERROR);
 				return;
 			}
 		}
@@ -184,10 +188,13 @@ public abstract  class AbstractCommandProcessor extends AbstractProcessor implem
 	private void connectionFailed(IOException e, String doing) {
 		if( isTlsHandshakeFailure(e) ) {
 			logTlsHandshakeFailure(e);
+			setCloseReason(SessionLog.REASON_TLS_HANDSHAKE_FAILED);
 		} else if( isConnectionLost(e) ) {
 			logDebug("Connection lost "+doing+": "+e);
+			setCloseReason(SessionLog.REASON_CONNECTION_LOST);
 		} else if( !isClosed(getConnection()) && !stopping ) {
 			logError("I/O error "+doing, e);
+			setCloseReason(SessionLog.REASON_ERROR);
 		}
 	}
 
@@ -276,6 +283,7 @@ public abstract  class AbstractCommandProcessor extends AbstractProcessor implem
 				}
 				if( isIdleTooLong() ) {
 					logDebug("Idle for too long, closing the connection from "+clientAddressText());
+					setCloseReason(SessionLog.REASON_IDLE);
 					replyClosing(CloseReason.IDLE);
 					return null;
 				}
@@ -288,10 +296,12 @@ public abstract  class AbstractCommandProcessor extends AbstractProcessor implem
 					// the client is gone
 				}
 				logDebug("Line longer than "+e.getMaxLineLength()+" bytes, closing");
+				setCloseReason(SessionLog.REASON_LINE_TOO_LONG);
 				return null;
 			}
 			if( line == null ) {
 				logDebug("End of input: the client closed the connection");
+				setCloseReason(SessionLog.REASON_CLIENT_CLOSED);
 				return null;
 			}
 			return getRequestContextFactory().getRequestContext(line);

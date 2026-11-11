@@ -49,11 +49,13 @@ import java.util.function.Supplier;
 
 import javax.net.ssl.SSLEngine;
 
+import us.bringardner.parley.core.LogContext;
 import us.bringardner.parley.core.util.AbstractCoreServer;
 import us.bringardner.parley.iam.UserRegistry;
 import us.bringardner.parley.io.IoUtils;
 import us.bringardner.parley.net.server.IBaseServer;
 import us.bringardner.parley.net.server.Server;
+import us.bringardner.parley.net.server.SessionLog;
 
 /**
  * A non-blocking server, the NIO counterpart of the framework's Server. Both are an
@@ -383,6 +385,9 @@ public class NioServer extends AbstractCoreServer implements IBaseServer {
 			connections.put(conn.getId(), conn);
 			NioConnection accepted = conn;
 			logDebug(() -> "Accepted "+accepted);
+			try (LogContext.Scope scope = LogContext.enter(conn.getSessionId())) {
+				logInfo(SessionLog.connected(sc.getRemoteAddress()));
+			}
 			reactor.register(conn, true);
 			startLoginTimer(conn, reactor);
 		} catch (Exception e) {
@@ -636,7 +641,10 @@ public class NioServer extends AbstractCoreServer implements IBaseServer {
 		}
 		reactor.schedule(() -> {
 			if( conn.isOpen() && conn.getPrincipal() == null ) {
-				logInfo("Login time limit reached, closing "+conn);
+				try (LogContext.Scope scope = LogContext.enter(conn.getSessionId())) {
+					logInfo("Login time limit reached, closing "+conn);
+				}
+				conn.setCloseReason(SessionLog.REASON_LOGIN_TIME_LIMIT);
 				conn.close();
 			}
 		}, limit);
