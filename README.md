@@ -461,7 +461,7 @@ for every session, whatever the protocol:
   ID too.
 - Work a protocol hands to a thread of its own doesn't carry the ID unless the task is wrapped:
   `executor.execute(LogContext.wrap(task))`.
-- The disconnect line says why: `idle`, `login time limit`, `server stopping`, `client closed the
+- The disconnect line says why: `client quit` (the protocol's QUIT or LOGOUT), `idle`, `login time limit`, `server stopping`, `client closed the
   connection`, `connection lost`, `too many failed logins`, `TLS handshake failed`, or `session
   ended` when the protocol ended it. A protocol can give its own reason with
   `AbstractProcessor.setCloseReason`.

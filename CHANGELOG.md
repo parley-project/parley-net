@@ -13,8 +13,8 @@
   203.0.113.9:51234`, `Login alice (password)` or `Login failed for alice: the reason` (`Login
   refused: the reason` for `refuseLogin`), and `Disconnected (the reason) after 264ms`. A user name a
   client sent is logged without control characters.
-- **`AbstractProcessor.setCloseReason(String)`** (protected) and `getCloseReason()`: a protocol can
-  say why its session ends, for the disconnect line; the session loop says so for an idle session, a
+- **`AbstractProcessor.setCloseReason(String)`** and `getCloseReason()`: a protocol can say why its
+  session ends, for the disconnect line (its QUIT command says `client quit`); the session loop says so for an idle session, a
   closed or lost connection, a failed TLS handshake, too many failed logins and a line that is too long.
 
 ### Changed (2026-11-10: logging through System.Logger, To-Do 19.5)

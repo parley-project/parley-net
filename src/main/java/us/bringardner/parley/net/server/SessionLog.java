@@ -47,6 +47,8 @@ public final class SessionLog {
 
 	/** Why a session ended, when nothing more exact is known: the protocol ended it (QUIT, say). */
 	public static final String REASON_SESSION_ENDED = "session ended";
+	/** The client ended the session with the protocol's own command (QUIT, LOGOUT). */
+	public static final String REASON_CLIENT_QUIT = "client quit";
 	public static final String REASON_CLIENT_CLOSED = "client closed the connection";
 	public static final String REASON_CONNECTION_LOST = "connection lost";
 	public static final String REASON_IDLE = "idle";

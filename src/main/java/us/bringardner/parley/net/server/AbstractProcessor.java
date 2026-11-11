@@ -134,12 +134,13 @@ public abstract class AbstractProcessor extends BaseThread implements IProcessor
 
 	/**
 	 * Says why the session is ending, for the server's "Disconnected" line. The first reason given
-	 * is kept: what happens while a session closes is a consequence of it.
+	 * is kept: what happens while a session closes is a consequence of it. A protocol's QUIT
+	 * command calls this with {@link SessionLog#REASON_CLIENT_QUIT}.
 	 *
 	 * @param reason a few words ({@link SessionLog}'s REASON_ constants), null is ignored
 	 * @since 2.0.0
 	 */
-	protected void setCloseReason(String reason) {
+	public void setCloseReason(String reason) {
 		if( reason != null && closeReason == null ) {
 			closeReason = reason;
 		}
