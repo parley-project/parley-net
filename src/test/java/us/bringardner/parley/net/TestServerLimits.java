@@ -14,6 +14,7 @@ import org.junit.jupiter.api.Test;
 import us.bringardner.parley.net.ServerTestSupport.TestServer;
 import us.bringardner.parley.net.client.CommandClient;
 import us.bringardner.parley.net.client.ICommandResponse;
+import us.bringardner.parley.net.server.Server;
 
 /**
  * Connection management: max clients, idle connection cleanup, start / stop, client connect failures.
@@ -351,6 +352,21 @@ public class TestServerLimits {
 			assertEcho(client);
 		} finally {
 			ServerTestSupport.stop(svr);
+		}
+	}
+
+	@Test
+	public void tcpNoDelayComesFromThePropertyWhenNotSet() {
+		String name = "server-nodelay-test";
+		assertTrue(new Server(0, name).isTcpNoDelay(), "default true");
+		System.setProperty(name+".tcpNoDelay", "false");
+		try {
+			assertFalse(new Server(0, name).isTcpNoDelay(), "from the property");
+			Server set = new Server(0, name);
+			set.setTcpNoDelay(true);
+			assertTrue(set.isTcpNoDelay(), "a set value wins over the property");
+		} finally {
+			System.clearProperty(name+".tcpNoDelay");
 		}
 	}
 }

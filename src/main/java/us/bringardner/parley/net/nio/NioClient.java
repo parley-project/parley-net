@@ -68,6 +68,8 @@ import us.bringardner.parley.io.IoUtils;
 public class NioClient extends SecureBaseObject implements Closeable {
 
 	public static final int DEFAULT_CONNECT_TIMEOUT = 30000;
+	/** How long (ms) {@link #close()} waits for the reactor to close the connections and stop */
+	public static final long CLOSE_TIMEOUT = 5000;
 
 	private final String name;
 	private NioReactor reactor;
@@ -194,14 +196,32 @@ public class NioClient extends SecureBaseObject implements Closeable {
 	}
 
 	/**
-	 * Close every connection of this client and stop its reactor.
+	 * Close every connection of this client and stop its reactor, waiting up to
+	 * {@link #CLOSE_TIMEOUT} ms for that to finish: when it returns the sockets are closed,
+	 * and the handlers' onClose has run unless they run on a handler executor.
+	 * Called on the reactor thread (from a handler) it returns at once and the reactor
+	 * finishes after the handler call returns.
 	 * A later connect starts a new reactor.
 	 */
 	@Override
-	public synchronized void close() {
-		if( reactor != null ) {
-			reactor.stop();
+	public void close() {
+		NioReactor r;
+		synchronized (this) {
+			r = reactor;
 			reactor = null;
+		}
+		if( r == null ) {
+			return;
+		}
+		r.stop();
+		if( r.inReactorThread() ) {
+			// waiting here would wait for this thread itself
+			return;
+		}
+		try {
+			r.join(CLOSE_TIMEOUT);
+		} catch (InterruptedException e) {
+			Thread.currentThread().interrupt();
 		}
 	}
 

@@ -31,6 +31,7 @@ import java.net.InetSocketAddress;
 import java.net.SocketAddress;
 import java.net.StandardSocketOptions;
 import java.nio.ByteBuffer;
+import java.nio.channels.ClosedChannelException;
 import java.nio.channels.ClosedSelectorException;
 import java.nio.channels.SelectionKey;
 import java.nio.channels.Selector;
@@ -51,6 +52,7 @@ import javax.net.ssl.SSLEngine;
 
 import us.bringardner.parley.core.LogContext;
 import us.bringardner.parley.core.util.AbstractCoreServer;
+import us.bringardner.parley.core.util.SocketOptions;
 import us.bringardner.parley.iam.UserRegistry;
 import us.bringardner.parley.io.IoUtils;
 import us.bringardner.parley.net.server.IBaseServer;
@@ -94,10 +96,16 @@ public class NioServer extends AbstractCoreServer implements IBaseServer {
 	/** Close connections idle for 24 hours, as the framework's Server does */
 	public static final long DEFAULT_MAX_IDLE_TIME = 1000L*60*60*24;
 	public static final int DEFAULT_REACTOR_COUNT = Math.max(1, Math.min(4, Runtime.getRuntime().availableProcessors()));
+	/**
+	 * How long (ms) the server stops accepting after accept() fails, e.g. with too many open
+	 * files: the connections waiting in the backlog would fail the same way, so retrying at
+	 * once only spins.
+	 */
+	public static final long ACCEPT_ERROR_PAUSE = 1000;
 
 	private boolean reuseAddress = true;
-	// AbstractCoreServer defaults TCP_NODELAY to false; like the framework's Server this defaults to true
-	private boolean tcpNoDelay = true;
+	// null until set or read from the tcpNoDelay property; unlike AbstractCoreServer (false) the default is true
+	private volatile Boolean tcpNoDelay;
 	private int receiveBufferSize = 0;
 	private int sendBufferSize = 0;
 	private String serverBusyMessage;
@@ -120,6 +128,9 @@ public class NioServer extends AbstractCoreServer implements IBaseServer {
 
 	private volatile Selector acceptSelector;
 	private volatile ServerSocketChannel serverChannel;
+	// Accept thread only: the server channel's key, and when accepting resumes after an accept error (0 = not paused)
+	private SelectionKey acceptKey;
+	private volatile long acceptPausedUntil;
 	private volatile NioReactor[] reactors;
 	private final AtomicInteger nextReactor = new AtomicInteger();
 	private volatile UserRegistry userRegistry;
@@ -239,6 +250,16 @@ public class NioServer extends AbstractCoreServer implements IBaseServer {
 		logInfo("Server "+getName()+" is running on port "+getLocalPort()+".");
 		try {
 			while( !stopping ) {
+				if( acceptPausedUntil != 0 ) {
+					long wait = acceptPausedUntil-System.currentTimeMillis();
+					if( wait > 0 ) {
+						// nothing is selected while paused: this waits for the pause to end or for stop()
+						acceptSelector.select(wait);
+						continue;
+					}
+					acceptPausedUntil = 0;
+					acceptKey.interestOps(SelectionKey.OP_ACCEPT);
+				}
 				acceptSelector.select();
 				Iterator<SelectionKey> it = acceptSelector.selectedKeys().iterator();
 				while( it.hasNext() ) {
@@ -287,7 +308,8 @@ public class NioServer extends AbstractCoreServer implements IBaseServer {
 			}
 			ch.bind(new InetSocketAddress(getBindAddr(), getPort()), getBacklog());
 		}
-		ch.register(acceptSelector, SelectionKey.OP_ACCEPT);
+		acceptPausedUntil = 0;
+		acceptKey = ch.register(acceptSelector, SelectionKey.OP_ACCEPT);
 
 		int count = Math.max(1, reactorCount);
 		NioReactor[] rs = new NioReactor[count];
@@ -305,6 +327,7 @@ public class NioServer extends AbstractCoreServer implements IBaseServer {
 		IoUtils.closeQuietly(ch);
 		Selector s = acceptSelector;
 		acceptSelector = null;
+		acceptKey = null;
 		IoUtils.closeQuietly(s);
 		for (NioConnection conn : new ArrayList<NioConnection>(connections.values())) {
 			conn.close();
@@ -331,12 +354,38 @@ public class NioServer extends AbstractCoreServer implements IBaseServer {
 		}
 	}
 
+	/**
+	 * Accept every waiting connection. An accept that fails while the server channel is still
+	 * open (too many open files...) pauses accepting for {@link #ACCEPT_ERROR_PAUSE} ms, as the
+	 * framework's Server logs it and goes on; only a closed server channel ends the server.
+	 *
+	 * @throws IOException if the server channel is closed
+	 */
 	private void acceptAll() throws IOException {
 		ServerSocketChannel ch = serverChannel;
-		SocketChannel sc;
-		while( ch != null && (sc = ch.accept()) != null ) {
+		while( ch != null && !stopping ) {
+			SocketChannel sc;
+			try {
+				sc = accept(ch);
+			} catch (IOException e) {
+				if( e instanceof ClosedChannelException || !ch.isOpen() ) {
+					throw e;
+				}
+				logError("Can't accept a connection in server "+getName()+", not accepting for "+ACCEPT_ERROR_PAUSE+" ms", e);
+				acceptPausedUntil = System.currentTimeMillis()+ACCEPT_ERROR_PAUSE;
+				acceptKey.interestOps(0);
+				return;
+			}
+			if( sc == null ) {
+				return;
+			}
 			handleNewConnection(sc);
 		}
+	}
+
+	/** The accept itself, separate so a test can make it fail */
+	SocketChannel accept(ServerSocketChannel ch) throws IOException {
+		return ch.accept();
 	}
 
 	/**
@@ -503,14 +552,23 @@ public class NioServer extends AbstractCoreServer implements IBaseServer {
 		this.reuseAddress = reuseAddress;
 	}
 
-	//  Overrides AbstractCoreServer (which defaults to false): this server defaults to true
+	/**
+	 * @return true to set TCP_NODELAY on accepted sockets: the value set, else the
+	 * {@value SocketOptions#PROPERTY_TCP_NO_DELAY} property, else true (AbstractCoreServer's
+	 * default is false; like the framework's Server this one defaults to true)
+	 */
 	@Override
 	public boolean isTcpNoDelay() {
-		return tcpNoDelay;
+		Boolean ret = tcpNoDelay;
+		if( ret == null ) {
+			ret = getBooleanProperty(propertyName(SocketOptions.PROPERTY_TCP_NO_DELAY), true);
+			tcpNoDelay = ret;
+		}
+		return ret;
 	}
 
 	/**
-	 * Set TCP_NODELAY on accepted sockets (default true).
+	 * Set TCP_NODELAY on accepted sockets (default true), in place of the property.
 	 */
 	@Override
 	public void setTcpNoDelay(boolean tcpNoDelay) {

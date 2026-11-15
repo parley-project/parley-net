@@ -2,6 +2,19 @@
 
 ## parley-net 2.0.0 (unreleased)
 
+### Fixed (2026-11-15: NioServer and NioClient review)
+
+- **An accept error no longer stops `NioServer`.** A failed `accept()` (too many open files, say) ended
+  the server; now it is logged and the server stops accepting for `NioServer.ACCEPT_ERROR_PAUSE` (1000 ms)
+  and then goes on, as `Server` does. The connections waiting in the backlog are accepted after the pause.
+  Only a closed server channel ends the server, and `stop()` doesn't wait for a pause to end.
+- **The `tcpNoDelay` property is read again by `Server` and `NioServer`.** Their default of true replaced
+  parley-core's property lookup, so `name.tcpNoDelay=false` did nothing. Now a value set with
+  `setTcpNoDelay()` wins, else the property, else true.
+- **`NioClient.close()` waits for its connections to close** (up to `NioClient.CLOSE_TIMEOUT`, 5000 ms):
+  when it returns the sockets are closed and `onClose` has run (unless handlers run on an executor).
+  Called from a handler on the client's reactor thread it returns at once.
+
 ### Added (2026-11-11: session IDs in the log, To-Do 19.7)
 
 - **Every session has an ID**, the server's name and a number (`Pop3Server-4127`), in front of

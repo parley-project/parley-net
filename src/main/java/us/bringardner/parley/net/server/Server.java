@@ -49,6 +49,7 @@ import us.bringardner.parley.core.BaseThread;
 import us.bringardner.parley.core.LogContext;
 import us.bringardner.parley.core.NamedThreadFactory;
 import us.bringardner.parley.core.util.AbstractCoreServer;
+import us.bringardner.parley.core.util.SocketOptions;
 import us.bringardner.parley.iam.UserRegistry;
 import us.bringardner.parley.io.IoUtils;
 import us.bringardner.parley.net.Connection;
@@ -128,7 +129,8 @@ public class Server extends AbstractCoreServer implements IServer {
 	private volatile ServerSocket svr = null;
 	// Why the last start() failed (null if it started or is still starting)
 	private volatile Throwable startupError;
-	private boolean tcpNoDelay = true;
+	// null until set or read from the tcpNoDelay property; unlike AbstractCoreServer (false) the default is true
+	private volatile Boolean tcpNoDelay;
 	private boolean reuseAddress = true;
 	private int backlog = 0;
 	private boolean debug;
@@ -597,14 +599,23 @@ public class Server extends AbstractCoreServer implements IServer {
 		}
 	}
 
-	//  Overrides parley-core's AbstractCoreServer (which defaults to false): this server defaults to true
+	/**
+	 * @return true to set TCP_NODELAY on accepted sockets: the value set, else the
+	 * {@value SocketOptions#PROPERTY_TCP_NO_DELAY} property, else true (parley-core's
+	 * AbstractCoreServer defaults to false; this server defaults to true)
+	 */
 	@Override
 	public boolean isTcpNoDelay() {
-		return tcpNoDelay;
+		Boolean ret = tcpNoDelay;
+		if( ret == null ) {
+			ret = getBooleanProperty(propertyName(SocketOptions.PROPERTY_TCP_NO_DELAY), true);
+			tcpNoDelay = ret;
+		}
+		return ret;
 	}
 
 	/**
-	 * Set TCP_NODELAY on accepted sockets (default true).
+	 * Set TCP_NODELAY on accepted sockets (default true), in place of the property.
 	 */
 	@Override
 	public void setTcpNoDelay(boolean tcpNoDelay) {
@@ -667,7 +678,7 @@ public class Server extends AbstractCoreServer implements IServer {
 			}
 			clientAcquired = true;
 
-			if( tcpNoDelay ) {
+			if( isTcpNoDelay() ) {
 				// Request / response protocols: don't let Nagle delay small replies
 				try {
 					socket.setTcpNoDelay(true);

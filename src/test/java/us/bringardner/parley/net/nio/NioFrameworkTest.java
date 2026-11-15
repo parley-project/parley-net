@@ -10,6 +10,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.net.ServerSocket;
+import java.net.StandardSocketOptions;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
@@ -360,5 +361,68 @@ public class NioFrameworkTest {
 			assertTrue(System.currentTimeMillis() < end, "Timed out waiting");
 			Thread.sleep(10);
 		}
+	}
+
+	@Test
+	public void tcpNoDelayComesFromThePropertyWhenNotSet() throws Exception {
+		String name = "nio-nodelay-test";
+		assertTrue(new NioServer(0, name).isTcpNoDelay(), "default true");
+		System.setProperty(name+".tcpNoDelay", "false");
+		try {
+			server = new NioServer(0, name);
+			assertFalse(server.isTcpNoDelay(), "from the property");
+			server.setHandlerFactory(LineEcho::new);
+			server.setDecoderFactory(LineFrameDecoder::new);
+			server.startAndWait(5000);
+			client = new NioClient();
+			Collector c = new Collector();
+			client.connectAndWait(new InetSocketAddress("localhost", server.getLocalPort()), c, new LineFrameDecoder());
+			assertEquals("220 ready", c.nextLine());
+			NioConnection accepted = (NioConnection) server.getConnections().iterator().next();
+			assertFalse(accepted.getChannel().getOption(StandardSocketOptions.TCP_NODELAY), "applied to the accepted socket");
+
+			NioServer set = new NioServer(0, name);
+			set.setTcpNoDelay(true);
+			assertTrue(set.isTcpNoDelay(), "a set value wins over the property");
+		} finally {
+			System.clearProperty(name+".tcpNoDelay");
+		}
+	}
+
+	@Test
+	public void clientCloseWaitsForItsConnectionsToClose() throws Exception {
+		server = new NioServer(0);
+		server.setHandlerFactory(LineEcho::new);
+		server.setDecoderFactory(LineFrameDecoder::new);
+		server.startAndWait(5000);
+		client = new NioClient();
+		Collector c = new Collector();
+		INioConnection con = client.connectAndWait(new InetSocketAddress("localhost", server.getLocalPort()), c, new LineFrameDecoder());
+		assertEquals("220 ready", c.nextLine());
+		client.close();
+		assertFalse(con.isOpen(), "closed when close() returns");
+		assertEquals(0, c.closed.getCount(), "onClose ran before close() returned");
+	}
+
+	@Test
+	public void clientCloseFromAHandlerDoesNotWaitForItself() throws Exception {
+		server = new NioServer(0);
+		server.setHandlerFactory(LineEcho::new);
+		server.setDecoderFactory(LineFrameDecoder::new);
+		server.startAndWait(5000);
+		client = new NioClient();
+		NioClient closing = client;
+		CountDownLatch returned = new CountDownLatch(1);
+		Collector c = new Collector() {
+			@Override
+			public void onMessage(INioConnection connection, ByteBuffer frame) {
+				// on the reactor thread: close() must not wait for this thread to end
+				closing.close();
+				returned.countDown();
+			}
+		};
+		client.connectAndWait(new InetSocketAddress("localhost", server.getLocalPort()), c, new LineFrameDecoder());
+		assertTrue(returned.await(5, TimeUnit.SECONDS), "close() returned on the reactor thread");
+		assertTrue(c.closed.await(5, TimeUnit.SECONDS), "the connection closed");
 	}
 }
