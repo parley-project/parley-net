@@ -31,6 +31,14 @@
 - `NioServer`'s settings are `volatile`, so a setter called on another thread is seen by the server
   thread.
 
+### Added (2026-11-15: NioServer properties)
+
+- **`NioServer` reads six more properties** under its prefix: `maxIdleTime` (a duration, default
+  `24h`), `reactorCount` (default: the processors, 1 to 4), `initialInputBuffer` and `maxInputBuffer`
+  (bytes, default 8 KiB and 1 MiB), `receiveBufferSize` and `sendBufferSize` (bytes, default the OS's).
+  As with `frameTimeout`, a value set in code wins, else the property (read the first time it's needed),
+  else the default. They're in parley-net's settings list, so the start-up check knows them.
+
 ### Added (2026-11-11: session IDs in the log, To-Do 19.7)
 
 - **Every session has an ID**, the server's name and a number (`Pop3Server-4127`), in front of

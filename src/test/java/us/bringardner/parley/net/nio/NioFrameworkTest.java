@@ -469,4 +469,78 @@ public class NioFrameworkTest {
 		ExecutionException e = assertThrows(ExecutionException.class, () -> f.get(5, TimeUnit.SECONDS));
 		assertTrue(e.getCause() instanceof IllegalStateException, "the factory's exception: "+e.getCause());
 	}
+
+	@Test
+	public void settingsComeFromThePropertiesWhenNotSet() throws Exception {
+		String name = "nio-settings-test";
+		String[][] settings = {
+				{NioServer.PROPERTY_MAX_IDLE_TIME, "30m"},
+				{NioServer.PROPERTY_REACTOR_COUNT, "2"},
+				{NioServer.PROPERTY_INITIAL_INPUT_BUFFER, "4096"},
+				{NioServer.PROPERTY_MAX_INPUT_BUFFER, "65536"},
+				{NioServer.PROPERTY_RECEIVE_BUFFER_SIZE, "32768"},
+				{NioServer.PROPERTY_SEND_BUFFER_SIZE, "16384"}};
+		NioServer defaults = new NioServer(0, name);
+		assertEquals(NioServer.DEFAULT_MAX_IDLE_TIME, defaults.getMaxIdleTime());
+		assertEquals(NioServer.DEFAULT_REACTOR_COUNT, defaults.getReactorCount());
+		assertEquals(NioConnection.DEFAULT_INITIAL_INPUT_BUFFER, defaults.getInitialInputBuffer());
+		assertEquals(NioConnection.DEFAULT_MAX_INPUT_BUFFER, defaults.getMaxInputBuffer());
+		assertEquals(0, defaults.getReceiveBufferSize());
+		assertEquals(0, defaults.getSendBufferSize());
+		for (String[] setting : settings) {
+			System.setProperty(name+"."+setting[0], setting[1]);
+		}
+		try {
+			NioServer fromProperties = new NioServer(0, name);
+			assertEquals(30*60*1000L, fromProperties.getMaxIdleTime());
+			assertEquals(2, fromProperties.getReactorCount());
+			assertEquals(4096, fromProperties.getInitialInputBuffer());
+			assertEquals(65536, fromProperties.getMaxInputBuffer());
+			assertEquals(32768, fromProperties.getReceiveBufferSize());
+			assertEquals(16384, fromProperties.getSendBufferSize());
+
+			NioServer set = new NioServer(0, name);
+			set.setMaxIdleTime(1000);
+			set.setReactorCount(3);
+			set.setInitialInputBuffer(100);
+			set.setMaxInputBuffer(200);
+			set.setReceiveBufferSize(300);
+			set.setSendBufferSize(400);
+			assertEquals(1000, set.getMaxIdleTime(), "a set value wins over the property");
+			assertEquals(3, set.getReactorCount());
+			assertEquals(100, set.getInitialInputBuffer());
+			assertEquals(200, set.getMaxInputBuffer());
+			assertEquals(300, set.getReceiveBufferSize());
+			assertEquals(400, set.getSendBufferSize());
+
+			System.setProperty(name+"."+NioServer.PROPERTY_REACTOR_COUNT, "0");
+			NioServer invalid = new NioServer(0, name);
+			invalid.setLogLevel(us.bringardner.parley.core.LogLevel.NONE);
+			assertEquals(NioServer.DEFAULT_REACTOR_COUNT, invalid.getReactorCount(), "fewer than one reactor: the default");
+		} finally {
+			for (String[] setting : settings) {
+				System.clearProperty(name+"."+setting[0]);
+			}
+		}
+	}
+
+	/** The maxIdleTime property reaches the connections: an idle one is closed. */
+	@Test
+	public void theMaxIdleTimePropertyClosesAnIdleConnection() throws Exception {
+		String name = "nio-idle-test";
+		System.setProperty(name+"."+NioServer.PROPERTY_MAX_IDLE_TIME, "300ms");
+		try {
+			server = new NioServer(0, name);
+			server.setHandlerFactory(LineEcho::new);
+			server.setDecoderFactory(LineFrameDecoder::new);
+			server.startAndWait(5000);
+			client = new NioClient();
+			Collector c = new Collector();
+			client.connectAndWait(new InetSocketAddress("localhost", server.getLocalPort()), c, new LineFrameDecoder());
+			assertEquals("220 ready", c.nextLine());
+			assertTrue(c.closed.await(5, TimeUnit.SECONDS), "the idle connection was closed");
+		} finally {
+			System.clearProperty(name+"."+NioServer.PROPERTY_MAX_IDLE_TIME);
+		}
+	}
 }

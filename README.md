@@ -586,6 +586,10 @@ JMX management, one server never stopping another), see parley-mail-admin.
 | Connections per client address | unlimited | `setMaxConnectionsPerClient(n)` or the `maxConnectionsPerClient` property (`Server` and `NioServer`) |
 | Client addresses allowed | everyone | `setAllowedClients("127.0.0.1 10.0.0.0/8")` or the `allowedClients` property; others are closed at once |
 | NIO frame time limit | none | `NioServer.setFrameTimeout(ms)` or the `frameTimeout` property (a duration, `30s`): a frame must arrive within this once it has started |
+| NIO idle connections closed after | 24 h | `NioServer.setMaxIdleTime(ms)` or the `maxIdleTime` property (a duration, `30m`), 0 = never; the handler's `onIdle` closes it by default |
+| NIO reactor threads | processors, 1 to 4 | `NioServer.setReactorCount(n)` or the `reactorCount` property; applies from the next start |
+| NIO input buffer | 8 KiB, growing to 1 MiB | `NioServer.setInitialInputBuffer(bytes)`, `setMaxInputBuffer(bytes)` or the `initialInputBuffer` and `maxInputBuffer` properties; the largest must hold the largest frame |
+| NIO socket buffers (SO_RCVBUF, SO_SNDBUF) | the OS's | `NioServer.setReceiveBufferSize(bytes)`, `setSendBufferSize(bytes)` or the `receiveBufferSize` and `sendBufferSize` properties |
 | Longest line | 64 KiB | `Connection.setDefaultMaxLineLength(n)` or `setMaxLineLength(n)`, 0 = none |
 | Client read time-out | 5 min | `client.setTimeout(ms)`, `Client.setDefaultReadTimeout(ms)`, or the `readTimeout` property (a duration, `5m`) |
 | Client connect time-out | 30 s | `client.setConnectTimeout(ms)` or the `connectTimeout` property (a duration, `30s`) |
