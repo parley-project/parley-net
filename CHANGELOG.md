@@ -2,6 +2,55 @@
 
 ## parley-net 2.0.0 (unreleased)
 
+### Fixed (2026-11-15: NioServer and NioClient review)
+
+- **An accept error no longer stops `NioServer`.** A failed `accept()` (too many open files, say) ended
+  the server; now it is logged and the server stops accepting for `NioServer.ACCEPT_ERROR_PAUSE` (1000 ms)
+  and then goes on, as `Server` does. The connections waiting in the backlog are accepted after the pause.
+  Only a closed server channel ends the server, and `stop()` doesn't wait for a pause to end.
+- **The `tcpNoDelay` property is read again by `Server` and `NioServer`.** Their default of true replaced
+  parley-core's property lookup, so `name.tcpNoDelay=false` did nothing. Now a value set with
+  `setTcpNoDelay()` wins, else the property, else true.
+- **`NioClient.close()` waits for its connections to close** (up to `NioClient.CLOSE_TIMEOUT`, 5000 ms):
+  when it returns the sockets are closed and `onClose` has run (unless handlers run on an executor).
+  Called from a handler on the client's reactor thread it returns at once.
+- **`NioClient.connect(host, port, handler)` doesn't look up the host name on the caller's thread.**
+  An unresolved address is looked up on a thread of the client's (ended by `close()`), so `connect`
+  returns at once and a handler can connect from the reactor thread without holding it up. A host
+  that can't be found fails the future with `UnknownHostException`; the connect timeout counts the
+  lookup. A failing decoder factory fails the future instead of throwing, and a connect that fails
+  at once closes its connection.
+- **`NioClient` replaces a reactor whose thread ended on an error**; before, every later connect
+  waited on it until the connect timeout (forever with no timeout).
+- **The `NioClient.connect` Javadoc gives the right order**: the future completes after the
+  handler's `onConnect` has run (or been handed to the handler executor), not just before it.
+- **`NioServer`'s login timer holds only the connection's ID**, so a connection that closes before
+  the `loginTimeLimit` can be garbage collected at once instead of after the limit.
+- **A `NioServer` that can't start closes the user registry it made** from the provider setting,
+  as a stop does.
+- `NioServer`'s settings are `volatile`, so a setter called on another thread is seen by the server
+  thread.
+
+### Added (2026-11-15: NioServer properties)
+
+- **`NioServer` reads six more properties** under its prefix: `maxIdleTime` (a duration, default
+  `24h`), `reactorCount` (default: the processors, 1 to 4), `initialInputBuffer` and `maxInputBuffer`
+  (bytes, default 8 KiB and 1 MiB), `receiveBufferSize` and `sendBufferSize` (bytes, default the OS's).
+  As with `frameTimeout`, a value set in code wins, else the property (read the first time it's needed),
+  else the default. They're in parley-net's settings list, so the start-up check knows them.
+- **`Server` reads the `maxIdleTime` property** (the same name as `NioServer`'s) for
+  `getMaxIdleConnection()`, and **both servers read `reuseAddress`** (default true), each in the same
+  way: a value set in code wins, else the property, else the default. `IBaseServer.PROPERTY_MAX_IDLE_TIME`
+  and `PROPERTY_REUSE_ADDRESS` name them. An idle limit of 0 now means never in `Server`'s admin check
+  too, as it already did in the session loop.
+
+### Removed (2026-11-15: one connection limit)
+
+- **`Server.setMaxClients()`, `getMaxClients()` and `DEFAULT_MAX_CLIENTS`.** `Server` now limits its
+  sessions with parley-core's `maxConnections` (`setMaxConnections(n)` or the `maxConnections`
+  property), as `NioServer` does. Before, `Server` ignored `maxConnections`, so the property did
+  nothing on a thread-per-connection server.
+
 ### Added (2026-11-11: session IDs in the log, To-Do 19.7)
 
 - **Every session has an ID**, the server's name and a number (`Pop3Server-4127`), in front of

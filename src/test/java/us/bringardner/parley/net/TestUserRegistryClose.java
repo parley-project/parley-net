@@ -7,6 +7,8 @@ import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
+import java.io.IOException;
+import java.net.ServerSocket;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import org.junit.jupiter.api.AfterEach;
@@ -199,5 +201,22 @@ public class TestUserRegistryClose {
 		ServerTestSupport.waitFor(() -> !server.isRunning(), 5000, "server did not stop");
 		assertEquals(0, given.closed.get(), "the server doesn't close a registry it was given");
 		given.close();
+	}
+
+	/** A start that fails (the port is taken) closes the registry it made, as a stop does. */
+	@Test
+	public void aNioServerThatCannotStartClosesTheListItMade() throws Exception {
+		System.setProperty(NIO_NAME + "." + IServer.AUTHENTICATION_PROVIDER_PROPERTY, CountingRegistry.class.getName());
+		try (ServerSocket taken = new ServerSocket(0)) {
+			NioServer server = new NioServer(taken.getLocalPort(), NIO_NAME);
+			server.setReuseAddress(false);
+			server.setLogLevel(LogLevel.NONE);
+			server.setHandlerFactory(() -> (connection, frame) -> {
+			});
+			CountingRegistry made = (CountingRegistry) server.getUserRegistry();
+			assertThrows(IOException.class, () -> server.startAndWait(5000));
+			ServerTestSupport.waitFor(() -> !server.isRunning(), 5000, "server did not end");
+			assertEquals(1, made.closed.get(), "closed when the start failed");
+		}
 	}
 }

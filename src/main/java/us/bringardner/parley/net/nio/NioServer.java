@@ -31,6 +31,7 @@ import java.net.InetSocketAddress;
 import java.net.SocketAddress;
 import java.net.StandardSocketOptions;
 import java.nio.ByteBuffer;
+import java.nio.channels.ClosedChannelException;
 import java.nio.channels.ClosedSelectorException;
 import java.nio.channels.SelectionKey;
 import java.nio.channels.Selector;
@@ -51,6 +52,7 @@ import javax.net.ssl.SSLEngine;
 
 import us.bringardner.parley.core.LogContext;
 import us.bringardner.parley.core.util.AbstractCoreServer;
+import us.bringardner.parley.core.util.SocketOptions;
 import us.bringardner.parley.iam.UserRegistry;
 import us.bringardner.parley.io.IoUtils;
 import us.bringardner.parley.net.server.IBaseServer;
@@ -75,6 +77,12 @@ import us.bringardner.parley.net.server.SessionLog;
  * Like every Parley server it extends parley-core's AbstractCoreServer, so the same properties 
  * configure it (port, bindAddress, backlog, keepAlive, tcpNoDelay, maxConnections, the key 
  * store settings of SecureBaseObject...), and the server attributes are shared by all connections.
+ * Its own properties are {@value #PROPERTY_FRAME_TIMEOUT}, {@value IBaseServer#PROPERTY_MAX_IDLE_TIME},
+ * {@value IBaseServer#PROPERTY_REUSE_ADDRESS},
+ * {@value #PROPERTY_REACTOR_COUNT}, {@value #PROPERTY_INITIAL_INPUT_BUFFER},
+ * {@value #PROPERTY_MAX_INPUT_BUFFER}, {@value #PROPERTY_RECEIVE_BUFFER_SIZE} and
+ * {@value #PROPERTY_SEND_BUFFER_SIZE}. For each, a value set in code wins, else the property
+ * (read the first time it's needed), else the default.
  * <p>
  * TLS uses the server's SSLContext ({@code getSSLContext()}, from the key store settings): a 
  * secure server ({@code setSecure(true)} or the {@code secure} property) speaks TLS from the 
@@ -94,14 +102,32 @@ public class NioServer extends AbstractCoreServer implements IBaseServer {
 	/** Close connections idle for 24 hours, as the framework's Server does */
 	public static final long DEFAULT_MAX_IDLE_TIME = 1000L*60*60*24;
 	public static final int DEFAULT_REACTOR_COUNT = Math.max(1, Math.min(4, Runtime.getRuntime().availableProcessors()));
+	/**
+	 * How long (ms) the server stops accepting after accept() fails, e.g. with too many open
+	 * files: the connections waiting in the backlog would fail the same way, so retrying at
+	 * once only spins.
+	 */
+	public static final long ACCEPT_ERROR_PAUSE = 1000;
 
-	private boolean reuseAddress = true;
-	// AbstractCoreServer defaults TCP_NODELAY to false; like the framework's Server this defaults to true
-	private boolean tcpNoDelay = true;
-	private int receiveBufferSize = 0;
-	private int sendBufferSize = 0;
-	private String serverBusyMessage;
-	private long maxIdleTime = DEFAULT_MAX_IDLE_TIME;
+	// Settings: set on any thread, read by the server thread. null until set, or read from the property
+	private volatile Boolean reuseAddress;
+	// null until set or read from the tcpNoDelay property; unlike AbstractCoreServer (false) the default is true
+	private volatile Boolean tcpNoDelay;
+	/** Property: SO_RCVBUF (bytes) for accepted sockets, 0 = the OS default */
+	public static final String PROPERTY_RECEIVE_BUFFER_SIZE = "receiveBufferSize";
+	/** Property: SO_SNDBUF (bytes) for accepted sockets, 0 = the OS default */
+	public static final String PROPERTY_SEND_BUFFER_SIZE = "sendBufferSize";
+	/** Property: the number of reactor (selector) threads */
+	public static final String PROPERTY_REACTOR_COUNT = "reactorCount";
+	/** Property: the starting size (bytes) of a connection's input buffer */
+	public static final String PROPERTY_INITIAL_INPUT_BUFFER = "initialInputBuffer";
+	/** Property: the largest size (bytes) of a connection's input buffer; it must hold the largest frame */
+	public static final String PROPERTY_MAX_INPUT_BUFFER = "maxInputBuffer";
+	//  For each setting below: null until set, or until read from its property the first time it's needed
+	private volatile Integer receiveBufferSize;
+	private volatile Integer sendBufferSize;
+	private volatile String serverBusyMessage;
+	private volatile Long maxIdleTime;
 	//  setServerChannel: a channel bound by the caller, for the next start
 	private volatile ServerSocketChannel boundChannel;
 	/** Property: the most time (ms) a frame may take to arrive once it has started, 0 = no limit */
@@ -109,17 +135,20 @@ public class NioServer extends AbstractCoreServer implements IBaseServer {
 	private volatile long frameTimeout = -1;
 	//  The client address of each connection, to give back its per-client place
 	private final Map<Long, InetAddress> clientAddresses = new ConcurrentHashMap<Long, InetAddress>();
-	private int reactorCount = DEFAULT_REACTOR_COUNT;
-	private int initialInputBuffer = NioConnection.DEFAULT_INITIAL_INPUT_BUFFER;
-	private int maxInputBuffer = NioConnection.DEFAULT_MAX_INPUT_BUFFER;
+	private volatile Integer reactorCount;
+	private volatile Integer initialInputBuffer;
+	private volatile Integer maxInputBuffer;
 	private volatile INioHandlerFactory handlerFactory;
 	private volatile Supplier<IFrameDecoder> decoderFactory = RawFrameDecoder::new;
 	private volatile Executor handlerExecutor;
 
-	private final java.util.Map<Long, NioConnection> connections = new ConcurrentHashMap<Long, NioConnection>();
+	private final Map<Long, NioConnection> connections = new ConcurrentHashMap<Long, NioConnection>();
 
 	private volatile Selector acceptSelector;
 	private volatile ServerSocketChannel serverChannel;
+	// Accept thread only: the server channel's key, and when accepting resumes after an accept error (0 = not paused)
+	private SelectionKey acceptKey;
+	private volatile long acceptPausedUntil;
 	private volatile NioReactor[] reactors;
 	private final AtomicInteger nextReactor = new AtomicInteger();
 	private volatile UserRegistry userRegistry;
@@ -232,6 +261,8 @@ public class NioServer extends AbstractCoreServer implements IBaseServer {
 			logError("Can't open server "+getName()+" on port "+getPort(), e);
 			startupError = e;
 			cleanup();
+			// as when it stops: a registry made from the provider setting before start() isn't left open
+			closeOwnUserRegistry();
 			return;
 		}
 
@@ -239,6 +270,16 @@ public class NioServer extends AbstractCoreServer implements IBaseServer {
 		logInfo("Server "+getName()+" is running on port "+getLocalPort()+".");
 		try {
 			while( !stopping ) {
+				if( acceptPausedUntil != 0 ) {
+					long wait = acceptPausedUntil-System.currentTimeMillis();
+					if( wait > 0 ) {
+						// nothing is selected while paused: this waits for the pause to end or for stop()
+						acceptSelector.select(wait);
+						continue;
+					}
+					acceptPausedUntil = 0;
+					acceptKey.interestOps(SelectionKey.OP_ACCEPT);
+				}
 				acceptSelector.select();
 				Iterator<SelectionKey> it = acceptSelector.selectedKeys().iterator();
 				while( it.hasNext() ) {
@@ -280,16 +321,18 @@ public class NioServer extends AbstractCoreServer implements IBaseServer {
 			serverChannel = ch;
 			ch.configureBlocking(false);
 			// set before binding so a restart doesn't fail while the old port is in TIME_WAIT
-			ch.setOption(StandardSocketOptions.SO_REUSEADDR, reuseAddress);
-			if( receiveBufferSize > 0 ) {
+			ch.setOption(StandardSocketOptions.SO_REUSEADDR, isReuseAddress());
+			int rcvbuf = getReceiveBufferSize();
+			if( rcvbuf > 0 ) {
 				// set before binding so it applies to the window of accepted sockets
-				ch.setOption(StandardSocketOptions.SO_RCVBUF, receiveBufferSize);
+				ch.setOption(StandardSocketOptions.SO_RCVBUF, rcvbuf);
 			}
 			ch.bind(new InetSocketAddress(getBindAddr(), getPort()), getBacklog());
 		}
-		ch.register(acceptSelector, SelectionKey.OP_ACCEPT);
+		acceptPausedUntil = 0;
+		acceptKey = ch.register(acceptSelector, SelectionKey.OP_ACCEPT);
 
-		int count = Math.max(1, reactorCount);
+		int count = Math.max(1, getReactorCount());
 		NioReactor[] rs = new NioReactor[count];
 		reactors = rs;
 		String name = getName();
@@ -305,6 +348,7 @@ public class NioServer extends AbstractCoreServer implements IBaseServer {
 		IoUtils.closeQuietly(ch);
 		Selector s = acceptSelector;
 		acceptSelector = null;
+		acceptKey = null;
 		IoUtils.closeQuietly(s);
 		for (NioConnection conn : new ArrayList<NioConnection>(connections.values())) {
 			conn.close();
@@ -331,12 +375,38 @@ public class NioServer extends AbstractCoreServer implements IBaseServer {
 		}
 	}
 
+	/**
+	 * Accept every waiting connection. An accept that fails while the server channel is still
+	 * open (too many open files...) pauses accepting for {@link #ACCEPT_ERROR_PAUSE} ms, as the
+	 * framework's Server logs it and goes on; only a closed server channel ends the server.
+	 *
+	 * @throws IOException if the server channel is closed
+	 */
 	private void acceptAll() throws IOException {
 		ServerSocketChannel ch = serverChannel;
-		SocketChannel sc;
-		while( ch != null && (sc = ch.accept()) != null ) {
+		while( ch != null && !stopping ) {
+			SocketChannel sc;
+			try {
+				sc = accept(ch);
+			} catch (IOException e) {
+				if( e instanceof ClosedChannelException || !ch.isOpen() ) {
+					throw e;
+				}
+				logError("Can't accept a connection in server "+getName()+", not accepting for "+ACCEPT_ERROR_PAUSE+" ms", e);
+				acceptPausedUntil = System.currentTimeMillis()+ACCEPT_ERROR_PAUSE;
+				acceptKey.interestOps(0);
+				return;
+			}
+			if( sc == null ) {
+				return;
+			}
 			handleNewConnection(sc);
 		}
+	}
+
+	/** The accept itself, separate so a test can make it fail */
+	SocketChannel accept(ServerSocketChannel ch) throws IOException {
+		return ch.accept();
 	}
 
 	/**
@@ -367,8 +437,9 @@ public class NioServer extends AbstractCoreServer implements IBaseServer {
 			acquiredFor = client;
 			sc.setOption(StandardSocketOptions.TCP_NODELAY, isTcpNoDelay());
 			sc.setOption(StandardSocketOptions.SO_KEEPALIVE, isKeepAlive());
-			if( sendBufferSize > 0 ) {
-				sc.setOption(StandardSocketOptions.SO_SNDBUF, sendBufferSize);
+			int sndbuf = getSendBufferSize();
+			if( sndbuf > 0 ) {
+				sc.setOption(StandardSocketOptions.SO_SNDBUF, sndbuf);
 			}
 
 			NioReactor reactor = nextReactor();
@@ -377,7 +448,7 @@ public class NioServer extends AbstractCoreServer implements IBaseServer {
 				throw new IllegalStateException("The handler factory returned null");
 			}
 			conn = new NioConnection(sc, reactor, this, handler, decoderFactory.get(), 
-					handlerExecutor, initialInputBuffer, maxInputBuffer, maxIdleTime, this::createSSLEngine, isSecure());
+					handlerExecutor, getInitialInputBuffer(), getMaxInputBuffer(), getMaxIdleTime(), this::createSSLEngine, isSecure());
 			conn.setFrameTimeout(getFrameTimeout());
 			if( client != null ) {
 				clientAddresses.put(conn.getId(), client);
@@ -492,48 +563,84 @@ public class NioServer extends AbstractCoreServer implements IBaseServer {
 		return connections.size();
 	}
 
+	/**
+	 * @return true to set SO_REUSEADDR on the server socket: the value set, else the
+	 * {@value IBaseServer#PROPERTY_REUSE_ADDRESS} property, else true
+	 */
 	public boolean isReuseAddress() {
-		return reuseAddress;
+		Boolean ret = reuseAddress;
+		if( ret == null ) {
+			ret = getBooleanProperty(propertyName(PROPERTY_REUSE_ADDRESS), true);
+			reuseAddress = ret;
+		}
+		return ret;
 	}
 
 	/**
-	 * Set SO_REUSEADDR on the server socket (default true).
+	 * Set SO_REUSEADDR on the server socket (default true), in place of the property.
 	 */
 	public void setReuseAddress(boolean reuseAddress) {
 		this.reuseAddress = reuseAddress;
 	}
 
-	//  Overrides AbstractCoreServer (which defaults to false): this server defaults to true
+	/**
+	 * @return true to set TCP_NODELAY on accepted sockets: the value set, else the
+	 * {@value SocketOptions#PROPERTY_TCP_NO_DELAY} property, else true (AbstractCoreServer's
+	 * default is false; like the framework's Server this one defaults to true)
+	 */
 	@Override
 	public boolean isTcpNoDelay() {
-		return tcpNoDelay;
+		Boolean ret = tcpNoDelay;
+		if( ret == null ) {
+			ret = getBooleanProperty(propertyName(SocketOptions.PROPERTY_TCP_NO_DELAY), true);
+			tcpNoDelay = ret;
+		}
+		return ret;
 	}
 
 	/**
-	 * Set TCP_NODELAY on accepted sockets (default true).
+	 * Set TCP_NODELAY on accepted sockets (default true), in place of the property.
 	 */
 	@Override
 	public void setTcpNoDelay(boolean tcpNoDelay) {
 		this.tcpNoDelay = tcpNoDelay;
 	}
 
+	/**
+	 * @return SO_RCVBUF (bytes) for accepted sockets, 0 = the OS default: the value set, else the
+	 * {@value #PROPERTY_RECEIVE_BUFFER_SIZE} property, else 0
+	 */
 	public int getReceiveBufferSize() {
-		return receiveBufferSize;
+		Integer ret = receiveBufferSize;
+		if( ret == null ) {
+			ret = Math.max(0, getIntProperty(propertyName(PROPERTY_RECEIVE_BUFFER_SIZE), 0));
+			receiveBufferSize = ret;
+		}
+		return ret;
 	}
 
 	/**
-	 * SO_RCVBUF for accepted sockets, 0 = OS default. Applies from the next start.
+	 * SO_RCVBUF for accepted sockets, 0 = OS default, in place of the property. Applies from the next start.
 	 */
 	public void setReceiveBufferSize(int receiveBufferSize) {
 		this.receiveBufferSize = receiveBufferSize;
 	}
 
+	/**
+	 * @return SO_SNDBUF (bytes) for accepted sockets, 0 = the OS default: the value set, else the
+	 * {@value #PROPERTY_SEND_BUFFER_SIZE} property, else 0
+	 */
 	public int getSendBufferSize() {
-		return sendBufferSize;
+		Integer ret = sendBufferSize;
+		if( ret == null ) {
+			ret = Math.max(0, getIntProperty(propertyName(PROPERTY_SEND_BUFFER_SIZE), 0));
+			sendBufferSize = ret;
+		}
+		return ret;
 	}
 
 	/**
-	 * SO_SNDBUF for accepted sockets, 0 = OS default.
+	 * SO_SNDBUF for accepted sockets, 0 = OS default, in place of the property.
 	 */
 	public void setSendBufferSize(int sendBufferSize) {
 		this.sendBufferSize = sendBufferSize;
@@ -552,8 +659,9 @@ public class NioServer extends AbstractCoreServer implements IBaseServer {
 
 	/**
 	 * @return the most time (ms) a frame may take to arrive once its first byte is here, 0 for
-	 *  no limit (the {@value #PROPERTY_FRAME_TIMEOUT} property). A peer that trickles a frame one
-	 *  byte at a time is never idle; this closes it.
+	 *  no limit: the value set, else the {@value #PROPERTY_FRAME_TIMEOUT} property (read the first
+	 *  time it's needed), else 0. A peer that trickles a frame one byte at a time is never idle;
+	 *  this closes it.
 	 */
 	public long getFrameTimeout() {
 		if( frameTimeout < 0 ) {
@@ -567,43 +675,92 @@ public class NioServer extends AbstractCoreServer implements IBaseServer {
 		frameTimeout = Math.max(0, milliSeconds);
 	}
 
+	/**
+	 * @return time (ms) without reads or writes before the handler's onIdle, 0 = never: the value
+	 * set, else the {@value IBaseServer#PROPERTY_MAX_IDLE_TIME} property (a duration, {@code 30m}), else
+	 * {@link #DEFAULT_MAX_IDLE_TIME} (24 hours)
+	 */
 	public long getMaxIdleTime() {
-		return maxIdleTime;
+		Long ret = maxIdleTime;
+		if( ret == null ) {
+			ret = Math.max(0, getDuration(propertyName(PROPERTY_MAX_IDLE_TIME), DEFAULT_MAX_IDLE_TIME));
+			maxIdleTime = ret;
+		}
+		return ret;
 	}
 
 	/**
 	 * @param milliSeconds time without reads or writes before the handler's onIdle
-	 * (which closes the connection by default), 0 = never. Applies to new connections.
+	 * (which closes the connection by default), 0 = never, in place of the property.
+	 * Applies to new connections.
 	 */
 	public void setMaxIdleTime(long milliSeconds) {
 		this.maxIdleTime = milliSeconds;
 	}
 
+	/**
+	 * @return the number of reactor (selector) threads: the value set, else the
+	 * {@value #PROPERTY_REACTOR_COUNT} property, else {@link #DEFAULT_REACTOR_COUNT}
+	 * (the processors, 1 to 4)
+	 */
 	public int getReactorCount() {
-		return reactorCount;
+		Integer ret = reactorCount;
+		if( ret == null ) {
+			ret = getIntProperty(propertyName(PROPERTY_REACTOR_COUNT), DEFAULT_REACTOR_COUNT);
+			if( ret < 1 ) {
+				logError("Invalid "+propertyName(PROPERTY_REACTOR_COUNT)+" "+ret+", using "+DEFAULT_REACTOR_COUNT);
+				ret = DEFAULT_REACTOR_COUNT;
+			}
+			reactorCount = ret;
+		}
+		return ret;
 	}
 
 	/**
-	 * @param reactorCount number of selector threads, applies from the next start
+	 * @param reactorCount number of selector threads, in place of the property; applies from the next start
 	 */
 	public void setReactorCount(int reactorCount) {
 		this.reactorCount = reactorCount;
 	}
 
+	/**
+	 * @return the starting size (bytes) of a connection's input buffer: the value set, else the
+	 * {@value #PROPERTY_INITIAL_INPUT_BUFFER} property, else NioConnection's default
+	 */
 	public int getInitialInputBuffer() {
-		return initialInputBuffer;
+		Integer ret = initialInputBuffer;
+		if( ret == null ) {
+			ret = getIntProperty(propertyName(PROPERTY_INITIAL_INPUT_BUFFER), NioConnection.DEFAULT_INITIAL_INPUT_BUFFER);
+			initialInputBuffer = ret;
+		}
+		return ret;
 	}
 
+	/**
+	 * @param size the starting size of a connection's input buffer, in place of the property;
+	 * applies to new connections
+	 */
 	public void setInitialInputBuffer(int size) {
 		this.initialInputBuffer = size;
 	}
 
+	/**
+	 * @return the largest size (bytes) of a connection's input buffer, which must hold the largest
+	 * frame: the value set, else the {@value #PROPERTY_MAX_INPUT_BUFFER} property, else
+	 * NioConnection's default
+	 */
 	public int getMaxInputBuffer() {
-		return maxInputBuffer;
+		Integer ret = maxInputBuffer;
+		if( ret == null ) {
+			ret = getIntProperty(propertyName(PROPERTY_MAX_INPUT_BUFFER), NioConnection.DEFAULT_MAX_INPUT_BUFFER);
+			maxInputBuffer = ret;
+		}
+		return ret;
 	}
 
 	/**
-	 * @param size the largest input buffer of a connection; it must hold the largest frame
+	 * @param size the largest input buffer of a connection, in place of the property; it must
+	 * hold the largest frame. Applies to new connections.
 	 */
 	public void setMaxInputBuffer(int size) {
 		this.maxInputBuffer = size;
@@ -633,14 +790,19 @@ public class NioServer extends AbstractCoreServer implements IBaseServer {
 	/**
 	 * With a loginTimeLimit, close the connection if nobody has logged in (it has no
 	 * principal) by then. Runs on the connection's reactor, so no thread waits.
+	 * The timer holds only the connection's ID: a connection that closes sooner isn't kept
+	 * in memory until the limit is up.
 	 */
-	private void startLoginTimer(NioConnection conn, NioReactor reactor) {
+	private void startLoginTimer(NioConnection connection, NioReactor reactor) {
 		int limit = getLoginTimeLimit();
 		if( limit <= 0 || !isLoginRequired() ) {
 			return;
 		}
+		long id = connection.getId();
 		reactor.schedule(() -> {
-			if( conn.isOpen() && conn.getPrincipal() == null ) {
+			// gone from connections once it has closed
+			NioConnection conn = connections.get(id);
+			if( conn != null && conn.isOpen() && conn.getPrincipal() == null ) {
 				try (LogContext.Scope scope = LogContext.enter(conn.getSessionId())) {
 					logInfo("Login time limit reached, closing "+conn);
 				}

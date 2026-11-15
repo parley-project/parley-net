@@ -1,6 +1,8 @@
 package us.bringardner.parley.net.nio;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.IOException;
@@ -10,8 +12,13 @@ import java.net.InetAddress;
 import java.net.Socket;
 import java.net.SocketTimeoutException;
 import java.nio.ByteBuffer;
+import java.nio.channels.ServerSocketChannel;
+import java.nio.channels.SocketChannel;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -359,5 +366,53 @@ public class NioHardeningTest {
 		server.stop(5000, false);
 		assertTrue(!ch.isOpen(), "the server closes the channel it was given");
 		server = null;
+	}
+
+	/** A server whose accept() fails the first {@code failures} times, as with too many open files */
+	private void startFailingAccepts(AtomicInteger failures, CountDownLatch failed) throws IOException {
+		server = new NioServer(0, "accept-error") {
+			@Override
+			SocketChannel accept(ServerSocketChannel ch) throws IOException {
+				if( failures.getAndDecrement() > 0 ) {
+					failed.countDown();
+					throw new IOException("Too many open files (test)");
+				}
+				return ch.accept();
+			}
+		};
+		server.setHandlerFactory(Echo::new);
+		server.setDecoderFactory(() -> new LengthFieldFrameDecoder(2, 65535, true));
+		server.setReactorCount(1);
+		server.startAndWait(5000);
+	}
+
+	@Test
+	public void anAcceptErrorPausesAcceptingInsteadOfStoppingTheServer() throws Exception {
+		CountDownLatch failed = new CountDownLatch(1);
+		startFailingAccepts(new AtomicInteger(1), failed);
+		long start = System.currentTimeMillis();
+		try(Socket s = connect()) {
+			// waits in the backlog through the pause, then is served
+			assertArrayEquals(new byte[] {1, 2, 3}, roundTrip(s, new byte[] {1, 2, 3}));
+		}
+		long took = System.currentTimeMillis()-start;
+		assertEquals(0, failed.getCount(), "the accept failed once");
+		assertTrue(server.isRunning(), "the server is still running");
+		assertTrue(took >= NioServer.ACCEPT_ERROR_PAUSE-100, "served after the pause, not at once: "+took+" ms");
+	}
+
+	@Test
+	public void stopDoesNotWaitForTheAcceptPause() throws Exception {
+		CountDownLatch failed = new CountDownLatch(1);
+		startFailingAccepts(new AtomicInteger(Integer.MAX_VALUE), failed);
+		try(Socket s = connect()) {
+			assertTrue(failed.await(5, TimeUnit.SECONDS), "the accept failed");
+			long start = System.currentTimeMillis();
+			assertTrue(server.stop(5000, false), "the server thread ended");
+			long took = System.currentTimeMillis()-start;
+			assertFalse(server.isRunning());
+			assertTrue(took < NioServer.ACCEPT_ERROR_PAUSE/2, "stopped during the pause: "+took+" ms");
+			server = null;
+		}
 	}
 }

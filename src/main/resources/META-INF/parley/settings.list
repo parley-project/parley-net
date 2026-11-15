@@ -13,6 +13,13 @@ parley.net.client.trustFile
 
 # Every server's, under its prefix (Server, NioServer, IBaseServer, FileUserRegistry)
 <server>.frameTimeout
+<server>.maxIdleTime
+<server>.reuseAddress
+<server>.reactorCount
+<server>.initialInputBuffer
+<server>.maxInputBuffer
+<server>.receiveBufferSize
+<server>.sendBufferSize
 <server>.virtualThreads
 <server>.authenticationProvider
 <server>.userFile

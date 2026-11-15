@@ -581,16 +581,20 @@ JMX management, one server never stopping another), see parley-mail-admin.
 | Setting | Default | Where |
 |---|---|---|
 | Server read time-out | 60 s | `Server.setConnectionTimeout(ms)`, 0 = none |
-| Idle connections closed after | 24 h | `Server.setMaxIdleConnection(ms)`; a session of the session loop checks it itself every second and says goodbye with `replyClosing(IDLE)`; the admin check (every 5 min) closes other processors, and a session stuck in a command |
-| Maximum concurrent clients | unlimited | `Server.setMaxClients(n)`, `setServerBusyMessage("421 ...")` |
+| Idle connections closed after | 24 h | `Server.setMaxIdleConnection(ms)` or the `maxIdleTime` property (a duration, `30m`), 0 = never; a session of the session loop checks it itself every second and says goodbye with `replyClosing(IDLE)`; the admin check (every 5 min) closes other processors, and a session stuck in a command |
+| Maximum concurrent clients | unlimited | `setMaxConnections(n)` or the `maxConnections` property (`Server` and `NioServer`), `setServerBusyMessage("421 ...")` |
 | Connections per client address | unlimited | `setMaxConnectionsPerClient(n)` or the `maxConnectionsPerClient` property (`Server` and `NioServer`) |
 | Client addresses allowed | everyone | `setAllowedClients("127.0.0.1 10.0.0.0/8")` or the `allowedClients` property; others are closed at once |
 | NIO frame time limit | none | `NioServer.setFrameTimeout(ms)` or the `frameTimeout` property (a duration, `30s`): a frame must arrive within this once it has started |
+| NIO idle connections closed after | 24 h | `NioServer.setMaxIdleTime(ms)` or the `maxIdleTime` property (a duration, `30m`), 0 = never; the handler's `onIdle` closes it by default |
+| NIO reactor threads | processors, 1 to 4 | `NioServer.setReactorCount(n)` or the `reactorCount` property; applies from the next start |
+| NIO input buffer | 8 KiB, growing to 1 MiB | `NioServer.setInitialInputBuffer(bytes)`, `setMaxInputBuffer(bytes)` or the `initialInputBuffer` and `maxInputBuffer` properties; the largest must hold the largest frame |
+| NIO socket buffers (SO_RCVBUF, SO_SNDBUF) | the OS's | `NioServer.setReceiveBufferSize(bytes)`, `setSendBufferSize(bytes)` or the `receiveBufferSize` and `sendBufferSize` properties |
 | Longest line | 64 KiB | `Connection.setDefaultMaxLineLength(n)` or `setMaxLineLength(n)`, 0 = none |
 | Client read time-out | 5 min | `client.setTimeout(ms)`, `Client.setDefaultReadTimeout(ms)`, or the `readTimeout` property (a duration, `5m`) |
 | Client connect time-out | 30 s | `client.setConnectTimeout(ms)` or the `connectTimeout` property (a duration, `30s`) |
 | TCP_NODELAY | on | `setTcpNoDelay(false)` on `Server` or `Client` |
-| SO_REUSEADDR | on | `Server.setReuseAddress(false)` |
+| SO_REUSEADDR | on | `setReuseAddress(false)` or the `reuseAddress` property (`Server` and `NioServer`) |
 | Listen address | every address | `setBindAddr(address)` or the `bindAddress` property (`Server` and `NioServer`) |
 | Failed logins before the connection is closed | 3 | `setMaxLoginAttempts(n)` or the `maxLoginAttempts` property (`Server` and `NioServer`) |
 | Wait before answering a refused login | 1 s | `setLoginFailureDelay(ms)` or the `loginFailureDelay` property (a duration, `1s`) |

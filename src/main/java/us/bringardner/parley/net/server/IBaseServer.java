@@ -77,6 +77,19 @@ public interface IBaseServer extends IManagedThread {
 	public static final String AUTHENTICATION_PROVIDER_PROPERTY = "authenticationProvider";
 
 	/**
+	 * Property: how long a connection may send nothing before the server closes it (a duration,
+	 * {@code 30m}), 0 = never; read by Server and NioServer
+	 * @since 2.0.0
+	 */
+	public static final String PROPERTY_MAX_IDLE_TIME = "maxIdleTime";
+
+	/**
+	 * Property: SO_REUSEADDR on the listening socket (default true); read by Server and NioServer
+	 * @since 2.0.0
+	 */
+	public static final String PROPERTY_REUSE_ADDRESS = "reuseAddress";
+
+	/**
 	 * The prefix of this server's properties (for example parley.mail.pop3): its own settings, such as
 	 * port, and those of its user registry, such as userFile, are read as prefix.name.
 	 */

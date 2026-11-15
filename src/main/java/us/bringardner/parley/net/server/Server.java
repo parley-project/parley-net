@@ -49,6 +49,7 @@ import us.bringardner.parley.core.BaseThread;
 import us.bringardner.parley.core.LogContext;
 import us.bringardner.parley.core.NamedThreadFactory;
 import us.bringardner.parley.core.util.AbstractCoreServer;
+import us.bringardner.parley.core.util.SocketOptions;
 import us.bringardner.parley.iam.UserRegistry;
 import us.bringardner.parley.io.IoUtils;
 import us.bringardner.parley.net.Connection;
@@ -69,8 +70,6 @@ public class Server extends AbstractCoreServer implements IServer {
 	public static final long DEFAULT_MAX_IDLE_CONNECTION = 1000*60*60*24;
 	//  Default admin freq = 5min
 	private static final long DEFAULT_ADMIN_REFQ = 1000*60*5;
-	//  Max concurrent clients, 0 = unlimited
-	public static final int DEFAULT_MAX_CLIENTS = 0;
 
 	private static int defaultAcceptTimeout = DEFAULT_ACCEPT_TIMEOUT;
 	private static int defaultConnectionTimeout = DEFAULT_CONNECTION_TIMEOUT;
@@ -82,7 +81,8 @@ public class Server extends AbstractCoreServer implements IServer {
 
 	private IConnectionFactory connectionFactory;
 	private int acceptTimeout     = getDefaultAcceptTimeout();
-	private long maxIdleConnection = DEFAULT_MAX_IDLE_CONNECTION;
+	// null until set, or until read from the maxIdleTime property the first time it's needed
+	private volatile Long maxIdleConnection;
 	private volatile long adminFreq = DEFAULT_ADMIN_REFQ;
 	private volatile long lastAdmin=0;
 
@@ -123,13 +123,14 @@ public class Server extends AbstractCoreServer implements IServer {
 	private final Map<IProcessor, java.net.InetAddress> clientAddresses = new ConcurrentHashMap<IProcessor, java.net.InetAddress>();
 	private volatile ScheduledFuture<?> adminTask;
 	private int connectionTimeout = getDefaultConnectionTimeout();
-	private int maxClients = DEFAULT_MAX_CLIENTS;
 	private String serverBusyMessage;
 	private volatile ServerSocket svr = null;
 	// Why the last start() failed (null if it started or is still starting)
 	private volatile Throwable startupError;
-	private boolean tcpNoDelay = true;
-	private boolean reuseAddress = true;
+	// null until set or read from the tcpNoDelay property; unlike AbstractCoreServer (false) the default is true
+	private volatile Boolean tcpNoDelay;
+	// null until set, or until read from the reuseAddress property the first time it's needed
+	private volatile Boolean reuseAddress;
 	private int backlog = 0;
 	private boolean debug;
 	private volatile UserRegistry userRegistry;
@@ -597,26 +598,44 @@ public class Server extends AbstractCoreServer implements IServer {
 		}
 	}
 
-	//  Overrides parley-core's AbstractCoreServer (which defaults to false): this server defaults to true
+	/**
+	 * @return true to set TCP_NODELAY on accepted sockets: the value set, else the
+	 * {@value SocketOptions#PROPERTY_TCP_NO_DELAY} property, else true (parley-core's
+	 * AbstractCoreServer defaults to false; this server defaults to true)
+	 */
 	@Override
 	public boolean isTcpNoDelay() {
-		return tcpNoDelay;
+		Boolean ret = tcpNoDelay;
+		if( ret == null ) {
+			ret = getBooleanProperty(propertyName(SocketOptions.PROPERTY_TCP_NO_DELAY), true);
+			tcpNoDelay = ret;
+		}
+		return ret;
 	}
 
 	/**
-	 * Set TCP_NODELAY on accepted sockets (default true).
+	 * Set TCP_NODELAY on accepted sockets (default true), in place of the property.
 	 */
 	@Override
 	public void setTcpNoDelay(boolean tcpNoDelay) {
 		this.tcpNoDelay = tcpNoDelay;
 	}
 
+	/**
+	 * @return true to set SO_REUSEADDR on the server socket: the value set, else the
+	 * {@value IBaseServer#PROPERTY_REUSE_ADDRESS} property, else true
+	 */
 	public boolean isReuseAddress() {
-		return reuseAddress;
+		Boolean ret = reuseAddress;
+		if( ret == null ) {
+			ret = getBooleanProperty(propertyName(PROPERTY_REUSE_ADDRESS), true);
+			reuseAddress = ret;
+		}
+		return ret;
 	}
 
 	/**
-	 * Set SO_REUSEADDR on the server socket (default true).
+	 * Set SO_REUSEADDR on the server socket (default true), in place of the property.
 	 */
 	public void setReuseAddress(boolean reuseAddress) {
 		this.reuseAddress = reuseAddress;
@@ -654,7 +673,8 @@ public class Server extends AbstractCoreServer implements IServer {
 				logInfo("Refusing connection from "+client+": not in "+PROPERTY_ALLOWED_CLIENTS);
 				return;
 			}
-			int max = getMaxClients();
+			// parley-core's maxConnections, counted here as the active sessions
+			int max = getMaxConnections();
 			if( max > 0 && activeClients.size() >= max ) {
 				logInfo("Rejecting connection from "+socket+", "+activeClients.size()+" clients active (max="+max+")");
 				rejectBusy(socket);
@@ -667,7 +687,7 @@ public class Server extends AbstractCoreServer implements IServer {
 			}
 			clientAcquired = true;
 
-			if( tcpNoDelay ) {
+			if( isTcpNoDelay() ) {
 				// Request / response protocols: don't let Nagle delay small replies
 				try {
 					socket.setTcpNoDelay(true);
@@ -1151,6 +1171,7 @@ public class Server extends AbstractCoreServer implements IServer {
 		//  Check for idle connections (sessions of the session loop check themselves while they wait
 		//  for a request; this catches one stuck in a command) and closed ones
 		lastAdmin = System.currentTimeMillis();
+		long maxIdle = getMaxIdleConnection();
 		for (Iterator<Map.Entry<Socket, IProcessor>> it = activeClients.entrySet().iterator(); it.hasNext();) {
 			Map.Entry<Socket, IProcessor> entry = it.next();
 			try {
@@ -1163,7 +1184,7 @@ public class Server extends AbstractCoreServer implements IServer {
 					endSession(entry.getValue(), null);
 				} else if( entry.getValue() instanceof AbstractCommandProcessor
 						? ((AbstractCommandProcessor) entry.getValue()).isIdleTooLong()
-						: (lastAdmin-con.getLastReadTime()) > maxIdleConnection  && (lastAdmin-con.getLastWriteTime()) > maxIdleConnection
+						: maxIdle > 0 && (lastAdmin-con.getLastReadTime()) > maxIdle  && (lastAdmin-con.getLastWriteTime()) > maxIdle
 						&& !hasRunningTask(entry.getValue())) {
 					// A session of the session loop closes itself within a second when it is idle while
 					// waiting for a request; one still idle here is stuck in a command (a write to a client
@@ -1215,19 +1236,9 @@ public class Server extends AbstractCoreServer implements IServer {
 	}
 
 	/**
-	 * Maximum number of concurrent clients, 0 = unlimited.
-	 */
-	public int getMaxClients() {
-		return maxClients;
-	}
-
-	public void setMaxClients(int maxClients) {
-		this.maxClients = maxClients;
-	}
-
-	/**
-	 * Optional line sent to clients rejected because max clients has been reached 
-	 * (plain sockets only), e.g. "421 Too many connections".
+	 * Optional line sent to clients rejected because {@link #getMaxConnections()} sessions are
+	 * open, or their address has {@link #getMaxConnectionsPerClient()} (plain sockets only),
+	 * e.g. "421 Too many connections".
 	 */
 	public String getServerBusyMessage() {
 		return serverBusyMessage;
@@ -1241,11 +1252,21 @@ public class Server extends AbstractCoreServer implements IServer {
 	 * @return how long (ms) a session may send nothing before it is closed. A session of the session
 	 * loop ({@link AbstractCommandProcessor}) checks this itself every second and says goodbye
 	 * (replyClosing(IDLE)); any other processor is closed by the admin check ({@link #setAdminFrequency(long)}).
+	 * 0 = never. The value set, else the {@value IBaseServer#PROPERTY_MAX_IDLE_TIME} property
+	 * (a duration, {@code 30m}), else {@link #DEFAULT_MAX_IDLE_CONNECTION} (24 hours).
 	 */
 	public long getMaxIdleConnection() {
-		return maxIdleConnection;
+		Long ret = maxIdleConnection;
+		if( ret == null ) {
+			ret = Math.max(0, getDuration(propertyName(PROPERTY_MAX_IDLE_TIME), DEFAULT_MAX_IDLE_CONNECTION));
+			maxIdleConnection = ret;
+		}
+		return ret;
 	}
 
+	/**
+	 * @param milliSeconds see {@link #getMaxIdleConnection()}, in place of the property
+	 */
 	public void setMaxIdleConnection(long milliSeconds) {
 		this.maxIdleConnection = milliSeconds;
 	}
