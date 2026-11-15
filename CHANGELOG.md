@@ -14,6 +14,22 @@
 - **`NioClient.close()` waits for its connections to close** (up to `NioClient.CLOSE_TIMEOUT`, 5000 ms):
   when it returns the sockets are closed and `onClose` has run (unless handlers run on an executor).
   Called from a handler on the client's reactor thread it returns at once.
+- **`NioClient.connect(host, port, handler)` doesn't look up the host name on the caller's thread.**
+  An unresolved address is looked up on a thread of the client's (ended by `close()`), so `connect`
+  returns at once and a handler can connect from the reactor thread without holding it up. A host
+  that can't be found fails the future with `UnknownHostException`; the connect timeout counts the
+  lookup. A failing decoder factory fails the future instead of throwing, and a connect that fails
+  at once closes its connection.
+- **`NioClient` replaces a reactor whose thread ended on an error**; before, every later connect
+  waited on it until the connect timeout (forever with no timeout).
+- **The `NioClient.connect` Javadoc gives the right order**: the future completes after the
+  handler's `onConnect` has run (or been handed to the handler executor), not just before it.
+- **`NioServer`'s login timer holds only the connection's ID**, so a connection that closes before
+  the `loginTimeLimit` can be garbage collected at once instead of after the limit.
+- **A `NioServer` that can't start closes the user registry it made** from the provider setting,
+  as a stop does.
+- `NioServer`'s settings are `volatile`, so a setter called on another thread is seen by the server
+  thread.
 
 ### Added (2026-11-11: session IDs in the log, To-Do 19.7)
 

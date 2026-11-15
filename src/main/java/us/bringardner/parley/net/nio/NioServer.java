@@ -103,13 +103,14 @@ public class NioServer extends AbstractCoreServer implements IBaseServer {
 	 */
 	public static final long ACCEPT_ERROR_PAUSE = 1000;
 
-	private boolean reuseAddress = true;
+	// Settings: set on any thread, read by the server thread
+	private volatile boolean reuseAddress = true;
 	// null until set or read from the tcpNoDelay property; unlike AbstractCoreServer (false) the default is true
 	private volatile Boolean tcpNoDelay;
-	private int receiveBufferSize = 0;
-	private int sendBufferSize = 0;
-	private String serverBusyMessage;
-	private long maxIdleTime = DEFAULT_MAX_IDLE_TIME;
+	private volatile int receiveBufferSize = 0;
+	private volatile int sendBufferSize = 0;
+	private volatile String serverBusyMessage;
+	private volatile long maxIdleTime = DEFAULT_MAX_IDLE_TIME;
 	//  setServerChannel: a channel bound by the caller, for the next start
 	private volatile ServerSocketChannel boundChannel;
 	/** Property: the most time (ms) a frame may take to arrive once it has started, 0 = no limit */
@@ -117,14 +118,14 @@ public class NioServer extends AbstractCoreServer implements IBaseServer {
 	private volatile long frameTimeout = -1;
 	//  The client address of each connection, to give back its per-client place
 	private final Map<Long, InetAddress> clientAddresses = new ConcurrentHashMap<Long, InetAddress>();
-	private int reactorCount = DEFAULT_REACTOR_COUNT;
-	private int initialInputBuffer = NioConnection.DEFAULT_INITIAL_INPUT_BUFFER;
-	private int maxInputBuffer = NioConnection.DEFAULT_MAX_INPUT_BUFFER;
+	private volatile int reactorCount = DEFAULT_REACTOR_COUNT;
+	private volatile int initialInputBuffer = NioConnection.DEFAULT_INITIAL_INPUT_BUFFER;
+	private volatile int maxInputBuffer = NioConnection.DEFAULT_MAX_INPUT_BUFFER;
 	private volatile INioHandlerFactory handlerFactory;
 	private volatile Supplier<IFrameDecoder> decoderFactory = RawFrameDecoder::new;
 	private volatile Executor handlerExecutor;
 
-	private final java.util.Map<Long, NioConnection> connections = new ConcurrentHashMap<Long, NioConnection>();
+	private final Map<Long, NioConnection> connections = new ConcurrentHashMap<Long, NioConnection>();
 
 	private volatile Selector acceptSelector;
 	private volatile ServerSocketChannel serverChannel;
@@ -243,6 +244,8 @@ public class NioServer extends AbstractCoreServer implements IBaseServer {
 			logError("Can't open server "+getName()+" on port "+getPort(), e);
 			startupError = e;
 			cleanup();
+			// as when it stops: a registry made from the provider setting before start() isn't left open
+			closeOwnUserRegistry();
 			return;
 		}
 
@@ -610,8 +613,9 @@ public class NioServer extends AbstractCoreServer implements IBaseServer {
 
 	/**
 	 * @return the most time (ms) a frame may take to arrive once its first byte is here, 0 for
-	 *  no limit (the {@value #PROPERTY_FRAME_TIMEOUT} property). A peer that trickles a frame one
-	 *  byte at a time is never idle; this closes it.
+	 *  no limit: the value set, else the {@value #PROPERTY_FRAME_TIMEOUT} property (read the first
+	 *  time it's needed), else 0. A peer that trickles a frame one byte at a time is never idle;
+	 *  this closes it.
 	 */
 	public long getFrameTimeout() {
 		if( frameTimeout < 0 ) {
@@ -691,14 +695,19 @@ public class NioServer extends AbstractCoreServer implements IBaseServer {
 	/**
 	 * With a loginTimeLimit, close the connection if nobody has logged in (it has no
 	 * principal) by then. Runs on the connection's reactor, so no thread waits.
+	 * The timer holds only the connection's ID: a connection that closes sooner isn't kept
+	 * in memory until the limit is up.
 	 */
-	private void startLoginTimer(NioConnection conn, NioReactor reactor) {
+	private void startLoginTimer(NioConnection connection, NioReactor reactor) {
 		int limit = getLoginTimeLimit();
 		if( limit <= 0 || !isLoginRequired() ) {
 			return;
 		}
+		long id = connection.getId();
 		reactor.schedule(() -> {
-			if( conn.isOpen() && conn.getPrincipal() == null ) {
+			// gone from connections once it has closed
+			NioConnection conn = connections.get(id);
+			if( conn != null && conn.isOpen() && conn.getPrincipal() == null ) {
 				try (LogContext.Scope scope = LogContext.enter(conn.getSessionId())) {
 					logInfo("Login time limit reached, closing "+conn);
 				}

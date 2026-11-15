@@ -8,6 +8,7 @@ import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
+import java.lang.ref.WeakReference;
 import java.net.Socket;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
@@ -184,5 +185,28 @@ public class NioLoginLimitsTest {
 			assertEquals("421 goodbye", in.readLine());
 			assertNull(in.readLine(), "closed after the third refusal");
 		}
+	}
+
+	/** The server's side of the one open connection, held only weakly */
+	private WeakReference<INioConnection> onlyConnection() {
+		return new WeakReference<INioConnection>(server.getConnections().iterator().next());
+	}
+
+	/** A connection that closes before the login time limit isn't kept until the limit is up. */
+	@Test
+	public void aClosedConnectionIsNotKeptByTheLoginTimer() throws Exception {
+		WeakReference<INioConnection> ref;
+		try (Socket socket = start(60000)) {
+			BufferedReader in = new BufferedReader(new InputStreamReader(socket.getInputStream(), StandardCharsets.UTF_8));
+			assertEquals("220 ready", in.readLine());
+			ref = onlyConnection();
+		}
+		ServerTestSupport.waitFor(() -> server.getConnectionCount() == 0, 5000, "the connection did not close");
+		long end = System.currentTimeMillis()+10000;
+		while( ref.get() != null && System.currentTimeMillis() < end ) {
+			System.gc();
+			Thread.sleep(50);
+		}
+		assertNull(ref.get(), "the closed connection can be collected while its login timer waits");
 	}
 }

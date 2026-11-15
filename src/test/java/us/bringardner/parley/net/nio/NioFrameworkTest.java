@@ -11,6 +11,7 @@ import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.net.ServerSocket;
 import java.net.StandardSocketOptions;
+import java.net.UnknownHostException;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
@@ -22,6 +23,8 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 
 import org.junit.jupiter.api.AfterEach;
@@ -424,5 +427,46 @@ public class NioFrameworkTest {
 		client.connectAndWait(new InetSocketAddress("localhost", server.getLocalPort()), c, new LineFrameDecoder());
 		assertTrue(returned.await(5, TimeUnit.SECONDS), "close() returned on the reactor thread");
 		assertTrue(c.closed.await(5, TimeUnit.SECONDS), "the connection closed");
+	}
+
+	/** A reactor whose thread ended on an error is replaced, not reused. */
+	@Test
+	public void aDeadReactorIsReplaced() throws Exception {
+		server = new NioServer(0);
+		server.setHandlerFactory(LineEcho::new);
+		server.setDecoderFactory(LineFrameDecoder::new);
+		server.startAndWait(5000);
+		client = new NioClient();
+		client.setConnectTimeout(5000);
+		NioReactor dead = client.getReactor();
+		dead.setLogLevel(us.bringardner.parley.core.LogLevel.NONE);
+		// an Error ends the reactor thread without stopping it
+		dead.execute(() -> {
+			throw new Error("test: the reactor dies");
+		});
+		dead.join(5000);
+		assertFalse(dead.isAlive(), "the reactor thread ended");
+		Collector c = new Collector();
+		client.connectAndWait(new InetSocketAddress("localhost", server.getLocalPort()), c, new LineFrameDecoder());
+		assertEquals("220 ready", c.nextLine());
+		assertTrue(client.getReactor() != dead, "a new reactor");
+	}
+
+	@Test
+	public void anUnknownHostFailsWithUnknownHostException() throws Exception {
+		client = new NioClient();
+		client.setConnectTimeout(20000);
+		assertThrows(UnknownHostException.class, () -> client.connectAndWait("no-such-host.invalid", 25, new Collector()));
+	}
+
+	@Test
+	public void aFailingDecoderFactoryFailsTheFuture() throws Exception {
+		client = new NioClient();
+		client.setDecoderFactory(() -> {
+			throw new IllegalStateException("test: no decoder");
+		});
+		CompletableFuture<INioConnection> f = client.connect("localhost", 1, new Collector());
+		ExecutionException e = assertThrows(ExecutionException.class, () -> f.get(5, TimeUnit.SECONDS));
+		assertTrue(e.getCause() instanceof IllegalStateException, "the factory's exception: "+e.getCause());
 	}
 }
