@@ -38,6 +38,18 @@
   (bytes, default 8 KiB and 1 MiB), `receiveBufferSize` and `sendBufferSize` (bytes, default the OS's).
   As with `frameTimeout`, a value set in code wins, else the property (read the first time it's needed),
   else the default. They're in parley-net's settings list, so the start-up check knows them.
+- **`Server` reads the `maxIdleTime` property** (the same name as `NioServer`'s) for
+  `getMaxIdleConnection()`, and **both servers read `reuseAddress`** (default true), each in the same
+  way: a value set in code wins, else the property, else the default. `IBaseServer.PROPERTY_MAX_IDLE_TIME`
+  and `PROPERTY_REUSE_ADDRESS` name them. An idle limit of 0 now means never in `Server`'s admin check
+  too, as it already did in the session loop.
+
+### Removed (2026-11-15: one connection limit)
+
+- **`Server.setMaxClients()`, `getMaxClients()` and `DEFAULT_MAX_CLIENTS`.** `Server` now limits its
+  sessions with parley-core's `maxConnections` (`setMaxConnections(n)` or the `maxConnections`
+  property), as `NioServer` does. Before, `Server` ignored `maxConnections`, so the property did
+  nothing on a thread-per-connection server.
 
 ### Added (2026-11-11: session IDs in the log, To-Do 19.7)
 

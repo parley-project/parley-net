@@ -77,7 +77,8 @@ import us.bringardner.parley.net.server.SessionLog;
  * Like every Parley server it extends parley-core's AbstractCoreServer, so the same properties 
  * configure it (port, bindAddress, backlog, keepAlive, tcpNoDelay, maxConnections, the key 
  * store settings of SecureBaseObject...), and the server attributes are shared by all connections.
- * Its own properties are {@value #PROPERTY_FRAME_TIMEOUT}, {@value #PROPERTY_MAX_IDLE_TIME},
+ * Its own properties are {@value #PROPERTY_FRAME_TIMEOUT}, {@value IBaseServer#PROPERTY_MAX_IDLE_TIME},
+ * {@value IBaseServer#PROPERTY_REUSE_ADDRESS},
  * {@value #PROPERTY_REACTOR_COUNT}, {@value #PROPERTY_INITIAL_INPUT_BUFFER},
  * {@value #PROPERTY_MAX_INPUT_BUFFER}, {@value #PROPERTY_RECEIVE_BUFFER_SIZE} and
  * {@value #PROPERTY_SEND_BUFFER_SIZE}. For each, a value set in code wins, else the property
@@ -108,16 +109,14 @@ public class NioServer extends AbstractCoreServer implements IBaseServer {
 	 */
 	public static final long ACCEPT_ERROR_PAUSE = 1000;
 
-	// Settings: set on any thread, read by the server thread
-	private volatile boolean reuseAddress = true;
+	// Settings: set on any thread, read by the server thread. null until set, or read from the property
+	private volatile Boolean reuseAddress;
 	// null until set or read from the tcpNoDelay property; unlike AbstractCoreServer (false) the default is true
 	private volatile Boolean tcpNoDelay;
 	/** Property: SO_RCVBUF (bytes) for accepted sockets, 0 = the OS default */
 	public static final String PROPERTY_RECEIVE_BUFFER_SIZE = "receiveBufferSize";
 	/** Property: SO_SNDBUF (bytes) for accepted sockets, 0 = the OS default */
 	public static final String PROPERTY_SEND_BUFFER_SIZE = "sendBufferSize";
-	/** Property: time without reads or writes before a connection's onIdle (a duration, {@code 24h}), 0 = never */
-	public static final String PROPERTY_MAX_IDLE_TIME = "maxIdleTime";
 	/** Property: the number of reactor (selector) threads */
 	public static final String PROPERTY_REACTOR_COUNT = "reactorCount";
 	/** Property: the starting size (bytes) of a connection's input buffer */
@@ -322,7 +321,7 @@ public class NioServer extends AbstractCoreServer implements IBaseServer {
 			serverChannel = ch;
 			ch.configureBlocking(false);
 			// set before binding so a restart doesn't fail while the old port is in TIME_WAIT
-			ch.setOption(StandardSocketOptions.SO_REUSEADDR, reuseAddress);
+			ch.setOption(StandardSocketOptions.SO_REUSEADDR, isReuseAddress());
 			int rcvbuf = getReceiveBufferSize();
 			if( rcvbuf > 0 ) {
 				// set before binding so it applies to the window of accepted sockets
@@ -564,12 +563,21 @@ public class NioServer extends AbstractCoreServer implements IBaseServer {
 		return connections.size();
 	}
 
+	/**
+	 * @return true to set SO_REUSEADDR on the server socket: the value set, else the
+	 * {@value IBaseServer#PROPERTY_REUSE_ADDRESS} property, else true
+	 */
 	public boolean isReuseAddress() {
-		return reuseAddress;
+		Boolean ret = reuseAddress;
+		if( ret == null ) {
+			ret = getBooleanProperty(propertyName(PROPERTY_REUSE_ADDRESS), true);
+			reuseAddress = ret;
+		}
+		return ret;
 	}
 
 	/**
-	 * Set SO_REUSEADDR on the server socket (default true).
+	 * Set SO_REUSEADDR on the server socket (default true), in place of the property.
 	 */
 	public void setReuseAddress(boolean reuseAddress) {
 		this.reuseAddress = reuseAddress;
@@ -669,7 +677,7 @@ public class NioServer extends AbstractCoreServer implements IBaseServer {
 
 	/**
 	 * @return time (ms) without reads or writes before the handler's onIdle, 0 = never: the value
-	 * set, else the {@value #PROPERTY_MAX_IDLE_TIME} property (a duration, {@code 30m}), else
+	 * set, else the {@value IBaseServer#PROPERTY_MAX_IDLE_TIME} property (a duration, {@code 30m}), else
 	 * {@link #DEFAULT_MAX_IDLE_TIME} (24 hours)
 	 */
 	public long getMaxIdleTime() {

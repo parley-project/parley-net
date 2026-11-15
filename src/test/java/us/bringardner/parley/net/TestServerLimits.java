@@ -14,6 +14,7 @@ import org.junit.jupiter.api.Test;
 import us.bringardner.parley.net.ServerTestSupport.TestServer;
 import us.bringardner.parley.net.client.CommandClient;
 import us.bringardner.parley.net.client.ICommandResponse;
+import us.bringardner.parley.net.nio.NioServer;
 import us.bringardner.parley.net.server.Server;
 
 /**
@@ -53,9 +54,9 @@ public class TestServerLimits {
 	}
 
 	@Test
-	public void testMaxClientsRejectsWithBusyMessage() throws Exception {
+	public void testMaxConnectionsRejectsWithBusyMessage() throws Exception {
 		TestServer svr = ServerTestSupport.create("LimitServer", ServerTestSupport.standardCommands(), null);
-		svr.setMaxClients(1);
+		svr.setMaxConnections(1);
 		svr.setServerBusyMessage("421 too many connections");
 		ServerTestSupport.start(svr);
 		try {
@@ -81,7 +82,7 @@ public class TestServerLimits {
 	@Test
 	public void testOneAddressCantTakeEveryPlace() throws Exception {
 		TestServer svr = ServerTestSupport.create("PerClientServer", ServerTestSupport.standardCommands(), null);
-		svr.setMaxClients(10);
+		svr.setMaxConnections(10);
 		svr.setMaxConnectionsPerClient(2);
 		svr.setServerBusyMessage("421 too many connections");
 		ServerTestSupport.start(svr);
@@ -367,6 +368,61 @@ public class TestServerLimits {
 			assertTrue(set.isTcpNoDelay(), "a set value wins over the property");
 		} finally {
 			System.clearProperty(name+".tcpNoDelay");
+		}
+	}
+
+	/** parley-core's maxConnections property limits a Server too (it used to read only setMaxClients). */
+	@Test
+	public void testTheMaxConnectionsPropertyLimitsAServer() throws Exception {
+		String name = "LimitPropertyServer";
+		System.setProperty(name+".maxConnections", "1");
+		try {
+			TestServer svr = ServerTestSupport.create(name, ServerTestSupport.standardCommands(), null);
+			svr.setServerBusyMessage("421 too many connections");
+			ServerTestSupport.start(svr);
+			try (CommandClient first = ServerTestSupport.connect(svr)) {
+				assertEcho(first);
+				try (CommandClient second = ServerTestSupport.connect(svr)) {
+					assertEquals("421 too many connections", second.readLine());
+					assertNull(readOrNull(second), "rejected connection should be closed");
+				}
+			} finally {
+				ServerTestSupport.stop(svr);
+			}
+		} finally {
+			System.clearProperty(name+".maxConnections");
+		}
+	}
+
+	@Test
+	public void maxIdleTimeAndReuseAddressComeFromThePropertiesWhenNotSet() {
+		String name = "server-settings-test";
+		Server defaults = new Server(0, name);
+		assertEquals(Server.DEFAULT_MAX_IDLE_CONNECTION, defaults.getMaxIdleConnection());
+		assertTrue(defaults.isReuseAddress());
+		NioServer nioDefaults = new NioServer(0, name);
+		assertTrue(nioDefaults.isReuseAddress());
+		System.setProperty(name+".maxIdleTime", "10m");
+		System.setProperty(name+".reuseAddress", "false");
+		try {
+			Server svr = new Server(0, name);
+			assertEquals(10*60*1000L, svr.getMaxIdleConnection(), "from the property");
+			assertFalse(svr.isReuseAddress(), "from the property");
+			NioServer nio = new NioServer(0, name);
+			assertEquals(10*60*1000L, nio.getMaxIdleTime(), "the same name for NioServer");
+			assertFalse(nio.isReuseAddress());
+
+			Server set = new Server(0, name);
+			set.setMaxIdleConnection(5000);
+			set.setReuseAddress(true);
+			assertEquals(5000, set.getMaxIdleConnection(), "a set value wins over the property");
+			assertTrue(set.isReuseAddress());
+			NioServer nioSet = new NioServer(0, name);
+			nioSet.setReuseAddress(true);
+			assertTrue(nioSet.isReuseAddress());
+		} finally {
+			System.clearProperty(name+".maxIdleTime");
+			System.clearProperty(name+".reuseAddress");
 		}
 	}
 }
