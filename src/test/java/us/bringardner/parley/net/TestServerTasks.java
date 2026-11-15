@@ -125,6 +125,8 @@ public class TestServerTasks {
 	public void taskRunsOnTheSessionsKindOfThread() throws Exception {
 		TestServer svr = ServerTestSupport.start(server("TaskKind"));
 		try {
+			// The default (AUTO) gives virtual threads on Java 24+, so set OFF explicitly
+			svr.setVirtualThreads(VirtualThreads.OFF);
 			try (CommandClient client = ServerTestSupport.connect(svr)) {
 				TestTask t = startTask(client);
 				assertFalse(t.ranVirtual, "OFF: platform thread");
