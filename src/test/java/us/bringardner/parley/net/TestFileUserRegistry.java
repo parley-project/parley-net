@@ -124,7 +124,7 @@ public class TestFileUserRegistry {
 		assertEquals(AuthenticationResult.Status.REFUSED, ServerTestSupport.login(registry, "sales", "pw").getStatus(), "a group can't log in");
 	}
 
-	/** The permissions are on the server as a whole, and the server's authorizer reads them. */
+	/** The permissions are on the server as a whole, they hold on a resource too, and the server's authorizer reads them. */
 	@Test
 	public void permissionsAreServerWide() throws Exception {
 		FileUserRegistry registry = ServerTestSupport.registry("tony, pw, Read|smtp.send");
@@ -152,7 +152,7 @@ public class TestFileUserRegistry {
 				return EntityId.of("user:someone");
 			}
 		};
-		assertTrue(registry.findPermissions(nobody, tony, file).isEmpty(), "nothing on a resource");
+		assertEquals(Arrays.asList("Read", "smtp.send"), ServerTestSupport.names(registry.findPermissions(nobody, tony, file)), "server-wide permissions hold on a resource");
 
 		Server svr = new Server(0, "PermServer-" + System.nanoTime());
 		svr.setUserRegistry(registry);
@@ -161,7 +161,51 @@ public class TestFileUserRegistry {
 		assertTrue(svr.checkPermission(tonyIn, new BasicParleyPermission("read", null), null).isAllowed(), "names ignore case");
 		assertEquals(AuthorizationResult.Status.DENIED, svr.checkPermission(tonyIn, new BasicParleyPermission("write", null), null).getStatus());
 		assertEquals(AuthorizationResult.Status.DENIED, svr.checkPermission(nobody, new BasicParleyPermission("Read", null), null).getStatus(), "not logged in");
-		assertEquals(AuthorizationResult.Status.DENIED, svr.checkPermission(tonyIn, new BasicParleyPermission("Read", EntityId.of("file:1")), file).getStatus());
+		assertEquals(AuthorizationResult.Status.ALLOWED, svr.checkPermission(tonyIn, new BasicParleyPermission("Read", EntityId.of("file:1")), file).getStatus(), "a server-wide permission holds on a resource");
+		assertEquals(AuthorizationResult.Status.DENIED, svr.checkPermission(tonyIn, new BasicParleyPermission("write", EntityId.of("file:1")), file).getStatus(), "but only the one held");
+	}
+
+	/** A permission held on the server as a whole answers a check about a resource, like BasicUserRegistry does. */
+	@Test
+	public void serverWidePermissionHoldsOnAResource() throws Exception {
+		FileUserRegistry registry = ServerTestSupport.registry("alice, pw, read", "bob, pw, write", "carol, pw, admin, enabled=false");
+		try {
+			ProtectedResource export = resource("nfs-export:data");
+			BasicParleyPermission read = new BasicParleyPermission("read", export.getId());
+			Requester alice = ServerTestSupport.requester().loggedIn(ServerTestSupport.login(registry, "alice", "pw"));
+			Requester bob = ServerTestSupport.requester().loggedIn(ServerTestSupport.login(registry, "bob", "pw"));
+			assertEquals(AuthorizationResult.Status.ALLOWED, registry.checkPermission(alice, read, export).getStatus(), "alice holds read on the server");
+			assertEquals(AuthorizationResult.Status.DENIED, registry.checkPermission(bob, read, export).getStatus(), "bob holds only write");
+			assertEquals(AuthorizationResult.Status.DENIED, registry.checkPermission(ServerTestSupport.requester(), read, export).getStatus(), "nobody logged in");
+			assertEquals(AuthorizationResult.Status.ALLOWED, registry.checkPermission(alice, new BasicParleyPermission("read", null), null).getStatus(), "the server-wide check is as it was");
+			assertTrue(registry.findPermissions(alice, registry.findPrincipal("carol"), export).isEmpty(), "a turned-off user holds nothing");
+		} finally {
+			registry.close();
+		}
+	}
+
+	private static ProtectedResource resource(final String id) {
+		return new ProtectedResource() {
+			@Override
+			public EntityId getId() {
+				return EntityId.of(id);
+			}
+
+			@Override
+			public String getType() {
+				return "nfs-export";
+			}
+
+			@Override
+			public String getName() {
+				return "data";
+			}
+
+			@Override
+			public EntityId getOwnerId() {
+				return EntityId.of("user:someone");
+			}
+		};
 	}
 
 	private void validateRegistry(String serverName, Class<?> expected) throws Exception {

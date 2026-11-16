@@ -267,7 +267,7 @@ server sets, such as `parley.mail.pop3`. Each user is one line:
 alice,   {PBKDF2}210000:..., ECHO|LOGIN,  home=/home/alice
 ```
 
-The permissions are held on the server as a whole; the parameters are the principal's attributes.
+The permissions are held on the server as a whole, and so hold on every resource of the server too; the parameters are the principal's attributes.
 The file has no ids, so a user's id is `user:` and its name (a group's, `group:` and its name):
 renaming someone in the file makes a new principal.
 

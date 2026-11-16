@@ -875,7 +875,8 @@ public class FileUserRegistry extends BaseObject implements PrincipalManager, Pe
 	/**
 	 * Allowed when the logged-in user's line lists a permission that covers the one needed
 	 * ({@link ParleyPermission#implies}). The permissions in the file are on the server as a
-	 * whole, so a check about a resource is denied; groups grant nothing, and nobody logged in
+	 * whole, and a permission held on the server as a whole holds on every resource, so a check
+	 * about a resource is answered from them too; groups grant nothing, and nobody logged in
 	 * holds nothing.
 	 */
 	@Override
@@ -885,8 +886,11 @@ public class FileUserRegistry extends BaseObject implements PrincipalManager, Pe
 		if( principal == null ) {
 			return AuthorizationResult.denied("nobody logged in");
 		}
+		// What the file holds is about the whole server, so compare it with the server-wide form of what is needed
+		ParleyPermission serverWide = needed.getResourceId() == null ? needed
+				: new BasicParleyPermission(needed.getName(), null);
 		for (ParleyPermission permission : findPermissions(requester, principal, resource)) {
-			if( permission.implies(needed) ) {
+			if( permission.implies(serverWide) ) {
 				return AuthorizationResult.allowed(principal.getName()+" holds "+permission);
 			}
 		}
@@ -1763,12 +1767,12 @@ public class FileUserRegistry extends BaseObject implements PrincipalManager, Pe
 	}
 
 	/**
-	 * The user's permissions, which are on the server as a whole: empty for a resource and for
-	 * a group.
+	 * The user's permissions, which are on the server as a whole and so hold on every resource:
+	 * the same for a resource as for none, and empty for a group.
 	 */
 	public Collection<ParleyPermission> findPermissions(Requester requester, ParleyPrincipal holder,
 			ProtectedResource resource) {
-		FileUser user = holder == null || resource != null ? null : users.byId.get(holder.getId());
+		FileUser user = holder == null ? null : users.byId.get(holder.getId());
 		if( user == null || !user.enabled ) {
 			return new ArrayList<ParleyPermission>();
 		}

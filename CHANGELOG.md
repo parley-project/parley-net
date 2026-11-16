@@ -2,6 +2,14 @@
 
 ## parley-net 2.0.0 (unreleased)
 
+### Fixed (2026-11-16: server-wide grants on a resource)
+
+- **`FileUserRegistry` answers a check about a resource from the user's permissions.** The permissions
+  in the file are about the whole server, and a permission held on the server as a whole holds on every
+  resource of it (as in `BasicUserRegistry`, and now stated in `UserRegistry.checkPermission`). Before,
+  a check with a resource was denied whatever the user held, so a grant could be kept and never used.
+  `findPermissions` gives the same permissions with or without a resource.
+
 ### Fixed (2026-11-15: NioServer and NioClient review)
 
 - **An accept error no longer stops `NioServer`.** A failed `accept()` (too many open files, say) ended
