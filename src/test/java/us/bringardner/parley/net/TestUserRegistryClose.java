@@ -75,6 +75,11 @@ public class TestUserRegistryClose {
 		}
 
 		@Override
+		public java.util.Set<ParleyPrincipal> findByAttribute(String name, Object value) {
+			return java.util.Collections.emptySet();
+		}
+
+		@Override
 		public AuthorizationResult checkPermission(Requester requester, ParleyPermission needed, ProtectedResource resource) {
 			return AuthorizationResult.denied("nothing is granted");
 		}

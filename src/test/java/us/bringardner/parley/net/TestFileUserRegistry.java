@@ -124,6 +124,27 @@ public class TestFileUserRegistry {
 		assertEquals(AuthenticationResult.Status.REFUSED, ServerTestSupport.login(registry, "sales", "pw").getStatus(), "a group can't log in");
 	}
 
+	/** Users and groups are found by an attribute: a user's key=val parameter, a group's own line. */
+	@Test
+	public void principalsAreFoundByAttribute() throws Exception {
+		FileUserRegistry registry = ServerTestSupport.registry(
+				"tony, pw, READ, groups=sales|uid=1000|gid=100",
+				"bob, pw, READ, uid=1001|gid=100",
+				"off, pw, READ, uid=1002|enabled=false",
+				"group: sales , gid=100");
+		ParleyPrincipal tony = registry.findPrincipal("tony");
+		ParleyPrincipal sales = registry.findPrincipal("sales");
+		assertEquals(java.util.Collections.singleton(tony), registry.findByAttribute("uid", "1000"));
+		assertEquals(java.util.Collections.singleton(tony), registry.findByAttribute("uid", 1000L));
+		assertEquals(java.util.Collections.singleton(sales), registry.findByAttribute("gid", "100").stream()
+				.filter(ParleyPrincipal::isGroup).collect(java.util.stream.Collectors.toSet()));
+		assertEquals(3, registry.findByAttribute("gid", "100").size(), "two users and the group");
+		assertEquals(0, registry.findByAttribute("uid", "1002").size(), "a turned-off user is as if gone");
+		assertEquals(0, registry.findByAttribute("uid", "2000").size());
+		assertEquals(0, registry.findByAttribute("nothing", "1").size());
+		registry.close();
+	}
+
 	/** The permissions are on the server as a whole, they hold on a resource too, and the server's authorizer reads them. */
 	@Test
 	public void permissionsAreServerWide() throws Exception {

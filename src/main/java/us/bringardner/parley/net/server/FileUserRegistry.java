@@ -873,6 +873,28 @@ public class FileUserRegistry extends BaseObject implements PrincipalManager, Pe
 	}
 
 	/**
+	 * Users and groups whose line has the attribute (a parameter such as {@code uid=1000}),
+	 * found in what the file holds, in the file's order; turned-off users aren't listed.
+	 */
+	@Override
+	public Set<ParleyPrincipal> findByAttribute(String name, Object value) {
+		reloadIfChanged();
+		Users u = users;
+		Set<ParleyPrincipal> ret = new LinkedHashSet<ParleyPrincipal>();
+		for (FileUser user : u.byName.values()) {
+			if( user.enabled && user.principal.hasAttribute(name, value) ) {
+				ret.add(user.principal);
+			}
+		}
+		for (ParleyPrincipal group : u.groupsByName.values()) {
+			if( group.hasAttribute(name, value) ) {
+				ret.add(group);
+			}
+		}
+		return ret;
+	}
+
+	/**
 	 * Allowed when the logged-in user's line lists a permission that covers the one needed
 	 * ({@link ParleyPermission#implies}). The permissions in the file are on the server as a
 	 * whole, and a permission held on the server as a whole holds on every resource, so a check
