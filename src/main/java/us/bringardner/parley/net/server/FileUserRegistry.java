@@ -520,8 +520,8 @@ public class FileUserRegistry extends BaseObject implements PrincipalManager, Pe
 		if(!file.exists() || !file.canRead()) {
 			throw new IOException(f+" is not a valid file");
 		}
-		long modified = file.lastModified();
-		long length = file.length();
+		long modified = file.contentLastModified();
+		long length = file.contentLength();
 		load(file.getInputStream());
 		sourceModified = modified;
 		sourceLength = length;
@@ -613,8 +613,8 @@ public class FileUserRegistry extends BaseObject implements PrincipalManager, Pe
 		long modified;
 		long length;
 		try {
-			modified = f.lastModified();
-			length = f.length();
+			modified = f.contentLastModified();
+			length = f.contentLength();
 		} catch (IOException | RuntimeException e) {
 			logError("Can't check the user file "+f+"; the users read before stay", e);
 			return false;

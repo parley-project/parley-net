@@ -165,7 +165,7 @@ public class PropertiesDomainList implements IDomainList {
 
 	private static String stamp(FileSource f) {
 		try {
-			return f != null && f.exists() ? f.lastModified()+"/"+f.length() : "-";
+			return f != null && f.exists() ? f.contentLastModified()+"/"+f.contentLength() : "-";
 		} catch(IOException e) {
 			// can't tell: read it, so the reason is reported
 			return "? "+System.nanoTime();
