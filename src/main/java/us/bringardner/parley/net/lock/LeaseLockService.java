@@ -14,11 +14,11 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
 import us.bringardner.parley.core.BaseObject;
+import us.bringardner.parley.core.NamedExecutors;
 import us.bringardner.parley.files.FileSource;
 import us.bringardner.parley.net.lock.spi.LockHandle;
 import us.bringardner.parley.net.lock.spi.LockService;
@@ -98,11 +98,7 @@ final class LeaseLockService extends BaseObject implements LockService {
 		this.leaseNanos = lease.toNanos();
 		this.renewMillis = renew.toMillis();
 		this.fenceNanos = leaseNanos - renew.toNanos();
-		renewer = Executors.newSingleThreadScheduledExecutor(r -> {
-			Thread t = new Thread(r, "parley-lease-renewer");
-			t.setDaemon(true);
-			return t;
-		});
+		renewer = NamedExecutors.singleThreadScheduled("parley-lease-renewer");
 		renewer.scheduleWithFixedDelay(this::renewAll, renewMillis, renewMillis, TimeUnit.MILLISECONDS);
 	}
 

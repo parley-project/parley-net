@@ -8,6 +8,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Properties;
 
+import us.bringardner.parley.core.NamedExecutors;
 import us.bringardner.parley.files.FileSource;
 import us.bringardner.parley.files.FileSourceFactory;
 import us.bringardner.parley.iam.ParleyPrincipal;
@@ -212,10 +213,10 @@ public final class ServerMain {
 			}
 		}
 		java.util.concurrent.atomic.AtomicBoolean stopping = new java.util.concurrent.atomic.AtomicBoolean();
-		Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+		Runtime.getRuntime().addShutdownHook(NamedExecutors.newThread(serverName+"-shutdown", () -> {
 			stopping.set(true);
 			stopAll(started);
-		}, serverName+"-shutdown"));
+		}));
 		// (the servers' threads may be daemons: the process lives as long as this waits)
 		for (Service s : started) {
 			s.awaitStop();

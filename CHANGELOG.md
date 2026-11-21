@@ -2,6 +2,11 @@
 
 ## parley-net 2.0.0 (unreleased)
 
+### Changed (2026-11-21: threads from Parley, D96)
+
+- `LeaseLockService`'s renewal thread and `ServerMain`'s shutdown hook are made with parley-core's `NamedExecutors`,
+  not `new Thread`. Names and daemon behavior are kept (the shutdown hook thread is now a daemon, which a hook may be).
+
 ### Fixed (2026-11-16: server-wide grants on a resource)
 
 - **`FileUserRegistry` answers a check about a resource from the user's permissions.** The permissions
