@@ -2,6 +2,16 @@
 
 ## parley-net 2.0.0 (unreleased)
 
+### Fixed (2026-11-23: a failed TLS handshake that the JDK reports as a plain SSLException)
+
+- **`Connection.negotiateSecureSocket` throws every failure of the handshake as an `SSLHandshakeException`.**
+  The JDK reports some failed handshakes as a plain `SSLException`, for example a client that offers no
+  signature algorithm an RSA key can use ("(internal_error) No supported signature algorithm for RSA key").
+  `AbstractCommandProcessor.isTlsHandshakeFailure` did not know it for the client's failed handshake, so the
+  SMTP, IMAP, POP3 and FTP servers logged an ERROR with a stack trace and answered on a connection that was
+  already gone. They now end the session and log the one INFO line they log for any failed handshake. The
+  original exception is the cause. Failures after the handshake are not changed.
+
 ### Changed (2026-11-21: threads from Parley, D96)
 
 - `LeaseLockService`'s renewal thread and `ServerMain`'s shutdown hook are made with parley-core's `NamedExecutors`,

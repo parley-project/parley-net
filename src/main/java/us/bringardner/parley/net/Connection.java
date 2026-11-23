@@ -30,6 +30,8 @@ import java.net.SocketException;
 
 import javax.net.SocketFactory;
 import javax.net.ssl.SSLContext;
+import javax.net.ssl.SSLException;
+import javax.net.ssl.SSLHandshakeException;
 import javax.net.ssl.SSLSocket;
 import javax.net.ssl.SSLSocketFactory;
 
@@ -143,7 +145,17 @@ public abstract class Connection extends BaseObject implements IConnection {
 		} else {
 			tmp.setWantClientAuth(false);
 		}
-		tmp.startHandshake();
+		try {
+			tmp.startHandshake();
+		} catch (SSLHandshakeException e) {
+			throw e;
+		} catch (SSLException e) {
+			// The JDK throws some failed handshakes as a plain SSLException (a client that offers no
+			// signature algorithm the key can use: "(internal_error) No supported signature algorithm
+			// for RSA key"). It is still the handshake that failed, and servers tell a client's failed
+			// handshake from a fault of their own by this type.
+			throw (SSLHandshakeException) new SSLHandshakeException(e.getMessage()).initCause(e);
+		}
 		sslSocket = tmp;
 		secure = true;
 		//  Any new connections (e.g. FTP style data connections) will be secure.
