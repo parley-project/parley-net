@@ -324,7 +324,7 @@ public class Server extends AbstractCoreServer implements IServer {
 						return Server.this.getSSLContext(sslOrTls);
 					}
 				};
-				ret.setLogLevel(Server.this.getLogLevel());
+				ret.useConfigurationOf(Server.this);
 				return ret;
 			}
 		};
