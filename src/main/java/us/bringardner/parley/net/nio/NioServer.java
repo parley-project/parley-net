@@ -338,6 +338,7 @@ public class NioServer extends AbstractCoreServer implements IBaseServer {
 		String name = getName();
 		for (int i = 0; i < count; i++) {
 			rs[i] = new NioReactor(name+"-reactor-"+i);
+			rs[i].useConfigurationOf(this);
 			rs[i].start();
 		}
 	}

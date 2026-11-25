@@ -111,6 +111,7 @@ public class NioClient extends SecureBaseObject implements Closeable {
 		// a reactor whose thread ended on an error (not stopping) can't serve anything either
 		if( reactor == null || reactor.isStopping() || !reactor.isAlive() ) {
 			reactor = new NioReactor(name+"-reactor");
+			reactor.useConfigurationOf(this);
 			reactor.start();
 		}
 		return reactor;
