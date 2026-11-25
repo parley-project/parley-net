@@ -39,6 +39,62 @@ public class ServerSettingsAtStartTest {
 		System.clearProperty("sas.port");
 	}
 
+	/** a server whose settings folder is the temp folder, with a shared file parley-test-shared.properties and default file parley-test.properties */
+	private Server folderServer() {
+		Server s = new Server(0, "sas") {
+			@Override
+			protected String getSettingsFolder() {
+				return tempDir.toString();
+			}
+
+			@Override
+			protected String getSharedSettingsFileName() {
+				return "parley-test-shared.properties";
+			}
+
+			@Override
+			protected String getSettingsFileName() {
+				return "parley-test.properties";
+			}
+		};
+		s.setConnectionFactory(socket -> new us.bringardner.parley.net.Connection(socket, true) {
+			@Override
+			public javax.net.ssl.SSLContext getSSLContext(String sslOrTls) {
+				return null;
+			}
+		});
+		s.setProcessorFactory(() -> null);
+		return s;
+	}
+
+	@Test
+	public void theServersOwnFileWinsOverTheSharedOne() throws Exception {
+		int port = free();
+		file("parley-test-shared.properties", "sas.greeting=shared", "sas.other=shared", "sas.port=" + free());
+		file("parley-test.properties", "sas.greeting=own", "sas.port=" + port);
+		Server s = folderServer();
+		try {
+			s.startAndWait(10000);
+			assertEquals("own", s.getProperty("sas.greeting"));
+			assertEquals("shared", s.getProperty("sas.other"));
+			assertEquals(port, s.getLocalPort());
+		} finally {
+			s.stop(5000, false);
+		}
+	}
+
+	@Test
+	public void onlyTheSharedFileIsFine() throws Exception {
+		file("parley-test-shared.properties", "sas.other=shared");
+		Server s = folderServer();
+		try {
+			s.startAndWait(10000);
+			assertEquals("shared", s.getProperty("sas.other"));
+		} finally {
+			s.stop(5000, false);
+		}
+	}
+
 	/** a server on the default port 0 (any free port) whose settings file is named by test.sas.configFile */
 	private static Server server(List<String> checked) {
 		Server s = new Server(0, "sas") {
