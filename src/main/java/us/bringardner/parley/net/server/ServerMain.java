@@ -79,14 +79,6 @@ public final class ServerMain {
 		/** wait until it has stopped */
 		void awaitStop() throws InterruptedException;
 
-		/**
-		 * true if the process runs on when this server can't start (it is reported and skipped): a
-		 * server that is only there when it is set up, such as one with implicit TLS and no key store
-		 */
-		default boolean optional() {
-			return false;
-		}
-
 		/** the connections open now (0 if it doesn't say) */
 		default int connections() {
 			return 0;
@@ -105,20 +97,6 @@ public final class ServerMain {
 	}
 
 	private ServerMain() {
-	}
-
-	/** {@code service} that is skipped, with a warning, when it can't start (see {@link Service#optional()}) */
-	public static Service optional(Service service) {
-		return new Service() {
-			public String name() { return service.name(); }
-			public void startAndWait(long t) throws IOException { service.startAndWait(t); }
-			public int port() { return service.port(); }
-			public void stop(long t) throws InterruptedException { service.stop(t); }
-			public void awaitStop() throws InterruptedException { service.awaitStop(); }
-			public boolean optional() { return true; }
-			public int connections() { return service.connections(); }
-			public List<ParleyConnection> connectionList() { return service.connectionList(); }
-		};
 	}
 
 	/** Any Parley server: thread-per-connection (POP3, IMAP, SMTP, FTP ...) or non-blocking (SSH ...) */
@@ -217,10 +195,6 @@ public final class ServerMain {
 				started.add(s);
 				System.out.println(s.name()+" started on port "+s.port());
 			} catch (IOException | RuntimeException e) {
-				if (s.optional()) {
-					System.err.println("Warning: " + s.name() + " is skipped: " + (e.getMessage() != null ? e.getMessage() : e.toString()));
-					continue;
-				}
 				stopAll(started);
 				failed(s.name(), e);
 				return;
