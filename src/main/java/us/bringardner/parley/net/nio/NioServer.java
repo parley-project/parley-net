@@ -188,9 +188,12 @@ public class NioServer extends AbstractCoreServer implements IBaseServer {
 
 	/** Warns, on System.err, of a name in the settings file that no Parley module here reads (see {@link KnownSettings}) */
 	@Override
-	protected void settingsFileRead(String where, java.util.Properties found) {
+	protected void settingsFileRead(us.bringardner.parley.core.SettingsFile found) {
 		java.util.Map<String, java.util.Set<String>> sources = new java.util.LinkedHashMap<>();
-		sources.put(us.bringardner.parley.files.FileSourceFactory.safe(where), new java.util.TreeSet<>(found.stringPropertyNames()));
+		for (String name : found.getProperties().stringPropertyNames()) {
+			// (an included file is named too)
+			sources.computeIfAbsent(us.bringardner.parley.files.FileSourceFactory.safe(found.getOrigin(name)), k -> new java.util.TreeSet<>()).add(name);
+		}
 		us.bringardner.parley.net.server.KnownSettings.warn(getName(), sources);
 	}
 
