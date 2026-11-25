@@ -60,7 +60,7 @@ public class TestSessionLoop {
 
 			{
 				// debug logging on: the loop's debug lines must not change which command runs
-				setLogLevel(us.bringardner.parley.core.LogLevel.DEBUG);
+				getLogger().setLevel(us.bringardner.parley.core.LogLevel.DEBUG);
 			}
 
 			@Override

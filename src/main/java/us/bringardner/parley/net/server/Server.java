@@ -324,7 +324,6 @@ public class Server extends AbstractCoreServer implements IServer {
 						return Server.this.getSSLContext(sslOrTls);
 					}
 				};
-				ret.useConfigurationOf(Server.this);
 				return ret;
 			}
 		};
@@ -1480,9 +1479,6 @@ public class Server extends AbstractCoreServer implements IServer {
 			made = withServer.newInstance(this);
 		} else {
 			made = registryClass.getDeclaredConstructor().newInstance();
-			if (made instanceof us.bringardner.parley.core.BaseObject) {
-				((us.bringardner.parley.core.BaseObject) made).useConfigurationOf(this);
-			}
 		}
 		if( !(made instanceof UserRegistry) ) {
 			throw new IllegalArgumentException(className+" is not a "+UserRegistry.class.getName());

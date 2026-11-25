@@ -338,7 +338,6 @@ public class NioServer extends AbstractCoreServer implements IBaseServer {
 		String name = getName();
 		for (int i = 0; i < count; i++) {
 			rs[i] = new NioReactor(name+"-reactor-"+i);
-			rs[i].useConfigurationOf(this);
 			rs[i].start();
 		}
 	}
@@ -881,9 +880,6 @@ public class NioServer extends AbstractCoreServer implements IBaseServer {
 			made = withServer.newInstance(this);
 		} else {
 			made = registryClass.getDeclaredConstructor().newInstance();
-			if (made instanceof us.bringardner.parley.core.BaseObject) {
-				((us.bringardner.parley.core.BaseObject) made).useConfigurationOf(this);
-			}
 		}
 		if( !(made instanceof UserRegistry) ) {
 			throw new IllegalArgumentException(className+" is not a "+UserRegistry.class.getName());

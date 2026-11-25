@@ -197,10 +197,6 @@ public abstract class AbstractProcessor extends BaseThread implements IProcessor
 	public void setServer(IServer server) {
 		setSecure(server.isSecure());
 		this.server = server;
-		// a processor reads its server's settings (its configuration, when it has one)
-		if (server instanceof us.bringardner.parley.core.BaseObject) {
-			useConfigurationOf((us.bringardner.parley.core.BaseObject) server);
-		}
 	}
 
 	/** A new connection has a new requester, with nobody logged in. */

@@ -57,7 +57,6 @@ public class PropertiesUserRegistry extends FileUserRegistry {
 	 */
 	public PropertiesUserRegistry(IBaseServer server) {
 		super();
-		useConfigurationOfServer(server);
 		readUsers(server.getPropertyPrefix());
 	}
 

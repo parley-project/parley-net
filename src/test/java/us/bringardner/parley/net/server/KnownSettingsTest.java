@@ -121,17 +121,25 @@ public class KnownSettingsTest {
 	public void theFrameworksServerSettingsAreListed() throws Exception {
 		KnownSettings k = KnownSettings.load().addPrefix("parley.example");
 		KnownSettings.RecordingProperties nio = new KnownSettings.RecordingProperties();
-		NioServer n = new NioServer(0, "parley.example");
-		n.setConfiguration(nio);
-		n.setHandlerFactory(() -> (connection, frame) -> { });
-		n.startAndWait(5000);
-		try (Socket s = new Socket("localhost", n.getLocalPort())) {
-			s.getOutputStream().write("x\n".getBytes(StandardCharsets.US_ASCII));
-			Thread.sleep(200);
+		// every setting the server reads comes through the system properties: record them
+		java.util.Properties saved = System.getProperties();
+		nio.putAll(saved);
+		System.setProperties(nio);
+		try {
+			NioServer n = new NioServer(0, "parley.example");
+			n.setHandlerFactory(() -> (connection, frame) -> { });
+			n.startAndWait(5000);
+			try (Socket s = new Socket("localhost", n.getLocalPort())) {
+				s.getOutputStream().write("x\n".getBytes(StandardCharsets.US_ASCII));
+				Thread.sleep(200);
+			} finally {
+				n.stop(5000, false);
+			}
 		} finally {
-			n.stop(5000, false);
+			System.setProperties(saved);
 		}
 		List<String> asked = new ArrayList<>(nio.asked());
+		asked.removeIf(n -> !n.startsWith("parley."));
 		assertTrue(asked.contains("parley.example.maxConnections"), asked.toString());
 		assertEquals(List.of(), k.undeclared(asked));
 	}

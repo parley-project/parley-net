@@ -666,7 +666,7 @@ public class TestSasl {
 	@Test
 	public void aRegistryThatCantAnswerIsNotAWrongPassword() throws Exception {
 		Server svr = ServerTestSupport.create("SaslDown", ServerTestSupport.standardCommands(), null);
-		svr.setLogLevel(us.bringardner.parley.core.LogLevel.NONE);
+		svr.getLogger().setLevel(us.bringardner.parley.core.LogLevel.NONE);
 		svr.setUserRegistry(down());
 		assertEquals(AuthenticationResult.Status.UNAVAILABLE, ServerTestSupport.login(svr, "bob", "pw").getStatus());
 
@@ -806,7 +806,7 @@ public class TestSasl {
 	@Test
 	public void authenticateWhenTheRegistryCantAnswer() throws Exception {
 		Server svr = ServerTestSupport.create("SaslWholeDown", ServerTestSupport.standardCommands(), null);
-		svr.setLogLevel(us.bringardner.parley.core.LogLevel.NONE);
+		svr.getLogger().setLevel(us.bringardner.parley.core.LogLevel.NONE);
 		svr.setUserRegistry(down());
 		Session session = new Session(svr);
 		ServerSaslAuthenticator scram = new ServerSaslAuthenticator(svr, session);

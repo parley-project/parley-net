@@ -130,7 +130,7 @@ public class TestUserRegistryClose {
 	public void aClassThatIsNotARegistryIsRefused() {
 		System.setProperty(NAME + "." + IServer.AUTHENTICATION_PROVIDER_PROPERTY, String.class.getName());
 		final Server svr = new Server(0, NAME);
-		svr.setLogLevel(us.bringardner.parley.core.LogLevel.NONE);
+		svr.getLogger().setLevel(us.bringardner.parley.core.LogLevel.NONE);
 		assertThrows(IllegalStateException.class, new Executable() {
 			@Override
 			public void execute() {
@@ -215,7 +215,7 @@ public class TestUserRegistryClose {
 		try (ServerSocket taken = new ServerSocket(0)) {
 			NioServer server = new NioServer(taken.getLocalPort(), NIO_NAME);
 			server.setReuseAddress(false);
-			server.setLogLevel(LogLevel.NONE);
+			server.getLogger().setLevel(LogLevel.NONE);
 			server.setHandlerFactory(() -> (connection, frame) -> {
 			});
 			CountingRegistry made = (CountingRegistry) server.getUserRegistry();

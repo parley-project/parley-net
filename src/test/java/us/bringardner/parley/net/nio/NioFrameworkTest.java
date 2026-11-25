@@ -439,7 +439,7 @@ public class NioFrameworkTest {
 		client = new NioClient();
 		client.setConnectTimeout(5000);
 		NioReactor dead = client.getReactor();
-		dead.setLogLevel(us.bringardner.parley.core.LogLevel.NONE);
+		dead.getLogger().setLevel(us.bringardner.parley.core.LogLevel.NONE);
 		// an Error ends the reactor thread without stopping it
 		dead.execute(() -> {
 			throw new Error("test: the reactor dies");
@@ -515,7 +515,7 @@ public class NioFrameworkTest {
 
 			System.setProperty(name+"."+NioServer.PROPERTY_REACTOR_COUNT, "0");
 			NioServer invalid = new NioServer(0, name);
-			invalid.setLogLevel(us.bringardner.parley.core.LogLevel.NONE);
+			invalid.getLogger().setLevel(us.bringardner.parley.core.LogLevel.NONE);
 			assertEquals(NioServer.DEFAULT_REACTOR_COUNT, invalid.getReactorCount(), "fewer than one reactor: the default");
 		} finally {
 			for (String[] setting : settings) {

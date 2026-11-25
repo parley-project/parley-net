@@ -62,17 +62,6 @@ public interface IBaseServer extends IManagedThread {
 	 */
 	String JMX_DOMAIN = "us.bringardner.parley";
 
-	/**
-	 * The server's own settings, given when it was made (see parley-core's
-	 * {@code BaseObject.setConfiguration}), or null when it reads the system properties; the
-	 * objects it makes (processors, its user registry) read the same settings.
-	 *
-	 * @since 2.0.0
-	 */
-	default java.util.Properties getConfiguration() {
-		return null;
-	}
-
 	/** Property (prefix.authenticationProvider) naming the {@link UserRegistry} class */
 	public static final String AUTHENTICATION_PROVIDER_PROPERTY = "authenticationProvider";
 

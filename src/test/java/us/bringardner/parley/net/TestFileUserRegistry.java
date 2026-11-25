@@ -231,7 +231,7 @@ public class TestFileUserRegistry {
 
 	private void validateRegistry(String serverName, Class<?> expected) throws Exception {
 		Server svr = new Server(1000, serverName);
-		svr.setLogLevel(LogLevel.WARN);
+		svr.getLogger().setLevel(LogLevel.WARN);
 		UserRegistry registry = svr.getUserRegistry();
 		assertNotNull(registry, "the registry was not found");
 		assertEquals(expected, registry.getClass());

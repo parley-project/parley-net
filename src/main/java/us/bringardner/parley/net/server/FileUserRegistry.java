@@ -466,15 +466,7 @@ public class FileUserRegistry extends BaseObject implements PrincipalManager, Pe
 	 */
 	public FileUserRegistry(IBaseServer server) throws IOException {
 		super();
-		useConfigurationOfServer(server);
 		readUserFile(server.getPropertyPrefix());
-	}
-
-	/** Read the same settings as the server. */
-	protected final void useConfigurationOfServer(IBaseServer server) {
-		if (server instanceof BaseObject) {
-			useConfigurationOf((BaseObject) server);
-		}
 	}
 
 	/**
