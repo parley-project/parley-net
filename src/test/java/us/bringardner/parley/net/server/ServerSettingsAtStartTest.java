@@ -176,4 +176,22 @@ public class ServerSettingsAtStartTest {
 		assertNotNull(s.getStartupError());
 		assertTrue(!s.isRunning());
 	}
+
+	@Test
+	public void aNameNothingReadsInTheFileIsWarnedAbout() throws Exception {
+		Path f = file("a.properties", "parley.fake.vlaue=x");
+		System.setProperty(CONFIG, f.toString());
+		Server s = server(null);
+		PrintStream before = System.err;
+		ByteArrayOutputStream out = new ByteArrayOutputStream();
+		System.setErr(new PrintStream(out, true, "UTF-8"));
+		try {
+			s.startAndWait(10000);
+		} finally {
+			System.setErr(before);
+			s.stop(5000, false);
+		}
+		String err = out.toString("UTF-8");
+		assertTrue(err.contains("warning: parley.fake.vlaue (" + f + ") is not a setting"), err);
+	}
 }

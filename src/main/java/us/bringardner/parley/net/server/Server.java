@@ -328,6 +328,14 @@ public class Server extends AbstractCoreServer implements IServer {
 		};
 	}
 
+	/** Warns, on System.err, of a name in the settings file that no Parley module here reads (see {@link KnownSettings}) */
+	@Override
+	protected void settingsFileRead(String where, java.util.Properties found) {
+		java.util.Map<String, java.util.Set<String>> sources = new java.util.LinkedHashMap<>();
+		sources.put(us.bringardner.parley.files.FileSourceFactory.safe(where), new java.util.TreeSet<>(found.stringPropertyNames()));
+		us.bringardner.parley.net.server.KnownSettings.warn(getName(), sources);
+	}
+
 	/**
 	 * Clears any previous startup error, see {@link #startAndWait(long)}.
 	 */
