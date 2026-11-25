@@ -1,7 +1,6 @@
 package us.bringardner.parley.net.server;
 
 import java.io.IOException;
-import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -9,10 +8,7 @@ import java.util.Map;
 import java.util.Properties;
 
 import us.bringardner.parley.core.NamedExecutors;
-import us.bringardner.parley.files.FileSource;
-import us.bringardner.parley.files.FileSourceFactory;
 import us.bringardner.parley.iam.ParleyPrincipal;
-import us.bringardner.parley.plugin.PluginFolders;
 
 /**
  * The {@code main} methods of the servers: run one or more servers as a service (systemd, launchd,
@@ -20,7 +16,7 @@ import us.bringardner.parley.plugin.PluginFolders;
  *
  * <pre>
  * public static void main(String[] args) throws Exception {
- *     ServerMain.run("Pop3Server", args, CONFIG_PROP, "parley-pop3.properties", () -&gt; {
+ *     ServerMain.run("Pop3Server", args, () -&gt; {
  *         Pop3Server s = new Pop3Server(port(), POP3_NAME, secure());
  *         return List.of(ServerMain.service(s, "Pop3Server"));
  *     });
@@ -29,17 +25,12 @@ import us.bringardner.parley.plugin.PluginFolders;
  *
  * {@link #run} does what every server needs ({@link #service} adapts any {@link IBaseServer}):
  * <ol>
- * <li>Settings: the command line ({@code -Dname=value} or {@code name value}), and the settings
- * file named by the server's configFile property, else {@code CONF/parley-NAME.properties} when it
- * is there. CONF is the folder of Parley's administrator file: /etc/parley (Windows
- * %ProgramData%\Parley), or the folder of the file the PARLEY_CONF environment variable names. The
- * settings file and CONF are on the default file system ({@link FileSource#of(String)}), or the
- * configFile property is a {@code filesource:} URL; a {@code parley.files.defaultFactory} on the
- * command line chooses the default file system before the settings file is found (a settings
- * file can't choose the file system it is read from). The
- * command line wins over the JVM's own {@code -D} options (java -Dname=value ...), which win over
- * the file. The file is UTF-8 (a file that isn't valid UTF-8 is read as ISO-8859-1, as
- * Properties.load reads it). Values whose names say password or secret are never printed.</li>
+ * <li>Settings: the command line ({@code -Dname=value} or {@code name value}) is applied as system
+ * properties, which win over everything. A server reads its own settings file when it starts (the
+ * file its configFile setting names, which must be there, else its default file in CONF when that is
+ * there; CONF is /etc/parley, Windows %ProgramData%\Parley, or the folder of the file the PARLEY_CONF
+ * environment variable names) and refuses to start, saying what is wrong, if its settings are
+ * missing or unusable. Values whose names say password or secret are never printed.</li>
  * <li>The servers start, each waiting until it listens; if one can't start, those started are
  * stopped and the process exits with 1, so a service manager sees the failure.</li>
  * <li>Stopping the process (SIGTERM, a service stop) stops the servers; the process lives as long
@@ -88,6 +79,14 @@ public final class ServerMain {
 		/** wait until it has stopped */
 		void awaitStop() throws InterruptedException;
 
+		/**
+		 * true if the process runs on when this server can't start (it is reported and skipped): a
+		 * server that is only there when it is set up, such as one with implicit TLS and no key store
+		 */
+		default boolean optional() {
+			return false;
+		}
+
 		/** the connections open now (0 if it doesn't say) */
 		default int connections() {
 			return 0;
@@ -106,6 +105,20 @@ public final class ServerMain {
 	}
 
 	private ServerMain() {
+	}
+
+	/** {@code service} that is skipped, with a warning, when it can't start (see {@link Service#optional()}) */
+	public static Service optional(Service service) {
+		return new Service() {
+			public String name() { return service.name(); }
+			public void startAndWait(long t) throws IOException { service.startAndWait(t); }
+			public int port() { return service.port(); }
+			public void stop(long t) throws InterruptedException { service.stop(t); }
+			public void awaitStop() throws InterruptedException { service.awaitStop(); }
+			public boolean optional() { return true; }
+			public int connections() { return service.connections(); }
+			public List<ParleyConnection> connectionList() { return service.connectionList(); }
+		};
 	}
 
 	/** Any Parley server: thread-per-connection (POP3, IMAP, SMTP, FTP ...) or non-blocking (SSH ...) */
@@ -187,14 +200,11 @@ public final class ServerMain {
 	 * with 1 when the settings can't be read or a server can't be made or started.
 	 *
 	 * @param serverName for the messages, e.g. Pop3Server
-	 * @param configProperty the property that names the settings file, e.g. parley.mail.pop3.configFile
-	 * @param defaultFileName the settings file's name in CONF, e.g. parley-pop3.properties (null: none)
 	 */
-	public static void run(String serverName, String[] args, String configProperty, String defaultFileName,
-			ServiceFactory factory) throws InterruptedException {
+	public static void run(String serverName, String[] args, ServiceFactory factory) throws InterruptedException {
 		List<Service> services;
 		try {
-			configure(serverName, args, configProperty, defaultFileName);
+			configure(serverName, args);
 			services = factory.create();
 		} catch (Exception e) {
 			failed(serverName, e);
@@ -207,6 +217,10 @@ public final class ServerMain {
 				started.add(s);
 				System.out.println(s.name()+" started on port "+s.port());
 			} catch (IOException | RuntimeException e) {
+				if (s.optional()) {
+					System.err.println("Warning: " + s.name() + " is skipped: " + (e.getMessage() != null ? e.getMessage() : e.toString()));
+					continue;
+				}
 				stopAll(started);
 				failed(s.name(), e);
 				return;
@@ -252,49 +266,22 @@ public final class ServerMain {
 	/**
 	 * The folder of Parley's administrator file: /etc/parley (Windows %ProgramData%\Parley), or
 	 * the folder of the file the PARLEY_CONF environment variable names, on the default file system
-	 * ({@link FileSource#of(String)})
+	 * ({@link us.bringardner.parley.files.FileSource#of(String)})
 	 *
 	 * @throws IOException if the default file system can't be connected
 	 */
-	public static FileSource confDir() throws IOException {
-		return confDir(System.getenv(), System.getProperty("os.name", "").toLowerCase().startsWith("windows"));
-	}
-
-	static FileSource confDir(Map<String, String> env, boolean windows) throws IOException {
-		// (parley-core has no FileSource: its java.io.File is only a path here)
-		return FileSource.of(PluginFolders.adminFile(env, windows).getAbsoluteFile().getParent());
-	}
-
-	/** CONF, found only when it is needed (after the command line's parley.files.defaultFactory) */
-	interface ConfDir {
-		FileSource get() throws IOException;
+	public static us.bringardner.parley.files.FileSource confDir() throws IOException {
+		return us.bringardner.parley.files.FileSource.of(us.bringardner.parley.plugin.PluginFolders.confDir());
 	}
 
 	/**
-	 * Apply command line settings ({@code -Dname=value} or {@code name value}) as system properties,
-	 * with no default settings file; see {@link #configure(String, String[], String, String)}.
+	 * Apply the command line ({@code -Dname=value} or {@code name value}) as system properties,
+	 * which win over everything a server reads when it starts: its settings file (the server finds
+	 * and reads that itself, see {@code AbstractCoreServer#prepareToStart}) and its defaults.
+	 * A {@code parley.files.defaultFactory} on the command line is set before anything is read from a
+	 * file system.
 	 */
-	public static void configure(String serverName, String[] args, String configProperty) throws IOException {
-		configure(serverName, args, configProperty, null, (ConfDir) null);
-	}
-
-	/**
-	 * Set the system properties: the settings file's (except those already set, with java -D), then
-	 * the command line's ({@code -Dname=value} or {@code name value}), which win. The file is the one configProperty names (on the command
-	 * line or as a system property), else CONF/defaultFileName when it is there ({@link #confDir()};
-	 * configProperty is then set to it).
-	 *
-	 * @throws IOException if the file named can't be read
-	 */
-	public static void configure(String serverName, String[] args, String configProperty, String defaultFileName) throws IOException {
-		configure(serverName, args, configProperty, defaultFileName, (ConfDir) ServerMain::confDir);
-	}
-
-	static void configure(String serverName, String[] args, String configProperty, String defaultFileName, FileSource confDir) throws IOException {
-		configure(serverName, args, configProperty, defaultFileName, (ConfDir) () -> confDir);
-	}
-
-	static void configure(String serverName, String[] args, String configProperty, String defaultFileName, ConfDir confDir) throws IOException {
+	public static void configure(String serverName, String[] args) {
 		System.out.println("\nStarting " + serverName + " with " + args.length + " args");
 		Properties commandLine = new Properties();
 		for (int idx = 0; idx < args.length; idx++) {
@@ -314,76 +301,13 @@ public final class ServerMain {
 		for (String name : commandLine.stringPropertyNames()) {
 			System.out.println("\t" + name + "=" + printable(name, commandLine.getProperty(name)));
 		}
-		// the default file system first, so the settings file is found on it (To-Do 18.13); the
-		// default is fixed when it is first used
-		String defaultFactory = commandLine.getProperty(FileSourceFactory.PROP_DEFAULT_FACTORY);
-		if (defaultFactory != null) {
-			System.setProperty(FileSourceFactory.PROP_DEFAULT_FACTORY, defaultFactory);
-		}
-		// the names set, by where, for the check of settings nothing reads (To-Do 2.16)
-		Map<String, java.util.Set<String>> sources = new java.util.LinkedHashMap<String, java.util.Set<String>>();
-		String file = commandLine.getProperty(configProperty, System.getProperty(configProperty));
-		FileSource settings = null;
-		if (file == null && defaultFileName != null && confDir != null) {
-			FileSource dir = confDir.get();
-			FileSource f = dir == null ? null : dir.getChild(defaultFileName);
-			if (f != null && f.isFile()) {
-				settings = f;
-				file = f.getPath();
-				System.setProperty(configProperty, file);
-			}
-		}
-		if (file != null) {
-			if (settings == null) {
-				settings = FileSource.of(file);
-			}
-			// (a filesource: URL's query holds connection settings and secrets)
-			file = FileSourceFactory.safe(file.trim());
-			Properties fromFile = load(settings);
-			for (String name : fromFile.stringPropertyNames()) {
-				String jvm = System.getProperty(name);
-				if (jvm == null) {
-					System.setProperty(name, fromFile.getProperty(name));
-				} else if (!jvm.equals(fromFile.getProperty(name))) {
-					// set with java -Dname=value: that wins over the file
-					System.out.println("\t" + name + "=" + printable(name, jvm) + " (the JVM's -D, not the file's)");
-				}
-			}
-			System.out.println("Loaded properties from " + file);
-			sources.put(file, new java.util.TreeSet<String>(fromFile.stringPropertyNames()));
-		}
 		java.util.Set<String> jvm = new java.util.TreeSet<String>(System.getProperties().stringPropertyNames());
-		if (sources.containsKey(file)) {
-			jvm.removeAll(sources.get(file)); // (those the file set)
-		}
+		Map<String, java.util.Set<String>> sources = new java.util.LinkedHashMap<String, java.util.Set<String>>();
 		sources.put("a -D setting", jvm);
 		sources.put("the command line", new java.util.TreeSet<String>(commandLine.stringPropertyNames()));
 		KnownSettings.warn(serverName, sources);
-		// (the command line wins over the file and the JVM's -D)
+		// (the command line wins over the JVM's -D)
 		System.getProperties().putAll(commandLine);
-	}
-
-	/** A settings file: UTF-8, or ISO-8859-1 (what Properties.load reads) when it isn't valid UTF-8. */
-	static Properties load(FileSource f) throws IOException {
-		byte[] bytes;
-		try (InputStream in = f.getInputStream()) {
-			bytes = in.readAllBytes();
-		}
-		String text;
-		try {
-			text = java.nio.charset.StandardCharsets.UTF_8.newDecoder()
-					.onMalformedInput(java.nio.charset.CodingErrorAction.REPORT)
-					.onUnmappableCharacter(java.nio.charset.CodingErrorAction.REPORT)
-					.decode(java.nio.ByteBuffer.wrap(bytes)).toString();
-		} catch (java.nio.charset.CharacterCodingException e) {
-			text = new String(bytes, java.nio.charset.StandardCharsets.ISO_8859_1);
-		}
-		if (text.startsWith("\uFEFF")) {
-			text = text.substring(1);
-		}
-		Properties ret = new Properties();
-		ret.load(new java.io.StringReader(text));
-		return ret;
 	}
 
 	/** A value for the console: hidden when the name says it's a password or secret. */

@@ -74,7 +74,6 @@ public class Server extends AbstractCoreServer implements IServer {
 	private static int defaultAcceptTimeout = DEFAULT_ACCEPT_TIMEOUT;
 	private static int defaultConnectionTimeout = DEFAULT_CONNECTION_TIMEOUT;
 
-	private int port;
 	private boolean secure = false;
 	private volatile ServerSocketFactory serverSocketFactory;
 	private IProcessorFactory processorFactory;
@@ -190,7 +189,7 @@ public class Server extends AbstractCoreServer implements IServer {
 	}
 	public Server(int port) {
 		this();
-		setPort(port);
+		setDefaultPort(port);
 	}
 
 
@@ -334,8 +333,10 @@ public class Server extends AbstractCoreServer implements IServer {
 	 */
 	@Override
 	public synchronized void start() {
-		startupError = null;
-		super.start();
+		startupError = prepareToStart();
+		if( startupError == null ) {
+			super.start();
+		}
 	}
 
 	/**
@@ -395,14 +396,6 @@ public class Server extends AbstractCoreServer implements IServer {
 		}
 
 		return ret;
-	}
-
-	public int getPort() {
-		return port;
-	}
-
-	public void setPort(int port) {
-		this.port = port;
 	}
 
 

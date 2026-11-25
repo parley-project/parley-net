@@ -164,7 +164,7 @@ public class NioServer extends AbstractCoreServer implements IBaseServer {
 
 	public NioServer(int port) {
 		this();
-		setPort(port);
+		setDefaultPort(port);
 	}
 
 	/**
@@ -191,8 +191,10 @@ public class NioServer extends AbstractCoreServer implements IBaseServer {
 	 */
 	@Override
 	public synchronized void start() {
-		startupError = null;
-		super.start();
+		startupError = prepareToStart();
+		if( startupError == null ) {
+			super.start();
+		}
 	}
 
 	/**

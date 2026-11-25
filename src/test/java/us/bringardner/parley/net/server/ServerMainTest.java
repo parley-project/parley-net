@@ -69,37 +69,12 @@ public class ServerMainTest {
 	}
 
 	@Test
-	public void theCommandLineWinsOverTheFile() throws Exception {
-		used("test.sm.configFile", "test.sm.port", "test.sm.root", "test.sm.other");
-		file("parley-test.properties", "test.sm.port=1", "test.sm.root=/from/file");
-		ServerMain.configure("Test", new String[] {"-Dtest.sm.port=2", "test.sm.other", "x"}, "test.sm.configFile", "parley-test.properties", dir);
-		assertEquals("2", System.getProperty("test.sm.port"), "the command line wins");
-		assertEquals("/from/file", System.getProperty("test.sm.root"));
-		assertEquals("x", System.getProperty("test.sm.other"), "name value");
-		assertEquals(dir.getChild("parley-test.properties").getPath(), System.getProperty("test.sm.configFile"));
-	}
-
-	@Test
-	public void theJvmsDashDWinsOverTheFile() throws Exception {
-		used("test.sm.configFile", "test.sm.port", "test.sm.root");
+	public void theCommandLineIsAppliedAsSystemProperties() throws Exception {
+		used("test.sm.port", "test.sm.other");
 		System.setProperty("test.sm.port", "7"); // as java -Dtest.sm.port=7 would
-		file("parley-test.properties", "test.sm.port=1", "test.sm.root=/from/file");
-		ServerMain.configure("Test", new String[0], "test.sm.configFile", "parley-test.properties", dir);
-		assertEquals("7", System.getProperty("test.sm.port"), "the JVM's -D wins over the file");
-		assertEquals("/from/file", System.getProperty("test.sm.root"));
-		ServerMain.configure("Test", new String[] {"-Dtest.sm.port=8"}, "test.sm.configFile", "parley-test.properties", dir);
-		assertEquals("8", System.getProperty("test.sm.port"), "the command line wins over both");
-	}
-
-	@Test
-	public void theFileIsUtf8OrLatin1() throws Exception {
-		FileSource utf8 = TestFiles.write(dir.getChild("utf8.properties"), "greeting=Gr\u00fc\u00dfe \u2014 caf\u00e9\n");
-		assertEquals("Gr\u00fc\u00dfe \u2014 caf\u00e9", ServerMain.load(utf8).getProperty("greeting"));
-		FileSource latin1 = dir.getChild("latin1.properties");
-		try (java.io.OutputStream out = latin1.getOutputStream()) {
-			out.write("greeting=caf\u00e9\n".getBytes(StandardCharsets.ISO_8859_1));
-		}
-		assertEquals("caf\u00e9", ServerMain.load(latin1).getProperty("greeting"), "not valid UTF-8: ISO-8859-1");
+		ServerMain.configure("Test", new String[] {"-Dtest.sm.port=2", "test.sm.other", "x"});
+		assertEquals("2", System.getProperty("test.sm.port"), "the command line wins over the JVM's -D");
+		assertEquals("x", System.getProperty("test.sm.other"), "name value");
 	}
 
 	@Test
@@ -110,77 +85,21 @@ public class ServerMainTest {
 		assertEquals("2525", ServerMain.printable("parley.mail.smtp.port", "2525"));
 	}
 
-	@Test
-	public void aNamedFileInsteadOfTheDefault() throws Exception {
-		used("test.sm.configFile", "test.sm.port");
-		file("parley-test.properties", "test.sm.port=1");
-		FileSource other = file("other.properties", "test.sm.port=3");
-		ServerMain.configure("Test", new String[] {"-Dtest.sm.configFile="+other.getPath()}, "test.sm.configFile", "parley-test.properties", dir);
-		assertEquals("3", System.getProperty("test.sm.port"));
-	}
-
-	@Test
-	public void noFileNoDefault() throws Exception {
-		used("test.sm.configFile", "test.sm.port");
-		ServerMain.configure("Test", new String[0], "test.sm.configFile", "parley-test.properties", dir);
-		assertNull(System.getProperty("test.sm.port"));
-		assertNull(System.getProperty("test.sm.configFile"), "no default file: nothing named");
-	}
-
-	@Test
-	public void aMissingNamedFileIsAnError() {
-		used("test.sm.configFile");
-		assertThrows(java.io.IOException.class, () -> ServerMain.configure("Test",
-				new String[] {"-Dtest.sm.configFile="+dir.getChild("none").getPath()}, "test.sm.configFile", null, dir));
-	}
-
-	@Test
-	public void confDir() throws Exception {
-		assertEquals(FileSource.of("/etc/parley").getAbsolutePath(), ServerMain.confDir(Collections.emptyMap(), false).getAbsolutePath());
-		FileSource conf = ServerMain.confDir(Collections.singletonMap("PARLEY_CONF", dir.getChild("x.properties").getPath()), false);
-		assertEquals(dir.getAbsolutePath(), conf.getAbsolutePath());
-		assertEquals(FileSourceFactory.getDefaultFactory(), conf.getFileSourceFactory(), "on the default file system");
-	}
-
-	/** A settings file on another file system, by its filesource: URL (To-Do 18.13) */
-	@Test
-	public void aSettingsFileByUrl() throws Exception {
-		used("test.sm.configFile", "test.sm.port");
-		FileSource elsewhere = file(TestFiles.folder(TestFiles.MEMORY, tempDir), "parley-test.properties", "test.sm.port=4");
-		ServerMain.configure("Test", new String[] {"-Dtest.sm.configFile="+TestFiles.setting(elsewhere)}, "test.sm.configFile", null, dir);
-		assertEquals("4", System.getProperty("test.sm.port"));
-	}
-
-	/** The command line's parley.files.defaultFactory is a system property before the file is found (To-Do 18.13) */
-	@Test
-	public void theCommandLinesDefaultFactoryComesFirst() throws Exception {
-		String before = System.getProperty(FileSourceFactory.PROP_DEFAULT_FACTORY);
-		try {
-			used("test.sm.configFile", "test.sm.port");
-			file("parley-test.properties", "test.sm.port=5");
-			String id = FileSourceFactory.getDefaultFactory().getTypeId();
-			String[] seen = new String[1];
-			ServerMain.configure("Test", new String[] {"-D"+FileSourceFactory.PROP_DEFAULT_FACTORY+"="+id}, "test.sm.configFile",
-					"parley-test.properties", (ServerMain.ConfDir) () -> {
-						seen[0] = System.getProperty(FileSourceFactory.PROP_DEFAULT_FACTORY);
-						return dir;
-					});
-			assertEquals(id, seen[0], "set before CONF is found");
-			assertEquals("5", System.getProperty("test.sm.port"));
-		} finally {
-			if (before == null) {
-				System.clearProperty(FileSourceFactory.PROP_DEFAULT_FACTORY);
-			} else {
-				System.setProperty(FileSourceFactory.PROP_DEFAULT_FACTORY, before);
-			}
-		}
-	}
-
 	// ------------------------------------------------------------------ the process
 
 	/** A server that accepts connections (and does nothing with them) */
 	private static Server server(int port, String name) {
-		Server s = new Server(port, name);
+		Server s = new Server(port, name) {
+			@Override
+			protected String getSettingsFileName() {
+				return "parley-test.properties";
+			}
+
+			@Override
+			protected String getSettingsFileProperty() {
+				return "test.sm.configFile";
+			}
+		};
 		s.setConnectionFactory(socket -> new us.bringardner.parley.net.Connection(socket, true) {
 			@Override
 			public javax.net.ssl.SSLContext getSSLContext(String sslOrTls) {
@@ -210,7 +129,17 @@ public class ServerMainTest {
 
 	/** A non-blocking server that accepts connections (and does nothing with them) */
 	private static NioServer nioServer(int port, String name) {
-		NioServer s = new NioServer(port, name);
+		NioServer s = new NioServer(port, name) {
+			@Override
+			protected String getSettingsFileName() {
+				return "parley-test.properties";
+			}
+
+			@Override
+			protected String getSettingsFileProperty() {
+				return "test.sm.configFile";
+			}
+		};
 		s.setHandlerFactory(() -> (connection, frame) -> { });
 		return s;
 	}
@@ -220,9 +149,9 @@ public class ServerMainTest {
 	 * a NioServer, both run through {@link ServerMain#service(IBaseServer, String)}
 	 */
 	public static void main(String[] args) throws Exception {
-		ServerMain.run("TestServer", args, "test.sm.configFile", "parley-test.properties", () -> {
-			Server one = server(Integer.getInteger("test.sm.port1", 0), "one");
-			NioServer two = nioServer(Integer.getInteger("test.sm.port2", 0), "two");
+		ServerMain.run("TestServer", args, () -> {
+			Server one = server(0, "one");
+			NioServer two = nioServer(0, "two");
 			if (Boolean.getBoolean("test.sm.stopByThemselves")) {
 				// both stop a moment after starting, as a server that fails while running would
 				Thread t = new Thread(() -> {
@@ -257,7 +186,11 @@ public class ServerMainTest {
 	public void runsUntilStopped() throws Exception {
 		assumeTrue(!FileSourceFactory.isWindows(), "SIGTERM: not on Windows");
 		// (the settings file in CONF, read without being named)
-		file("parley-test.properties", "test.sm.port1=0", "test.sm.port2=0");
+		int twoPort;
+		try (ServerSocket free = new ServerSocket(0)) {
+			twoPort = free.getLocalPort();
+		}
+		file("parley-test.properties", "one.port=0", "two.port="+twoPort);
 		Process p = process();
 		try {
 			BufferedReader r = new BufferedReader(new InputStreamReader(p.getInputStream(), StandardCharsets.UTF_8));
@@ -271,7 +204,7 @@ public class ServerMainTest {
 				}
 			}
 			assertEquals(2, started, out.toString());
-			assertTrue(out.toString().contains("Loaded properties from"), out.toString());
+			assertTrue(out.toString().contains("TestServer two started on port "+twoPort), "its file was read: "+out);
 			Thread.sleep(500);
 			assertTrue(p.isAlive(), "the process lives while the servers run");
 			p.destroy();	// SIGTERM
@@ -295,7 +228,7 @@ public class ServerMainTest {
 	@Test
 	public void exitsWithOneWhenAServerCannotStart() throws Exception {
 		try (ServerSocket taken = new ServerSocket(0)) {
-			Process p = process("-Dtest.sm.port2="+taken.getLocalPort());
+			Process p = process("-Dtwo.port="+taken.getLocalPort());
 			try {
 				assertTrue(p.waitFor(60, TimeUnit.SECONDS), "the process ends");
 				assertEquals(1, p.exitValue());

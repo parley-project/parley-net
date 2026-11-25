@@ -144,25 +144,6 @@ public class KnownSettingsTest {
 		assertEquals(List.of(), k.undeclared(asked));
 	}
 
-	/** A server started on its own (its main, through ServerMain.configure) is checked too */
-	@Test
-	public void aServerOnItsOwnWarnsToo() throws Exception {
-		FileSource dir = TestFiles.local(tempDir);
-		FileSource own = TestFiles.write(dir.getChild("parley-fake.properties"),
-				"parley.fake.port=1\nparley.fake.prot=2\n");
-		try {
-			String err = stderr(() -> ServerMain.configure("FakeServer", new String[] { "-Dparley.fake.vlaue=x" }, "parley.fake.configFile",
-					"parley-fake.properties", dir));
-			assertTrue(err.contains("FakeServer: warning: parley.fake.prot (" + own.getPath() + ") is not a setting"), err);
-			assertTrue(err.contains("FakeServer: warning: parley.fake.vlaue (the command line) is not a setting"), err);
-			assertFalse(err.contains("parley.fake.port "), err);
-		} finally {
-			for (String n : new String[] { "parley.fake.port", "parley.fake.prot", "parley.fake.vlaue", "parley.fake.configFile" }) {
-				System.clearProperty(n);
-			}
-		}
-	}
-
 	private interface Action {
 		void run() throws Exception;
 	}
