@@ -18,6 +18,8 @@ import java.util.concurrent.TimeUnit;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.parallel.ResourceLock;
+import org.junit.jupiter.api.parallel.Resources;
 
 import us.bringardner.parley.core.BaseObject;
 import us.bringardner.parley.core.LogContext;
@@ -30,6 +32,8 @@ import us.bringardner.parley.net.ServerTestSupport;
  * To-Do 19.7 for the NIO server: one thread serves many connections, so the session's ID is set
  * for each call into a connection's handler and cleared after it.
  */
+/** Takes System.out (LogCapture): not while other tests that run in parallel write to it. */
+@ResourceLock(Resources.SYSTEM_OUT)
 public class NioSessionLogTest {
 
 	private NioServer server;

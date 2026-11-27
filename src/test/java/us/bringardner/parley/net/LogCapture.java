@@ -8,7 +8,7 @@ import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-import us.bringardner.parley.logging.ParleyLoggerFinder;
+import us.bringardner.parley.logging.testing.TestLogLevels;
 
 /**
  * Collects what is logged while a test runs. The tests log through ParleyLogger (parley-logging), which
@@ -21,7 +21,7 @@ public class LogCapture implements AutoCloseable {
 	private static final Pattern LINE = Pattern.compile("^\\S+ \\[.*?\\] (\\w+) \\S+ - (.*)$");
 
 	private final PrintStream previousOut = System.out;
-	private final String previousLevel = System.getProperty(ParleyLoggerFinder.PROPERTY_LOG_LEVEL);
+	private final TestLogLevels.Scope level;
 	private final StringBuilder pending = new StringBuilder();
 	private final List<String> messages = new ArrayList<>();
 	private final PrintStream capture;
@@ -38,7 +38,7 @@ public class LogCapture implements AutoCloseable {
 				add(String.valueOf((char) b));
 			}
 		}, true, StandardCharsets.UTF_8);
-		System.setProperty(ParleyLoggerFinder.PROPERTY_LOG_LEVEL, "INFO");
+		level = TestLogLevels.set(null, java.lang.System.Logger.Level.INFO);
 		System.setOut(capture);
 	}
 
@@ -59,11 +59,7 @@ public class LogCapture implements AutoCloseable {
 	@Override
 	public void close() {
 		System.setOut(previousOut);
-		if( previousLevel == null ) {
-			System.clearProperty(ParleyLoggerFinder.PROPERTY_LOG_LEVEL);
-		} else {
-			System.setProperty(ParleyLoggerFinder.PROPERTY_LOG_LEVEL, previousLevel);
-		}
+		level.close();
 		capture.close();
 	}
 

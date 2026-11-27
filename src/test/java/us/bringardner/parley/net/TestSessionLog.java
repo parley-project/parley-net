@@ -12,6 +12,8 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.parallel.ResourceLock;
+import org.junit.jupiter.api.parallel.Resources;
 
 import us.bringardner.parley.core.BaseObject;
 import us.bringardner.parley.core.BaseThread;
@@ -24,6 +26,8 @@ import us.bringardner.parley.net.server.ICommand;
  * To-Do 19.7: every session of a Server has an ID that is in front of everything logged for it,
  * whichever object logs it, and the server logs when it connects, logs in and disconnects.
  */
+/** Takes System.out (LogCapture): not while other tests that run in parallel write to it. */
+@ResourceLock(Resources.SYSTEM_OUT)
 public class TestSessionLog {
 
 	private static final String WORK = "Work";

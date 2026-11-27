@@ -1,6 +1,5 @@
 package us.bringardner.parley.net;
 
-import us.bringardner.parley.logging.LogLevel;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -666,7 +665,7 @@ public class TestSasl {
 	@Test
 	public void aRegistryThatCantAnswerIsNotAWrongPassword() throws Exception {
 		Server svr = ServerTestSupport.create("SaslDown", ServerTestSupport.standardCommands(), null);
-		TestLogging.setLevel(svr, LogLevel.NONE);
+		TestLogging.setLevel(svr, System.Logger.Level.OFF);
 		svr.setUserRegistry(down());
 		assertEquals(AuthenticationResult.Status.UNAVAILABLE, ServerTestSupport.login(svr, "bob", "pw").getStatus());
 
@@ -806,7 +805,7 @@ public class TestSasl {
 	@Test
 	public void authenticateWhenTheRegistryCantAnswer() throws Exception {
 		Server svr = ServerTestSupport.create("SaslWholeDown", ServerTestSupport.standardCommands(), null);
-		TestLogging.setLevel(svr, LogLevel.NONE);
+		TestLogging.setLevel(svr, System.Logger.Level.OFF);
 		svr.setUserRegistry(down());
 		Session session = new Session(svr);
 		ServerSaslAuthenticator scram = new ServerSaslAuthenticator(svr, session);
