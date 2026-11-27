@@ -10,6 +10,7 @@ import java.util.Map;
 
 import org.junit.jupiter.api.Test;
 
+import us.bringardner.parley.logging.testing.ErrorsExpected;
 import us.bringardner.parley.net.ServerTestSupport.TestServer;
 import us.bringardner.parley.net.client.CommandClient;
 import us.bringardner.parley.net.server.AbstractCommandProcessor;
@@ -74,6 +75,7 @@ public class TestCloseReplies {
 		}
 	}
 
+	@ErrorsExpected
 	@Test
 	public void aFailedCommandGetsTheProtocolsReply() throws Exception {
 		TestServer svr = started("FailedServer", true);
@@ -88,6 +90,7 @@ public class TestCloseReplies {
 		}
 	}
 
+	@ErrorsExpected
 	@Test
 	public void theDefaultsAreUnchanged() throws Exception {
 		TestServer svr = started("DefaultServer", false);
@@ -106,6 +109,7 @@ public class TestCloseReplies {
 		}
 	}
 
+	@ErrorsExpected
 	@Test
 	public void anIdleSessionIsToldWhy() throws Exception {
 		TestServer svr = started("IdleGoodbyeServer", true);
@@ -122,6 +126,7 @@ public class TestCloseReplies {
 		}
 	}
 
+	@ErrorsExpected
 	@Test
 	public void noLoginInTimeIsToldWhy() throws Exception {
 		TestServer svr = server("LoginGoodbyeServer", true);
@@ -136,6 +141,7 @@ public class TestCloseReplies {
 		}
 	}
 
+	@ErrorsExpected
 	@Test
 	public void stoppingTheServerSaysGoodbyeToEverySession() throws Exception {
 		TestServer svr = started("StopGoodbyeServer", true);

@@ -29,6 +29,7 @@ import us.bringardner.parley.net.nio.NioServer;
 import us.bringardner.parley.net.server.IBaseServer;
 import us.bringardner.parley.net.server.IServer;
 import us.bringardner.parley.net.server.Server;
+import us.bringardner.parley.logging.testing.ErrorsExpected;
 
 /**
  * UserRegistry.close(): a server closes the registry it made from its provider setting when it
@@ -125,6 +126,7 @@ public class TestUserRegistryClose {
 		assertSame(nio, ((ServerRegistry) nio.getUserRegistry()).server);
 	}
 
+	@ErrorsExpected
 	@Test
 	public void aClassThatIsNotARegistryIsRefused() {
 		System.setProperty(NAME + "." + IServer.AUTHENTICATION_PROVIDER_PROPERTY, String.class.getName());

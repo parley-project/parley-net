@@ -19,6 +19,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import us.bringardner.parley.logging.testing.ErrorsExpected;
 import us.bringardner.parley.core.BaseObject;
 
 /**
@@ -163,6 +164,7 @@ public class ServerSettingsAtStartTest {
 		}
 	}
 
+	@ErrorsExpected
 	@Test
 	public void aFileThatIsNamedHasToBeThere() throws Exception {
 		System.setProperty(CONFIG, tempDir.resolve("missing.properties").toString());
@@ -209,6 +211,7 @@ public class ServerSettingsAtStartTest {
 		}
 	}
 
+	@ErrorsExpected
 	@Test
 	public void everyProblemIsReportedAndTheServerDoesNotStart() throws Exception {
 		System.setProperty(CONFIG, file("a.properties", "sas.port=70000").toString());

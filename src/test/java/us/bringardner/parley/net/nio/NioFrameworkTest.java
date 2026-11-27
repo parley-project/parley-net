@@ -36,6 +36,7 @@ import us.bringardner.parley.iam.ParleyPrincipal;
 import us.bringardner.parley.iam.credential.PasswordCredential;
 import us.bringardner.parley.iam.permission.BasicParleyPermission;
 import us.bringardner.parley.net.server.PropertiesUserRegistry;
+import us.bringardner.parley.logging.testing.ErrorsExpected;
 
 /**
  * <PRE>
@@ -292,6 +293,7 @@ public class NioFrameworkTest {
 		assertThrows(IOException.class, () -> client.connectAndWait("localhost", port, new Collector()));
 	}
 
+	@ErrorsExpected
 	@Test
 	public void startFailsOnPortInUse() throws Exception {
 		try (ServerSocket s = new ServerSocket(0)) {

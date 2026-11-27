@@ -21,6 +21,7 @@ import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
+import us.bringardner.parley.logging.testing.ErrorsExpected;
 import us.bringardner.parley.net.ServerTestSupport.TestServer;
 import us.bringardner.parley.net.client.CommandClient;
 import us.bringardner.parley.net.client.ICommandResponse;
@@ -48,6 +49,7 @@ import us.bringardner.parley.net.server.Server;
  *   limitations under the License.
  *  </PRE>
  */
+@ErrorsExpected
 public class TestImplicitTls {
 
 	private static final String IS_SECURE = "IsSecure";
@@ -102,6 +104,7 @@ public class TestImplicitTls {
 		}
 	}
 
+	@ErrorsExpected
 	@Test
 	public void testStartTlsRefusedOnSecureConnection() throws Exception {
 		try (CommandClient client = tlsClient("localhost")) {
@@ -136,6 +139,7 @@ public class TestImplicitTls {
 		}
 	}
 
+	@ErrorsExpected
 	@Test
 	public void testWrongPasswordFailsStart() {
 		TestServer bad = secureServer("BadPasswordServer", ServerTestSupport.KEYSTORE, "wrong password");
@@ -160,6 +164,7 @@ public class TestImplicitTls {
 		}
 	}
 
+	@ErrorsExpected
 	@Test
 	public void testMissingFactoriesFailStart() {
 		Server bad = new Server(0, "NoFactoriesServer");

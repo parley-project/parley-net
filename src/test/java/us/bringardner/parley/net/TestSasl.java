@@ -19,6 +19,7 @@ import java.util.List;
 
 import org.junit.jupiter.api.Test;
 
+import us.bringardner.parley.logging.testing.ErrorsExpected;
 import us.bringardner.parley.iam.AuthenticationResult;
 import us.bringardner.parley.iam.AuthorizationResult;
 import us.bringardner.parley.iam.Credential;
@@ -605,6 +606,7 @@ public class TestSasl {
 		assertNull(session.getPrincipal());
 	}
 
+	@ErrorsExpected
 	@Test
 	public void scramIsOfferedOnlyWhenEveryUserCanUseIt() throws Exception {
 		String hashed = FileUserRegistry.hashPassword("pw".toCharArray());

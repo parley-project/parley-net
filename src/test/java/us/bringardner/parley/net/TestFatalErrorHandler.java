@@ -7,11 +7,13 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import us.bringardner.parley.logging.testing.ErrorsExpected;
 
 /**
  * FatalErrorHandler: every thread death is counted and logged; only a
  * VirtualMachineError stops the process, and only when halting is on.
  */
+@ErrorsExpected
 public class TestFatalErrorHandler {
 
 	private final AtomicInteger halted = new AtomicInteger(-1);

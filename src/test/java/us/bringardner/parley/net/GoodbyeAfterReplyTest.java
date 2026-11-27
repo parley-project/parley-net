@@ -26,8 +26,10 @@ import us.bringardner.parley.net.server.ICommand;
 import us.bringardner.parley.net.server.ICommandFactory;
 import us.bringardner.parley.net.server.ICommandProcessor;
 import us.bringardner.parley.net.server.IRequestContext;
+import us.bringardner.parley.logging.testing.ErrorsExpected;
 
 /** A server that stops while a session is in the middle of a reply says goodbye after the reply, not inside it. */
+@ErrorsExpected
 public class GoodbyeAfterReplyTest {
 
 	@Test

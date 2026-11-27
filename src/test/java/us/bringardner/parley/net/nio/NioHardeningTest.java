@@ -22,6 +22,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import us.bringardner.parley.logging.testing.ErrorsExpected;
 
 /**
  * Protection against clients that hold connections without doing anything useful:
@@ -386,6 +387,7 @@ public class NioHardeningTest {
 		server.startAndWait(5000);
 	}
 
+	@ErrorsExpected
 	@Test
 	public void anAcceptErrorPausesAcceptingInsteadOfStoppingTheServer() throws Exception {
 		CountDownLatch failed = new CountDownLatch(1);
@@ -401,6 +403,7 @@ public class NioHardeningTest {
 		assertTrue(took >= NioServer.ACCEPT_ERROR_PAUSE-100, "served after the pause, not at once: "+took+" ms");
 	}
 
+	@ErrorsExpected
 	@Test
 	public void stopDoesNotWaitForTheAcceptPause() throws Exception {
 		CountDownLatch failed = new CountDownLatch(1);

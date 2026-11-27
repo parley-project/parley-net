@@ -10,6 +10,7 @@ import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
+import us.bringardner.parley.logging.testing.ErrorsExpected;
 import us.bringardner.parley.net.ServerTestSupport.TestServer;
 import us.bringardner.parley.net.client.CommandClient;
 import us.bringardner.parley.net.client.ICommandResponse;
@@ -68,6 +69,7 @@ public class TestSessions {
 		}
 	}
 
+	@ErrorsExpected
 	@Test
 	public void testFailingCommandKeepsSessionAndHidesDetails() throws Exception {
 		try (CommandClient client = ServerTestSupport.connect(svr)) {

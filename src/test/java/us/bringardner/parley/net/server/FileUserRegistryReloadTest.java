@@ -13,6 +13,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import us.bringardner.parley.logging.testing.ErrorsExpected;
 import us.bringardner.parley.files.FileSource;
 import us.bringardner.parley.iam.AuthenticationResult;
 import us.bringardner.parley.iam.Requester;
@@ -71,6 +72,7 @@ public class FileUserRegistryReloadTest {
 		}
 	}
 
+	@ErrorsExpected
 	@Test
 	public void anUnreadableFileKeepsTheUsers() throws Exception {
 		FileSource f = dir.getChild("users.txt");

@@ -16,6 +16,7 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import org.junit.jupiter.api.Test;
 
+import us.bringardner.parley.logging.testing.ErrorsExpected;
 import us.bringardner.parley.core.BaseThread;
 import us.bringardner.parley.net.ServerTestSupport.TestServer;
 import us.bringardner.parley.net.client.CommandClient;
@@ -203,6 +204,7 @@ public class TestServerTasks {
 		}
 	}
 
+	@ErrorsExpected
 	@Test
 	public void scheduledWorkRunsAndSurvivesExceptions() throws Exception {
 		TestServer svr = ServerTestSupport.start(server("TaskSchedule"));

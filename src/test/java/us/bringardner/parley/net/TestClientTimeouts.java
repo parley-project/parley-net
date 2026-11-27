@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import org.junit.jupiter.api.Test;
 
+import us.bringardner.parley.logging.testing.ErrorsExpected;
 import us.bringardner.parley.net.client.Client;
 import us.bringardner.parley.net.client.CommandClient;
 
@@ -57,6 +58,7 @@ public class TestClientTimeouts {
 		}
 	}
 
+	@ErrorsExpected
 	@Test
 	public void testInvalidPropertyUsesDefault() throws Exception {
 		System.setProperty(READ, "five minutes");

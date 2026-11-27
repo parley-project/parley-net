@@ -16,6 +16,7 @@ import us.bringardner.parley.net.client.CommandClient;
 import us.bringardner.parley.net.client.ICommandResponse;
 import us.bringardner.parley.net.nio.NioServer;
 import us.bringardner.parley.net.server.Server;
+import us.bringardner.parley.logging.testing.ErrorsExpected;
 
 /**
  * Connection management: max clients, idle connection cleanup, start / stop, client connect failures.
@@ -241,6 +242,7 @@ public class TestServerLimits {
 		}
 	}
 
+	@ErrorsExpected
 	@Test
 	public void testConnectFailureReported() throws Exception {
 		int port;

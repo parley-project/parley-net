@@ -16,6 +16,7 @@ import us.bringardner.parley.net.server.AbstractCommandProcessor;
 import us.bringardner.parley.net.server.ICommand;
 import us.bringardner.parley.net.server.ICommandFactory;
 import us.bringardner.parley.net.server.IRequestContext;
+import us.bringardner.parley.logging.testing.ErrorsExpected;
 
 /**
  * The session loop's hooks (AbstractCommandProcessor.run): a protocol's greeting, its own reading
@@ -23,6 +24,7 @@ import us.bringardner.parley.net.server.IRequestContext;
  * sessionEnded once however the session ends. Debug logging is on, as it once moved the request's
  * token position so the wrong command ran.
  */
+@ErrorsExpected(stdout = true)
 public class TestSessionLoop {
 
 	/** Released at the end of a test, so a "Stuck" command returns. */

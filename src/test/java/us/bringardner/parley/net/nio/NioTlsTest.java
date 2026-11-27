@@ -30,6 +30,7 @@ import javax.net.ssl.TrustManagerFactory;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import us.bringardner.parley.logging.testing.ErrorsExpected;
 
 /**
  * TLS from the first byte and STARTTLS, with the framework's test key store
@@ -290,6 +291,7 @@ public class NioTlsTest {
 		assertTrue(con.isSecure());
 	}
 
+	@ErrorsExpected
 	@Test
 	public void badKeyStoreIsAStartupError() {
 		server = secureServer("tls-bad", true, Echo::new);

@@ -14,6 +14,7 @@ import java.util.Deque;
 
 import org.junit.jupiter.api.Test;
 
+import us.bringardner.parley.logging.testing.ErrorsExpected;
 import us.bringardner.parley.net.client.ICommandClient;
 import us.bringardner.parley.net.client.MultiLineCommandResponse;
 import us.bringardner.parley.net.client.SingleCommandResponse;
@@ -99,6 +100,7 @@ public class TestResponses {
 		assertNull(resp.getResponseText());
 	}
 
+	@ErrorsExpected
 	@Test
 	public void testMalformedCodeIsError() throws Exception {
 		SingleCommandResponse resp = single("hello world");
@@ -107,6 +109,7 @@ public class TestResponses {
 		assertEquals("hello world", resp.getResponseText());
 	}
 
+	@ErrorsExpected
 	@Test
 	public void testEndOfStream() throws Exception {
 		SingleCommandResponse resp = single();
@@ -138,6 +141,7 @@ public class TestResponses {
 		assertArrayEquals(new String[] {"250-first", "250-second", "250 last"}, resp.getFullResponse());
 	}
 
+	@ErrorsExpected
 	@Test
 	public void testMultiLineBareFinalCode() throws Exception {
 		MultiLineCommandResponse resp = multi("211-status", "211");
@@ -145,6 +149,7 @@ public class TestResponses {
 		assertEquals(2, resp.getFullResponse().length);
 	}
 
+	@ErrorsExpected
 	@Test
 	public void testMultiLineWithSingleLineReply() throws Exception {
 		MultiLineCommandResponse resp = multi("220 ready");
@@ -153,12 +158,14 @@ public class TestResponses {
 		assertEquals(1, resp.getFullResponse().length);
 	}
 
+	@ErrorsExpected
 	@Test
 	public void testMultiLineEndOfStream() throws Exception {
 		assertEquals(500, multi("250-first", "250-second").getResponseCode());
 		assertEquals(500, multi().getResponseCode());
 	}
 
+	@ErrorsExpected
 	@Test
 	public void testMultiLineTooLong() throws Exception {
 		MultiLineCommandResponse resp = new MultiLineCommandResponse();
@@ -168,6 +175,7 @@ public class TestResponses {
 		assertEquals(500, resp.getResponseCode());
 	}
 
+	@ErrorsExpected
 	@Test
 	public void testMultiLineMalformedFirstLine() throws Exception {
 		assertEquals(500, multi("abc-def").getResponseCode());
