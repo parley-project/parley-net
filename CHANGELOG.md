@@ -2,6 +2,11 @@
 
 ## parley-net 2.0.0 (unreleased)
 
+### Changed (2026-11-27: a closed socket is not an error)
+
+- **`Connection` logs "Not setting SoTimeout" at DEBUG, not an ERROR with a stack trace, when the socket is already closed**
+  (the client left, or the server is stopping). Any other failure to set the timeout is still an error.
+
 ### Fixed (2026-11-23: a failed TLS handshake that the JDK reports as a plain SSLException)
 
 - **`Connection.negotiateSecureSocket` throws every failure of the handshake as an `SSLHandshakeException`.**

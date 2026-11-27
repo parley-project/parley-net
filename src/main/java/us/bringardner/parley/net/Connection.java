@@ -276,7 +276,7 @@ public abstract class Connection extends BaseObject implements IConnection {
 			try {
 				socket.setSoTimeout(timeout);
 			} catch (SocketException e) {
-				logError("Error setting SoTimeout",e);
+				soTimeoutFailed(e);
 			}
 		}
 	}
@@ -369,6 +369,18 @@ public abstract class Connection extends BaseObject implements IConnection {
 			logDebug("Setting timeout = "+to);
 			socket.setSoTimeout(to);
 		} catch (SocketException e) {
+			soTimeoutFailed(e);
+		}
+	}
+
+	/**
+	 * A socket that is already closed (the client left, or the server is stopping) can't be given a timeout,
+	 * and that is not an error worth reporting; any other failure is.
+	 */
+	private void soTimeoutFailed(SocketException e) {
+		if( socket == null || socket.isClosed() ) {
+			logDebug("Not setting SoTimeout, the connection is closed: "+e);
+		} else {
 			logError("Error setting SoTimeout", e);
 		}
 	}
