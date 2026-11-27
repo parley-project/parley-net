@@ -1,45 +1,74 @@
 package us.bringardner.parley.net;
 
+import java.io.ByteArrayOutputStream;
+import java.io.PrintStream;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.CopyOnWriteArrayList;
-import java.util.logging.Handler;
-import java.util.logging.LogRecord;
-import java.util.logging.Logger;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+
+import us.bringardner.parley.logging.ParleyLoggerFinder;
 
 /**
- * Collects what is logged while a test runs. Without a System.LoggerFinder (the tests have none)
- * Parley's messages go to java.util.logging, so this is a Handler on its root logger. Close it
- * (try-with-resources) to take the handler off again.
+ * Collects what is logged while a test runs. The tests log through ParleyLogger (parley-logging), which
+ * writes its lines to System.out, so this takes System.out for a while and reads the lines
+ * ({@code time [thread] LEVEL name - message}) back as "LEVEL message". It also lets INFO through
+ * (the surefire default is ERROR). Close it (try-with-resources) to put System.out and the level back.
  */
-public class LogCapture extends Handler implements AutoCloseable {
+public class LogCapture implements AutoCloseable {
 
-	private final Logger root = Logger.getLogger("");
-	private final List<String> messages = new CopyOnWriteArrayList<>();
+	private static final Pattern LINE = Pattern.compile("^\\S+ \\[.*?\\] (\\w+) \\S+ - (.*)$");
+
+	private final PrintStream previousOut = System.out;
+	private final String previousLevel = System.getProperty(ParleyLoggerFinder.PROPERTY_LOG_LEVEL);
+	private final StringBuilder pending = new StringBuilder();
+	private final List<String> messages = new ArrayList<>();
+	private final PrintStream capture;
 
 	public LogCapture() {
-		root.addHandler(this);
+		capture = new PrintStream(new ByteArrayOutputStream() {
+			@Override
+			public synchronized void write(byte[] b, int off, int len) {
+				add(new String(b, off, len, StandardCharsets.UTF_8));
+			}
+
+			@Override
+			public synchronized void write(int b) {
+				add(String.valueOf((char) b));
+			}
+		}, true, StandardCharsets.UTF_8);
+		System.setProperty(ParleyLoggerFinder.PROPERTY_LOG_LEVEL, "INFO");
+		System.setOut(capture);
 	}
 
-	@Override
-	public void publish(LogRecord record) {
-		if( record != null && record.getMessage() != null ) {
-			messages.add(record.getLevel()+" "+record.getMessage());
+	private synchronized void add(String text) {
+		pending.append(text);
+		int end;
+		while( (end = pending.indexOf("\n")) >= 0 ) {
+			String line = pending.substring(0, end).replace("\r", "");
+			pending.delete(0, end+1);
+			Matcher m = LINE.matcher(line);
+			if( m.matches() ) {
+				messages.add(m.group(1)+" "+m.group(2));
+			}
 		}
 	}
 
-	@Override
-	public void flush() {
-	}
-
-	/** Takes the handler off the root logger. */
+	/** Puts System.out and the log level back. */
 	@Override
 	public void close() {
-		root.removeHandler(this);
+		System.setOut(previousOut);
+		if( previousLevel == null ) {
+			System.clearProperty(ParleyLoggerFinder.PROPERTY_LOG_LEVEL);
+		} else {
+			System.setProperty(ParleyLoggerFinder.PROPERTY_LOG_LEVEL, previousLevel);
+		}
+		capture.close();
 	}
 
 	/** @return every message so far that contains the text, as "LEVEL message", in the order logged */
-	public List<String> containing(String text) {
+	public synchronized List<String> containing(String text) {
 		List<String> ret = new ArrayList<>();
 		for(String m : messages) {
 			if( m.contains(text) ) {

@@ -1,5 +1,7 @@
 package us.bringardner.parley.net.nio;
 
+import us.bringardner.parley.logging.LogLevel;
+import us.bringardner.parley.net.TestLogging;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -439,7 +441,7 @@ public class NioFrameworkTest {
 		client = new NioClient();
 		client.setConnectTimeout(5000);
 		NioReactor dead = client.getReactor();
-		dead.getLogger().setLevel(us.bringardner.parley.core.LogLevel.NONE);
+		TestLogging.setLevel(dead, LogLevel.NONE);
 		// an Error ends the reactor thread without stopping it
 		dead.execute(() -> {
 			throw new Error("test: the reactor dies");
@@ -515,7 +517,7 @@ public class NioFrameworkTest {
 
 			System.setProperty(name+"."+NioServer.PROPERTY_REACTOR_COUNT, "0");
 			NioServer invalid = new NioServer(0, name);
-			invalid.getLogger().setLevel(us.bringardner.parley.core.LogLevel.NONE);
+			TestLogging.setLevel(invalid, LogLevel.NONE);
 			assertEquals(NioServer.DEFAULT_REACTOR_COUNT, invalid.getReactorCount(), "fewer than one reactor: the default");
 		} finally {
 			for (String[] setting : settings) {

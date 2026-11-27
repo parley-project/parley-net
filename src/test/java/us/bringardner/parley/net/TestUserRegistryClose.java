@@ -1,6 +1,6 @@
 package us.bringardner.parley.net;
 
-import us.bringardner.parley.core.LogLevel;
+import us.bringardner.parley.logging.LogLevel;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNotSame;
@@ -130,7 +130,7 @@ public class TestUserRegistryClose {
 	public void aClassThatIsNotARegistryIsRefused() {
 		System.setProperty(NAME + "." + IServer.AUTHENTICATION_PROVIDER_PROPERTY, String.class.getName());
 		final Server svr = new Server(0, NAME);
-		svr.getLogger().setLevel(us.bringardner.parley.core.LogLevel.NONE);
+		TestLogging.setLevel(svr, LogLevel.NONE);
 		assertThrows(IllegalStateException.class, new Executable() {
 			@Override
 			public void execute() {
@@ -215,7 +215,7 @@ public class TestUserRegistryClose {
 		try (ServerSocket taken = new ServerSocket(0)) {
 			NioServer server = new NioServer(taken.getLocalPort(), NIO_NAME);
 			server.setReuseAddress(false);
-			server.getLogger().setLevel(LogLevel.NONE);
+			TestLogging.setLevel(server, LogLevel.NONE);
 			server.setHandlerFactory(() -> (connection, frame) -> {
 			});
 			CountingRegistry made = (CountingRegistry) server.getUserRegistry();
